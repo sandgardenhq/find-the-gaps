@@ -65,6 +65,32 @@ func TestLoadIndex_existingIndex_loadsEntries(t *testing.T) {
 	}
 }
 
+func TestLoadIndex_corruptedJSON_returnsError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte("not json at all!!!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadIndex(dir)
+	if err == nil {
+		t.Error("expected error loading corrupted index.json")
+	}
+}
+
+func TestLoadIndex_mkdirFails_returnsError(t *testing.T) {
+	// Create a regular file and use it as the "directory" — MkdirAll will fail.
+	f, err := os.CreateTemp("", "not-a-dir-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	defer os.Remove(f.Name())
+
+	_, err = LoadIndex(filepath.Join(f.Name(), "subdir"))
+	if err == nil {
+		t.Error("expected error when MkdirAll cannot create directory")
+	}
+}
+
 func TestIndex_Record_persistsAndCanBeReloaded(t *testing.T) {
 	dir := t.TempDir()
 	idx, _ := LoadIndex(dir)
