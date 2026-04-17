@@ -50,3 +50,17 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Build: Successful (`go build ./...`)
 - Committed: `a201638` — `test(spider): verify Crawl skips already-cached URLs`
 - Completed: 2026-04-17
+
+## Task 9: cli/analyze.go — wire --docs-url, --cache-dir, --workers into Crawl — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace the `analyze` stub with a real implementation that registers `--docs-url`, `--cache-dir`, and `--workers` flags and calls `spider.Crawl` with `spider.MdfetchFetcher`.
+- TDD cycle:
+  - **RED**: Created `internal/cli/analyze_test.go` with 2 plan-specified tests (`TestAnalyze_missingFlags_returnsError`, `TestAnalyze_helpFlag_exits0`) — both passed immediately on the stub (stub already errors when called; `--help` always exits 0). Added `TestAnalyze_flagsExist` to create a genuine RED: asserts `--docs-url` is a known flag. Confirmed FAIL: `unknown flag: --docs-url`.
+  - **GREEN**: Replaced `internal/cli/analyze.go` with full implementation: 3 flags registered, `RunE` checks `docsURL != ""`, calls `spider.Crawl(docsURL, opts, spider.MdfetchFetcher(opts))`, prints `fetched N pages`.
+  - **REFACTOR**: Updated `root_test.go` (renamed 2 stale tests from "not yet implemented" to "--docs-url is required") and updated `analyze_stub.txtar` testscript to match new behavior. Added `TestAnalyze_crawlFails_returnsError` to cover the `crawl failed` error branch by pointing `--cache-dir` at a regular file (triggers `MkdirAll` error in `Crawl`).
+- Tests: all passing, 0 failing (4 packages)
+- Coverage: internal/cli 94.3%, internal/spider 93.4%, internal/doctor 100.0%
+- Build: Successful (`go build ./...`)
+- Committed: `ca8eb07` — `feat(cli): wire --docs-url, --cache-dir, --workers into analyze`
+- Completed: 2026-04-17
