@@ -41,3 +41,4 @@ Thumbs.db
 
 # Conductor workspace (per-machine scratch dir, not for the repo)
 .context/
+.worktrees/
