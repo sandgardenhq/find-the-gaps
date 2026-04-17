@@ -107,3 +107,30 @@ func TestMdfetchFetcher_withTimeoutAndRetries_passesFlags(t *testing.T) {
 		t.Error("expected error when mdfetch is not on PATH")
 	}
 }
+
+func TestCrawl_followsLinks(t *testing.T) {
+	dir := t.TempDir()
+	opts := Options{CacheDir: dir, Workers: 2}
+
+	// Page A links to page B; page B has no links.
+	fetched := make(map[string]bool)
+	fetch := func(rawURL, outputPath string) error {
+		fetched[rawURL] = true
+		content := "# Page\nNo links."
+		if rawURL == "https://docs.example.com/a" {
+			content = "# Page A\n[B](https://docs.example.com/b)"
+		}
+		return os.WriteFile(outputPath, []byte(content), 0o644)
+	}
+
+	result, err := Crawl("https://docs.example.com/a", opts, fetch)
+	if err != nil {
+		t.Fatalf("Crawl failed: %v", err)
+	}
+	if !fetched["https://docs.example.com/b"] {
+		t.Error("expected /b to be fetched via link from /a")
+	}
+	if len(result) != 2 {
+		t.Errorf("expected 2 results, got %d: %v", len(result), result)
+	}
+}
