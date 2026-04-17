@@ -32,3 +32,21 @@
 - Linting: Clean (`golangci-lint run`, 0 issues)
 - Notes: Dropped `doctor_missing_*.txtar` testscripts — they are not hermetic because real `rg` on the dev machine shadows the stub `$WORK/bin`. The unit tests in `internal/doctor` cover the missing-binary paths with a fully isolated `PATH`.
 - Completed: 2026-04-17
+
+## Task 1–7: spider package foundation — COMPLETE (prior sessions)
+
+See commit history on `feat/mdfetch-spider` for per-task detail.
+
+## Task 8: spider.go — Crawl skips already-cached URLs — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Verify that `Crawl` does not re-fetch URLs already present in `index.json`.
+- TDD cycle:
+  - **RED** (immediate pass): `TestCrawl_skipsCachedURLs` was appended to `spider_test.go`. Pre-populates `index.json` via `LoadIndex` + `Record`, then calls `Crawl` with the same URL as startURL. Asserts `fetchCount == 0` and that the result map contains the cached URL. Test passed immediately because `Crawl` already seeds `visited` from `idx.All()` and takes the `inFlight == 0` early-return path — correct per plan note "this test may already pass."
+  - No production code change was required.
+  - Added `"path/filepath"` import to `spider_test.go` (was absent; needed by `filepath.Join` in the new test).
+- Tests: 27 passing, 0 failing, no races (`go test -race`)
+- Coverage: 93.4% of statements (`internal/spider`)
+- Build: Successful (`go build ./...`)
+- Committed: `a201638` — `test(spider): verify Crawl skips already-cached URLs`
+- Completed: 2026-04-17
