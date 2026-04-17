@@ -1,0 +1,120 @@
+package cli
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestNewRootCmd_Structure(t *testing.T) {
+	root := NewRootCmd()
+
+	if root.Use != "find-the-gaps" {
+		t.Errorf("Use = %q, want %q", root.Use, "find-the-gaps")
+	}
+	if root.Short == "" {
+		t.Error("Short description is empty")
+	}
+	if !strings.Contains(root.Long, "documentation") {
+		t.Errorf("Long description should mention documentation, got %q", root.Long)
+	}
+	if root.Version == "" {
+		t.Error("Version is empty")
+	}
+
+	want := map[string]bool{"doctor": false, "analyze": false}
+	for _, c := range root.Commands() {
+		if _, ok := want[c.Name()]; ok {
+			want[c.Name()] = true
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("missing subcommand %q", name)
+		}
+	}
+}
+
+func TestAnalyzeStub_ReturnsNotYetImplemented(t *testing.T) {
+	root := NewRootCmd()
+	root.SetArgs([]string{"analyze"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not yet implemented") {
+		t.Errorf("error = %q, want it to contain 'not yet implemented'", err.Error())
+	}
+}
+
+func TestRun_HelpReturnsZero(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"--help"})
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRun_AnalyzeReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"analyze"})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "not yet implemented") {
+		t.Errorf("stderr = %q, want it to contain 'not yet implemented'", stderr.String())
+	}
+}
+
+func TestErrorToExitCode_Nil_ReturnsZero(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := errorToExitCode(nil, &stderr); code != 0 {
+		t.Errorf("code = %d, want 0", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr should be empty, got %q", stderr.String())
+	}
+}
+
+func TestErrorToExitCode_ExitCodeError_PropagatesCode(t *testing.T) {
+	var stderr bytes.Buffer
+	err := &ExitCodeError{Code: 42}
+	if code := errorToExitCode(err, &stderr); code != 42 {
+		t.Errorf("code = %d, want 42", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("ExitCodeError should not write to stderr, got %q", stderr.String())
+	}
+}
+
+func TestErrorToExitCode_PlainError_PrintsAndReturnsOne(t *testing.T) {
+	var stderr bytes.Buffer
+	code := errorToExitCode(errors.New("boom"), &stderr)
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "Error: boom") {
+		t.Errorf("stderr = %q, want it to contain 'Error: boom'", stderr.String())
+	}
+}
+
+func TestExitCodeError_Error(t *testing.T) {
+	e := &ExitCodeError{Code: 7}
+	if !strings.Contains(e.Error(), "7") {
+		t.Errorf("Error() = %q, want it to contain '7'", e.Error())
+	}
+}
+
+func TestExecute_ReturnsInt(t *testing.T) {
+	saved := append([]string{}, os.Args...)
+	defer func() { os.Args = saved }()
+	os.Args = []string{"find-the-gaps", "--help"}
+	if code := Execute(); code != 0 {
+		t.Errorf("Execute() = %d, want 0", code)
+	}
+}

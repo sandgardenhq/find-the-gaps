@@ -1,0 +1,43 @@
+# Compiled binaries
+/find-the-gaps
+/find-the-gaps.exe
+/bin/
+/dist/
+
+# Go build and test artifacts
+*.test
+*.out
+*.prof
+coverage.out
+coverage.txt
+coverage.html
+
+# Go module download cache (should never appear, but be safe)
+/vendor/
+
+# goreleaser scratch and snapshot output
+dist/
+.goreleaser-snapshot/
+
+# Project-local runtime state (per CLAUDE.md: ~/.find-the-gaps/ or .find-the-gaps/)
+.find-the-gaps/
+
+# Secrets and local env overrides
+.env
+.env.*
+!.env.example
+
+# Editor and IDE
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# macOS / Windows noise
+.DS_Store
+Thumbs.db
+
+# Conductor workspace (per-machine scratch dir, not for the repo)
+.context/
