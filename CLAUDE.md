@@ -16,7 +16,7 @@ Find the Gaps runs as a low-effort CLI that a maintainer can point at a reposito
 
 ## Tech Stack
 
-- **Language**: Go (latest stable, 1.24+)
+- **Language**: Go (latest stable, 1.26+)
 - **Runtime**: Standalone CLI binary
 - **Package Manager**: Go modules
 - **Testing**: `testing` stdlib + [testify](https://github.com/stretchr/testify) for assertions + [testscript](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) for end-to-end CLI tests

@@ -1,0 +1,3 @@
+# analyze subcommand exists and reports itself as not yet implemented.
+! exec find-the-gaps analyze
+stderr 'not yet implemented'

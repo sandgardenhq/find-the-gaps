@@ -30,7 +30,7 @@ brew install <tap>/find-the-gaps
 Or with Go:
 
 ```sh
-go install github.com/britt/find-the-gaps/cmd/find-the-gaps@latest
+go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest
 ```
 
 ## Usage

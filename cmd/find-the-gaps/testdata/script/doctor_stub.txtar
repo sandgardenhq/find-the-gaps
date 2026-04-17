@@ -1,0 +1,3 @@
+# doctor subcommand exists and reports itself as not yet implemented.
+! exec find-the-gaps doctor
+stderr 'not yet implemented'
