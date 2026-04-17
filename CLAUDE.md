@@ -364,6 +364,16 @@ YOU MUST follow these rules when creating a pull request.
 - Use a **merge commit** — do not squash commits.
 - If you are working on an issue, note in the PR description that this PR closes the issue number (e.g., `Closes #42`).
 
+## Plans Directory
+
+**All plan documents live in `.plans/`.** This includes verification plans, implementation plans, design notes, architecture sketches, and any other long-form planning artifact produced by or for an agent.
+
+Rules:
+- New plans MUST be saved under `.plans/<name>.md` — never at the repo root.
+- Use SCREAMING_SNAKE_CASE filenames (e.g., `VERIFICATION_PLAN.md`, `IMPLEMENTATION_PLAN.md`, `ARCHITECTURE.md`).
+- When a rule elsewhere in this file references a plan like `@IMPLEMENTATION_PLAN.md`, interpret it as `@.plans/IMPLEMENTATION_PLAN.md`.
+- `.plans/` is tracked in git — plans are shared context, not scratch.
+
 ## Verification
 
-See @VERIFICATION_PLAN.md for acceptance testing procedures.
+See @.plans/VERIFICATION_PLAN.md for acceptance testing procedures.

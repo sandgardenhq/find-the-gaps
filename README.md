@@ -43,7 +43,7 @@ See `find-the-gaps --help` for full usage.
 
 ## Development
 
-See [CLAUDE.md](CLAUDE.md) for project conventions, tech stack, and TDD rules. See [VERIFICATION_PLAN.md](VERIFICATION_PLAN.md) for acceptance testing procedures.
+See [CLAUDE.md](CLAUDE.md) for project conventions, tech stack, and TDD rules. See [.plans/VERIFICATION_PLAN.md](.plans/VERIFICATION_PLAN.md) for acceptance testing procedures.
 
 ## License
 
