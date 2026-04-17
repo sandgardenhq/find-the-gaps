@@ -49,3 +49,35 @@ func (idx *Index) Has(rawURL string) bool {
 	_, ok := idx.entries[rawURL]
 	return ok
 }
+
+// Record adds rawURL to the index with the given filename and saves index.json.
+func (idx *Index) Record(rawURL, filename string) error {
+	idx.entries[rawURL] = indexEntry{Filename: filename, FetchedAt: time.Now()}
+	return idx.save()
+}
+
+// FilePath returns the absolute cache file path for rawURL, if present.
+func (idx *Index) FilePath(rawURL string) (string, bool) {
+	e, ok := idx.entries[rawURL]
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(idx.dir, e.Filename), true
+}
+
+// All returns a map of every cached URL to its absolute file path.
+func (idx *Index) All() map[string]string {
+	out := make(map[string]string, len(idx.entries))
+	for u, e := range idx.entries {
+		out[u] = filepath.Join(idx.dir, e.Filename)
+	}
+	return out
+}
+
+func (idx *Index) save() error {
+	data, err := json.MarshalIndent(idx.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(idx.dir, "index.json"), data, 0o644)
+}

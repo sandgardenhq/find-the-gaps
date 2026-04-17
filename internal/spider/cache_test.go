@@ -64,3 +64,59 @@ func TestLoadIndex_existingIndex_loadsEntries(t *testing.T) {
 		t.Error("expected loaded index to contain the URL")
 	}
 }
+
+func TestIndex_Record_persistsAndCanBeReloaded(t *testing.T) {
+	dir := t.TempDir()
+	idx, _ := LoadIndex(dir)
+
+	if err := idx.Record("https://docs.example.com/intro", "abc.md"); err != nil {
+		t.Fatalf("Record failed: %v", err)
+	}
+
+	// Reload from disk to verify persistence.
+	idx2, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatalf("reload failed: %v", err)
+	}
+	if !idx2.Has("https://docs.example.com/intro") {
+		t.Error("URL not found after reload")
+	}
+}
+
+func TestIndex_FilePath_returnsAbsPath(t *testing.T) {
+	dir := t.TempDir()
+	idx, _ := LoadIndex(dir)
+	_ = idx.Record("https://docs.example.com/intro", "abc.md")
+
+	path, ok := idx.FilePath("https://docs.example.com/intro")
+	if !ok {
+		t.Fatal("FilePath returned ok=false for known URL")
+	}
+	if path != filepath.Join(dir, "abc.md") {
+		t.Errorf("got %q, want %q", path, filepath.Join(dir, "abc.md"))
+	}
+}
+
+func TestIndex_FilePath_unknownURL_returnsNotOK(t *testing.T) {
+	dir := t.TempDir()
+	idx, _ := LoadIndex(dir)
+	_, ok := idx.FilePath("https://docs.example.com/missing")
+	if ok {
+		t.Error("expected ok=false for unknown URL")
+	}
+}
+
+func TestIndex_All_returnsAllEntries(t *testing.T) {
+	dir := t.TempDir()
+	idx, _ := LoadIndex(dir)
+	_ = idx.Record("https://docs.example.com/a", "a.md")
+	_ = idx.Record("https://docs.example.com/b", "b.md")
+
+	all := idx.All()
+	if len(all) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(all))
+	}
+	if all["https://docs.example.com/a"] != filepath.Join(dir, "a.md") {
+		t.Errorf("wrong path for /a: %q", all["https://docs.example.com/a"])
+	}
+}
