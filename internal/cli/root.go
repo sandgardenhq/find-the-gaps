@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,16 @@ import (
 )
 
 var version = "dev"
+
+// ExitCodeError signals to Execute that the CLI should exit with the given
+// non-zero code without printing any additional error text. The subcommand
+// that returns this error is responsible for having already written any
+// user-facing output.
+type ExitCodeError struct {
+	Code int
+}
+
+func (e *ExitCodeError) Error() string { return fmt.Sprintf("exit code %d", e.Code) }
 
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -25,16 +36,25 @@ func NewRootCmd() *cobra.Command {
 }
 
 func Execute() int {
-	return run(os.Stderr, os.Args[1:])
+	return run(os.Stdout, os.Stderr, os.Args[1:])
 }
 
-func run(stderr io.Writer, args []string) int {
+func run(stdout, stderr io.Writer, args []string) int {
 	root := NewRootCmd()
 	root.SetArgs(args)
+	root.SetOut(stdout)
 	root.SetErr(stderr)
-	if err := root.Execute(); err != nil {
-		_, _ = fmt.Fprintln(stderr, "Error:", err)
-		return 1
+	return errorToExitCode(root.Execute(), stderr)
+}
+
+func errorToExitCode(err error, stderr io.Writer) int {
+	if err == nil {
+		return 0
 	}
-	return 0
+	var ec *ExitCodeError
+	if errors.As(err, &ec) {
+		return ec.Code
+	}
+	_, _ = fmt.Fprintln(stderr, "Error:", err)
+	return 1
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -36,46 +37,32 @@ func TestNewRootCmd_Structure(t *testing.T) {
 	}
 }
 
-func TestDoctorStub_ReturnsNotYetImplemented(t *testing.T) {
-	err := runSubcommand(t, "doctor")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain 'not yet implemented'", err.Error())
-	}
-}
-
 func TestAnalyzeStub_ReturnsNotYetImplemented(t *testing.T) {
-	err := runSubcommand(t, "analyze")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain 'not yet implemented'", err.Error())
-	}
-}
-
-func runSubcommand(t *testing.T, args ...string) error {
-	t.Helper()
 	root := NewRootCmd()
-	root.SetArgs(args)
+	root.SetArgs([]string{"analyze"})
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
-	return root.Execute()
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not yet implemented") {
+		t.Errorf("error = %q, want it to contain 'not yet implemented'", err.Error())
+	}
 }
 
 func TestRun_HelpReturnsZero(t *testing.T) {
-	var stderr bytes.Buffer
-	code := run(&stderr, []string{"--help"})
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"--help"})
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
 }
 
-func TestRun_DoctorReturnsOne(t *testing.T) {
-	var stderr bytes.Buffer
-	code := run(&stderr, []string{"doctor"})
+func TestRun_AnalyzeReturnsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"analyze"})
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -84,12 +71,47 @@ func TestRun_DoctorReturnsOne(t *testing.T) {
 	}
 }
 
+func TestErrorToExitCode_Nil_ReturnsZero(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := errorToExitCode(nil, &stderr); code != 0 {
+		t.Errorf("code = %d, want 0", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr should be empty, got %q", stderr.String())
+	}
+}
+
+func TestErrorToExitCode_ExitCodeError_PropagatesCode(t *testing.T) {
+	var stderr bytes.Buffer
+	err := &ExitCodeError{Code: 42}
+	if code := errorToExitCode(err, &stderr); code != 42 {
+		t.Errorf("code = %d, want 42", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("ExitCodeError should not write to stderr, got %q", stderr.String())
+	}
+}
+
+func TestErrorToExitCode_PlainError_PrintsAndReturnsOne(t *testing.T) {
+	var stderr bytes.Buffer
+	code := errorToExitCode(errors.New("boom"), &stderr)
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "Error: boom") {
+		t.Errorf("stderr = %q, want it to contain 'Error: boom'", stderr.String())
+	}
+}
+
+func TestExitCodeError_Error(t *testing.T) {
+	e := &ExitCodeError{Code: 7}
+	if !strings.Contains(e.Error(), "7") {
+		t.Errorf("Error() = %q, want it to contain '7'", e.Error())
+	}
+}
+
 func TestExecute_ReturnsInt(t *testing.T) {
-	// Smoke test: Execute() reads os.Args; preserve and restore.
-	// A bare invocation with no extra args should exit zero (prints help by default isn't set,
-	// but root cmd without subcommand returns nil because there's no RunE on root).
-	saved := []string{}
-	saved = append(saved, os.Args...)
+	saved := append([]string{}, os.Args...)
 	defer func() { os.Args = saved }()
 	os.Args = []string{"find-the-gaps", "--help"}
 	if code := Execute(); code != 0 {
