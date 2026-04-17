@@ -3,6 +3,7 @@ package spider
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -132,5 +133,34 @@ func TestCrawl_followsLinks(t *testing.T) {
 	}
 	if len(result) != 2 {
 		t.Errorf("expected 2 results, got %d: %v", len(result), result)
+	}
+}
+
+func TestCrawl_skipsCachedURLs(t *testing.T) {
+	dir := t.TempDir()
+
+	// Pre-populate the index with the start URL.
+	idx, _ := LoadIndex(dir)
+	_ = idx.Record("https://docs.example.com/intro", "preexisting.md")
+	if err := os.WriteFile(filepath.Join(dir, "preexisting.md"), []byte("cached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fetchCount := 0
+	fetch := func(rawURL, outputPath string) error {
+		fetchCount++
+		return os.WriteFile(outputPath, []byte("# Hi"), 0o644)
+	}
+
+	opts := Options{CacheDir: dir, Workers: 1}
+	result, err := Crawl("https://docs.example.com/intro", opts, fetch)
+	if err != nil {
+		t.Fatalf("Crawl failed: %v", err)
+	}
+	if fetchCount != 0 {
+		t.Errorf("expected 0 fetches for cached URL, got %d", fetchCount)
+	}
+	if _, ok := result["https://docs.example.com/intro"]; !ok {
+		t.Errorf("cached URL should appear in results: %v", result)
 	}
 }
