@@ -37,7 +37,7 @@ func TestNewRootCmd_Structure(t *testing.T) {
 	}
 }
 
-func TestAnalyzeStub_ReturnsNotYetImplemented(t *testing.T) {
+func TestAnalyze_missingDocsURL_returnsError(t *testing.T) {
 	root := NewRootCmd()
 	root.SetArgs([]string{"analyze"})
 	root.SetOut(&bytes.Buffer{})
@@ -47,8 +47,8 @@ func TestAnalyzeStub_ReturnsNotYetImplemented(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain 'not yet implemented'", err.Error())
+	if !strings.Contains(err.Error(), "--docs-url is required") {
+		t.Errorf("error = %q, want it to contain '--docs-url is required'", err.Error())
 	}
 }
 
@@ -60,14 +60,14 @@ func TestRun_HelpReturnsZero(t *testing.T) {
 	}
 }
 
-func TestRun_AnalyzeReturnsOne(t *testing.T) {
+func TestRun_AnalyzeWithoutDocsURLReturnsOne(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(&stdout, &stderr, []string{"analyze"})
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "not yet implemented") {
-		t.Errorf("stderr = %q, want it to contain 'not yet implemented'", stderr.String())
+	if !strings.Contains(stderr.String(), "--docs-url is required") {
+		t.Errorf("stderr = %q, want it to contain '--docs-url is required'", stderr.String())
 	}
 }
 
