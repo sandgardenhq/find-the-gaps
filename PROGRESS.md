@@ -94,3 +94,23 @@
   - Tree-sitter quirk: Go's grouped import block is `import_spec_list` wrapping individual `import_spec` nodes; a bare `import "os"` produces an `import_spec` directly under `import_declaration`. The `goExtractImports` helper handles both cases.
   - `goPrecedingComment` checks only the immediately preceding sibling — Go doc comments always immediately precede the declaration they document, so no multi-comment scan is needed.
   - The `prev == nil` branch in `goPrecedingComment` is not reachable in practice (tree-sitter always returns valid sibling nodes), so coverage stays at 96.6% rather than 100%. This is acceptable — the branch is a defensive nil guard, not dead code.
+
+## Task 5: `lang/python.go` Python tree-sitter extractor — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace the `PythonExtractor` stub with a full go-tree-sitter implementation that extracts public module-level `def` (KindFunc) and `class` (KindClass) declarations, docstrings, import paths, and line numbers. Names starting with `_` are skipped.
+- TDD cycle:
+  - **RED**: Created `internal/scanner/lang/python_test.go` with 12 tests: public func extracted, private func skipped, public class extracted, private class skipped, imports extracted (plain + aliased + from-style), docstring extracted from func, docstring extracted from class, language/extensions contract, line numbers recorded, signature recorded, empty file no error, nested func skipped (only module-level). Ran `go test ./internal/scanner/lang/... -run TestPythonExtractor` — 9 tests FAILED (stub returns nil/empty). Correct RED state.
+  - **GREEN**: Implemented `python.go` with tree-sitter parser using `python.GetLanguage()`. Walked root children: `function_definition` and `class_definition` for symbols (skipping `_`-prefixed names), `import_statement` and `import_from_statement` for imports. Added `pyDocstring` helper that inspects only the first child of the body node for a `string` expression statement, stripping triple- and single-quote delimiters. All 12 tests PASS.
+  - **LINT FIX**: golangci-lint flagged SA4008 (loop condition never changes) and SA4004 (loop unconditionally terminated) in `pyDocstring`. Rewrote the helper to directly access `body.Child(0)` without a loop. Lint clean, tests still pass.
+  - **REFACTOR**: Updated `stubs_test.go` to remove `PythonExtractor` from the nil-check loop with explanatory comment pointing to `python_test.go`. All 37 lang-package tests pass.
+- Tests: 37 passing, 0 failing (lang package); all packages: 5 packages, 0 failures
+- Coverage: internal/scanner/lang: 94.6% of statements (above 90% gate)
+- Build: Successful (`go build ./...`)
+- Linting: Clean (`golangci-lint run`, 0 issues)
+- Completed: 2026-04-17
+- Notes:
+  - Tree-sitter quirk: Python aliased imports (`import sys as system`) produce an `aliased_import` node with a `name` field child; plain imports produce `dotted_name` directly. Both cases handled in the `import_statement` branch.
+  - `from X import Y` statements produce `import_from_statement` nodes; only the module name (`X`) is recorded as the import path, consistent with the Go extractor's approach.
+  - Nested functions are automatically excluded because the walker only iterates `root.Child(i)` at module level — tree-sitter does not flatten nested definitions into the module scope.
+  - Docstring stripping is order-sensitive: triple-quote prefixes/suffixes must be removed before single-quote ones to avoid double-stripping `"` from `"""`.
