@@ -84,8 +84,13 @@ func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, [
 					imports = append(imports, scanner.Import{Path: child.Content(content)})
 				case "aliased_import":
 					nameN := child.ChildByFieldName("name")
+					aliasN := child.ChildByFieldName("alias")
 					if nameN != nil {
-						imports = append(imports, scanner.Import{Path: nameN.Content(content)})
+						imp := scanner.Import{Path: nameN.Content(content)}
+						if aliasN != nil {
+							imp.Alias = aliasN.Content(content)
+						}
+						imports = append(imports, imp)
 					}
 				}
 			}

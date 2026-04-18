@@ -56,8 +56,22 @@ from os.path import join, dirname
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if len(imps) < 2 {
-		t.Fatalf("expected at least 2 imports, got %d: %v", len(imps), imps)
+	if len(imps) != 4 {
+		t.Fatalf("expected 4 imports, got %d: %v", len(imps), imps)
+	}
+
+	// Find the aliased import and verify Alias is populated.
+	var foundAliased bool
+	for _, imp := range imps {
+		if imp.Path == "sys" {
+			foundAliased = true
+			if imp.Alias != "system" {
+				t.Errorf("import sys alias: got %q, want \"system\"", imp.Alias)
+			}
+		}
+	}
+	if !foundAliased {
+		t.Error("did not find import with Path \"sys\"")
 	}
 }
 
@@ -208,5 +222,8 @@ func TestPythonExtractor_importAlias_extracted(t *testing.T) {
 	}
 	if imps[0].Path != "numpy" {
 		t.Errorf("import path: got %q, want numpy", imps[0].Path)
+	}
+	if imps[0].Alias != "np" {
+		t.Errorf("import alias: got %q, want \"np\"", imps[0].Alias)
 	}
 }
