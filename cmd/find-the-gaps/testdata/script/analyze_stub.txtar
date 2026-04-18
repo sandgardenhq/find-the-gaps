@@ -1,3 +1,4 @@
-# analyze subcommand exists and reports itself as not yet implemented.
-! exec find-the-gaps analyze
-stderr 'not yet implemented'
+# analyze subcommand accepts --repo flag and scans an empty directory.
+mkdir repo
+exec find-the-gaps analyze --repo repo --scan-cache-dir $WORK/cache
+stdout 'scanned 0 files'

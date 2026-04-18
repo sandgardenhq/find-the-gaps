@@ -168,3 +168,21 @@
 - Notes:
   - countLines bug: initial impl subtracted 1 for trailing newline; test expects trailing newline to count (e.g., "line1\nline2\n" = 3). Fixed to `bytes.Count("\n") + 1`.
   - Import cycle fix: `scanner/types/` is a pure types package (no deps); `lang` imports `types`; `scanner` imports both `types` and `lang`. Lang tests updated from `scanner.KindFunc` → `types.KindFunc` etc.
+
+## Task 13: `cli/analyze.go` — wire `--repo`, `--scan-cache-dir`, `--no-cache` — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace the `analyze` stub with a real implementation that accepts `--repo`, `--scan-cache-dir`, and `--no-cache` flags and calls `scanner.Scan()`.
+- TDD cycle:
+  - **RED**: Created `internal/cli/analyze_test.go` with 5 tests: repoFlag_appearsInHelp, noCacheFlag_appearsInHelp, scanCacheDirFlag_appearsInHelp, repoFlag_scansDirectory, noCache_flagAccepted. Ran `go test ./internal/cli/...` — all 5 FAILED ("--repo flag not in help output" / "unknown flag: --repo").
+  - **GREEN**: Replaced `analyze.go` with Cobra command that wires `--repo` (default "."), `--scan-cache-dir` (default ".find-the-gaps/scan-cache"), `--no-cache` flags to `scanner.Scan()`. Outputs "scanned N files". Updated `root_test.go` to remove stale "not yet implemented" test. Updated `analyze_stub.txtar` to test the real behavior.
+  - **LINT FIX**: `errcheck` flagged unchecked `fmt.Fprintf` — fixed with `_, _ =`.
+- Tests: all packages green (cmd, cli, doctor, scanner, scanner/lang)
+- Coverage: internal/cli 97.0%, all packages above 90% gate
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run`, 0 issues)
+- Completed: 2026-04-17
+- Notes:
+  - `internal/spider` not yet merged; crawl section omitted — analyze only runs the scanner for now.
+  - `--docs-url` flag deferred until spider package is available.
+  - `go test -coverprofile=... ./...` fails in cmd/find-the-gaps due to testscript's sandboxed binary not being able to write coverage metadata — this is pre-existing and not related to this task.
