@@ -32,3 +32,17 @@
 - Linting: Clean (`golangci-lint run`, 0 issues)
 - Notes: Dropped `doctor_missing_*.txtar` testscripts — they are not hermetic because real `rg` on the dev machine shadows the stub `$WORK/bin`. The unit tests in `internal/doctor` cover the missing-binary paths with a fully isolated `PATH`.
 - Completed: 2026-04-17
+
+## Task 1: Add dependencies + `internal/scanner/symbols.go` data types — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Add go-tree-sitter and go-gitignore dependencies; define core data types for the scanner package.
+- TDD cycle:
+  - **RED**: Wrote `internal/scanner/symbols_test.go` with `TestProjectScan_JSONRoundTrip` and `TestSymbolKind_constants`. Ran `go test ./internal/scanner/...` — failed with compile errors (package `scanner` does not exist, all types undefined). Correct RED state.
+  - **GREEN**: Created `internal/scanner/symbols.go` defining `SymbolKind`, `Symbol`, `Import`, `ScannedFile`, `GraphNode`, `GraphEdge`, `ImportGraph`, `ProjectScan`. Minimal — types only, no logic.
+- Tests: 2 passing, 0 failing
+- Coverage: [no statements] — correct; `symbols.go` contains only type/const declarations, no executable statements
+- Build: Successful (`go build ./...`)
+- Linting: Clean (`golangci-lint run`, 0 issues)
+- Dependencies added: `github.com/smacker/go-tree-sitter@v0.0.0-20240827094217-dd81d9e9be82`, `github.com/sabhiram/go-gitignore@v0.0.0-20210923224102-525f6e181f06`
+- Completed: 2026-04-17
