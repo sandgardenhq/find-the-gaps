@@ -11,9 +11,10 @@ import "testing"
 // implementation that parses real Go source; see go_test.go.
 // PythonExtractor is excluded here because Task 5 replaced it with a full
 // implementation that parses real Python source; see python_test.go.
+// TypeScriptExtractor is excluded here because Task 6 replaced it with a full
+// implementation that parses real TypeScript/JS source; see typescript_test.go.
 func TestStub_Extract_returnsNil(t *testing.T) {
 	extractors := []Extractor{
-		&TypeScriptExtractor{},
 		&RustExtractor{},
 	}
 	for _, ext := range extractors {

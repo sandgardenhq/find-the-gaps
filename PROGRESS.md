@@ -114,3 +114,22 @@
   - `from X import Y` statements produce `import_from_statement` nodes; only the module name (`X`) is recorded as the import path, consistent with the Go extractor's approach.
   - Nested functions are automatically excluded because the walker only iterates `root.Child(i)` at module level — tree-sitter does not flatten nested definitions into the module scope.
   - Docstring stripping is order-sensitive: triple-quote prefixes/suffixes must be removed before single-quote ones to avoid double-stripping `"` from `"""`.
+
+## Task 6: `lang/typescript.go` TypeScript/JS tree-sitter extractor — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace TypeScriptExtractor stub with full tree-sitter implementation extracting exported symbols (func/class/const/interface/type) and imports from .ts/.tsx/.js/.jsx/.mjs files.
+- TDD cycle:
+  - **RED**: typescript_test.go written (18 tests) — stub returned nil/nil/nil, tests expecting non-nil results all failed.
+  - **GREEN**: Implemented typescript.go using TypeScript grammar for .ts/.tsx and JavaScript grammar for .js/.jsx/.mjs. Walks root children for `export_statement` (extracts declaration via `declaration` field) and `import_statement` (handles default, namespace, named, side-effect). Used `context.Background()` for ParseCtx.
+  - **REFACTOR**: Updated stubs_test.go to remove TypeScriptExtractor from nil-check loop.
+- Tests: 55 passing, 0 failing (lang package); all 5 packages green
+- Coverage: internal/scanner/lang: 92.7% of statements (above 90% gate)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-17
+- Notes:
+  - TypeScript `export_statement` wraps the actual declaration in a `declaration` field child — node types: `function_declaration`, `class_declaration`, `lexical_declaration` (const/let), `interface_declaration`, `type_alias_declaration`.
+  - `lexical_declaration` (const/let) requires descending into `variable_declarator` child to get the name.
+  - JSDoc (`/** ... */`) preceding comment stripped of delimiters for DocComment.
+  - Import clause variants: default (`identifier`), namespace (`namespace_import` with identifier child), named (`named_imports` with `import_specifier` children), side-effect (no clause).
