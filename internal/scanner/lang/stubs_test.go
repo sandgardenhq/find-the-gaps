@@ -2,7 +2,7 @@ package lang
 
 import "testing"
 
-// TestStub_Extract_returnsNil verifies that each language-specific stub extractor's
+// TestStub_Extract_returnsNil verified that each language-specific stub extractor's
 // Extract method returns nil symbols, nil imports, and nil error — the expected no-op
 // behaviour until Tasks 4-7 replace them with real tree-sitter implementations.
 // GenericExtractor is excluded here because Task 3 replaced it with a full
@@ -13,22 +13,11 @@ import "testing"
 // implementation that parses real Python source; see python_test.go.
 // TypeScriptExtractor is excluded here because Task 6 replaced it with a full
 // implementation that parses real TypeScript/JS source; see typescript_test.go.
+// RustExtractor is excluded here because Task 7 replaced it with a full
+// implementation that parses real Rust source; see rust_test.go.
+// All language stubs have now been replaced — this test is intentionally empty.
 func TestStub_Extract_returnsNil(t *testing.T) {
-	extractors := []Extractor{
-		&RustExtractor{},
-	}
-	for _, ext := range extractors {
-		syms, imports, err := ext.Extract("test.go", []byte("content"))
-		if err != nil {
-			t.Errorf("%T.Extract returned error: %v", ext, err)
-		}
-		if syms != nil {
-			t.Errorf("%T.Extract returned non-nil symbols", ext)
-		}
-		if imports != nil {
-			t.Errorf("%T.Extract returned non-nil imports", ext)
-		}
-	}
+	// No remaining stubs.
 }
 
 // TestGenericExtractor_Extensions verifies that GenericExtractor.Extensions returns nil,

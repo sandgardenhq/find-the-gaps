@@ -133,3 +133,21 @@
   - `lexical_declaration` (const/let) requires descending into `variable_declarator` child to get the name.
   - JSDoc (`/** ... */`) preceding comment stripped of delimiters for DocComment.
   - Import clause variants: default (`identifier`), namespace (`namespace_import` with identifier child), named (`named_imports` with `import_specifier` children), side-effect (no clause).
+
+## Task 7: `lang/rust.go` Rust tree-sitter extractor — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace the `RustExtractor` stub with a full go-tree-sitter implementation that extracts `pub` top-level declarations (fn→KindFunc, struct/enum→KindType, trait→KindInterface, const→KindConst) and `use` declarations as imports, including aliased forms.
+- TDD cycle:
+  - **RED**: Created `internal/scanner/lang/rust_test.go` with 17 tests: pub fn extracted, private fn skipped, pub struct extracted, pub enum extracted, pub trait extracted, pub const extracted, use declaration imported, use alias imported, line number recorded, empty file no error, language/extensions contract, doc comment extracted, signature recorded, multi-line doc comment, simple identifier use, glob use no error, nested fn in impl skipped. Ran `go test ./internal/scanner/lang/ -run TestRust` — 10 tests FAILED (stub returns nil/nil/nil). Correct RED state.
+  - **GREEN**: Implemented `rust.go` with `rust.GetLanguage()` grammar. Walk root children by node type (`function_item`, `struct_item`, `enum_item`, `trait_item`, `const_item`, `use_declaration`). `rustIsPub` checks for a `visibility_modifier` child of type `pub`. `rustPrecedingDocComment` walks backwards collecting consecutive `///` line_comment nodes. `rustParseUseDecl` handles two tree-sitter shapes: `scoped_identifier`/`identifier` for plain use, `use_as_clause` (with scoped_identifier + "as" + identifier) for aliased use. All 17 tests PASS.
+  - **REFACTOR**: Updated `stubs_test.go` to remove `RustExtractor` from the nil-check loop; loop body is now empty (all stubs replaced). All 72 lang-package tests pass.
+- Tests: 72 passing, 0 failing (lang package); all 5 packages green
+- Coverage: internal/scanner/lang: 91.8% of statements (above 90% gate); rust.go per-function: Language 100%, Extensions 100%, Extract 87%, rustIsPub 100%, rustFuncSig 75% (unreachable else branch — tree-sitter function_item always contains `{`), rustPrecedingDocComment 87.5%, rustParseUseDecl 93.8%
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run`, 0 issues)
+- Completed: 2026-04-17
+- Notes:
+  - Grammar quirk: The Rust tree-sitter grammar does NOT produce a `use_tree` node for simple use declarations. Instead, `use_declaration` contains either a `scoped_identifier` (for `use a::b::C`) or a `use_as_clause` (for `use a::b::C as D`). Glob forms (`use a::b::*`) produce a `use_list`/`use_wildcard` child and are currently skipped (no import emitted).
+  - `rustFuncSig` trims at `{` or `\n` to return just the function header; the fallback `else` branch (no `{` or `\n` in content) is unreachable in practice because tree-sitter function_item nodes always include the body.
+  - Methods inside `impl` blocks are correctly excluded: the walker only visits root-level children, so `function_item` nodes nested inside `impl_item` are never reached.
