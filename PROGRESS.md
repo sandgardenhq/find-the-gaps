@@ -61,3 +61,18 @@
 - Linting: ✅ Clean (0 issues)
 - Completed: 2026-04-17
 - Notes: Stub `Extract()` bodies intentionally return `nil, nil, nil` (to be replaced in Tasks 3-7 with real tree-sitter implementations). Coverage tests satisfy the 90% gate without adding logic.
+
+## Task 3: `lang/generic.go` full implementation — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace the `GenericExtractor` stub body with an explicit implementation that returns empty (non-nil) slices `[]scanner.Symbol{}` and `[]scanner.Import{}` instead of `nil, nil`.
+- TDD cycle:
+  - **RED**: Created `internal/scanner/lang/generic_test.go` with three tests: `TestGenericExtractor_returnsEmptySlices_notNil` (checks `syms != nil` and `imps != nil`), `TestGenericExtractor_languageIsGeneric`, and `TestGenericExtractor_emptyContent_noError`. Ran tests — 2 failed with "expected non-nil (empty) symbols/imports slice, got nil" for the exact right reason.
+  - **GREEN**: Changed `generic.go` `Extract` body from `return nil, nil, nil` to `return []scanner.Symbol{}, []scanner.Import{}, nil`. All 3 new tests passed immediately.
+  - **REFACTOR**: Updated `stubs_test.go` (`TestStub_Extract_returnsNil`) to remove `GenericExtractor` from the nil-check loop, since it is no longer a stub. Added explanatory comment pointing to `generic_test.go`. All 12 lang-package tests pass.
+- Tests: 12 passing, 0 failing (lang package)
+- Coverage: internal/scanner/lang: 100.0% of statements
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run`, 0 issues)
+- Completed: 2026-04-17
+- Notes: The nil-vs-empty-slice distinction matters for consumers that use `json.Marshal` (nil → `null`, empty slice → `[]`) and for callers that range-check results. `GenericExtractor` is the first extractor to graduate from stub to full implementation.

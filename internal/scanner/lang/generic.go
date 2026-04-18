@@ -9,5 +9,5 @@ type GenericExtractor struct{}
 func (e *GenericExtractor) Language() string     { return "Generic" }
 func (e *GenericExtractor) Extensions() []string { return nil }
 func (e *GenericExtractor) Extract(_ string, _ []byte) ([]scanner.Symbol, []scanner.Import, error) {
-	return nil, nil, nil
+	return []scanner.Symbol{}, []scanner.Import{}, nil
 }
