@@ -7,9 +7,10 @@ import "testing"
 // behaviour until Tasks 4-7 replace them with real tree-sitter implementations.
 // GenericExtractor is excluded here because Task 3 replaced it with a full
 // implementation that returns empty (non-nil) slices; see generic_test.go.
+// GoExtractor is excluded here because Task 4 replaced it with a full
+// implementation that parses real Go source; see go_test.go.
 func TestStub_Extract_returnsNil(t *testing.T) {
 	extractors := []Extractor{
-		&GoExtractor{},
 		&PythonExtractor{},
 		&TypeScriptExtractor{},
 		&RustExtractor{},

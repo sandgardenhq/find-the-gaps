@@ -76,3 +76,21 @@
 - Linting: ✅ Clean (`golangci-lint run`, 0 issues)
 - Completed: 2026-04-17
 - Notes: The nil-vs-empty-slice distinction matters for consumers that use `json.Marshal` (nil → `null`, empty slice → `[]`) and for callers that range-check results. `GenericExtractor` is the first extractor to graduate from stub to full implementation.
+
+## Task 4: `lang/go.go` Go tree-sitter extractor — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Replace the `GoExtractor` stub with a full go-tree-sitter implementation that extracts exported functions (inc. methods), types, consts, vars with doc comments + line numbers, and all import paths with optional aliases.
+- TDD cycle:
+  - **RED**: Created `internal/scanner/lang/go_test.go` with 13 tests covering: exported func with doc comment and line number, unexported func skipped, exported type, exported const, grouped imports with alias, single-line import, empty file, exported var, exported method vs unexported method, Language()/Extensions() contract, first-decl no-doc-comment, blank import alias. Ran `go test ./internal/scanner/lang/... -run TestGoExtractor` — 7 tests FAILED (stub returns nil/empty). Remaining tests passed (stub behaviour was correct for those edge cases).
+  - **GREEN**: Replaced stub body in `go.go` with full tree-sitter implementation: parser setup with `golang.GetLanguage()`, walk root children by node type (`function_declaration`, `method_declaration`, `type_declaration`, `const_declaration`, `var_declaration`, `import_declaration`), exported check via `unicode.IsUpper`, doc comment via preceding sibling of type `comment`, signature building via field children, import extraction with `goExtractImports` handling both `import_spec_list` (grouped) and direct `import_spec` (single-line). All 13 new tests PASS.
+  - **REFACTOR**: Updated `stubs_test.go` to remove `GoExtractor` from the nil-check loop (it's no longer a stub). Added explanatory comment pointing to `go_test.go`. All 25 lang-package tests pass.
+- Tests: 25 passing, 0 failing (lang package); all packages: 5 packages, 0 failures
+- Coverage: internal/scanner/lang: 96.6% of statements (well above 90% gate)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run`, 0 issues)
+- Completed: 2026-04-17
+- Notes:
+  - Tree-sitter quirk: Go's grouped import block is `import_spec_list` wrapping individual `import_spec` nodes; a bare `import "os"` produces an `import_spec` directly under `import_declaration`. The `goExtractImports` helper handles both cases.
+  - `goPrecedingComment` checks only the immediately preceding sibling — Go doc comments always immediately precede the declaration they document, so no multi-comment scan is needed.
+  - The `prev == nil` branch in `goPrecedingComment` is not reachable in practice (tree-sitter always returns valid sibling nodes), so coverage stays at 96.6% rather than 100%. This is acceptable — the branch is a defensive nil guard, not dead code.
