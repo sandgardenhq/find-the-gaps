@@ -262,6 +262,34 @@ func Exported() {}
 	}
 }
 
+// TestGoExtractor_groupedVar_allExtracted verifies that grouped var blocks
+// (var_spec_list) produce symbols for every exported name, not zero.
+func TestGoExtractor_groupedVar_allExtracted(t *testing.T) {
+	src := `package p
+var (
+    ErrNotFound = fmt.Errorf("not found")
+    ErrTimeout  = fmt.Errorf("timeout")
+)`
+	ext := &GoExtractor{}
+	syms, _, err := ext.Extract("p.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(syms) != 2 {
+		t.Errorf("expected 2 symbols, got %d: %v", len(syms), syms)
+	}
+	names := map[string]bool{}
+	for _, s := range syms {
+		names[s.Name] = true
+	}
+	if !names["ErrNotFound"] {
+		t.Errorf("ErrNotFound not found in %v", syms)
+	}
+	if !names["ErrTimeout"] {
+		t.Errorf("ErrTimeout not found in %v", syms)
+	}
+}
+
 // TestGoExtractor_blankImportAlias_notRecorded verifies that blank-import aliases (_)
 // are not stored in Import.Alias.
 func TestGoExtractor_blankImportAlias_notRecorded(t *testing.T) {

@@ -95,21 +95,41 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 
 		case "var_declaration":
 			for j := 0; j < int(node.ChildCount()); j++ {
-				spec := node.Child(j)
-				if spec.Type() != "var_spec" {
-					continue
+				child := node.Child(j)
+				switch child.Type() {
+				case "var_spec":
+					// Single var declaration: var ErrFoo = ...
+					nameNode := child.ChildByFieldName("name")
+					if nameNode == nil || !goIsExported(nameNode.Content(content)) {
+						continue
+					}
+					symbols = append(symbols, scanner.Symbol{
+						Name:       nameNode.Content(content),
+						Kind:       scanner.KindVar,
+						Signature:  "var " + nameNode.Content(content),
+						DocComment: goPrecedingComment(root, i, content),
+						Line:       int(child.StartPoint().Row) + 1,
+					})
+				case "var_spec_list":
+					// Grouped var block: var ( spec1; spec2; ... )
+					for k := 0; k < int(child.ChildCount()); k++ {
+						spec := child.Child(k)
+						if spec.Type() != "var_spec" {
+							continue
+						}
+						nameNode := spec.ChildByFieldName("name")
+						if nameNode == nil || !goIsExported(nameNode.Content(content)) {
+							continue
+						}
+						symbols = append(symbols, scanner.Symbol{
+							Name:       nameNode.Content(content),
+							Kind:       scanner.KindVar,
+							Signature:  "var " + nameNode.Content(content),
+							DocComment: goPrecedingComment(root, i, content),
+							Line:       int(spec.StartPoint().Row) + 1,
+						})
+					}
 				}
-				nameNode := spec.ChildByFieldName("name")
-				if nameNode == nil || !goIsExported(nameNode.Content(content)) {
-					continue
-				}
-				symbols = append(symbols, scanner.Symbol{
-					Name:       nameNode.Content(content),
-					Kind:       scanner.KindVar,
-					Signature:  "var " + nameNode.Content(content),
-					DocComment: goPrecedingComment(root, i, content),
-					Line:       int(spec.StartPoint().Row) + 1,
-				})
 			}
 
 		case "import_declaration":
