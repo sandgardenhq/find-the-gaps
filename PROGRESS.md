@@ -151,3 +151,20 @@
   - Grammar quirk: The Rust tree-sitter grammar does NOT produce a `use_tree` node for simple use declarations. Instead, `use_declaration` contains either a `scoped_identifier` (for `use a::b::C`) or a `use_as_clause` (for `use a::b::C as D`). Glob forms (`use a::b::*`) produce a `use_list`/`use_wildcard` child and are currently skipped (no import emitted).
   - `rustFuncSig` trims at `{` or `\n` to return just the function header; the fallback `else` branch (no `{` or `\n` in content) is unreachable in practice because tree-sitter function_item nodes always include the body.
   - Methods inside `impl` blocks are correctly excluded: the walker only visits root-level children, so `function_item` nodes nested inside `impl_item` are never reached.
+
+## Task 12: scanner.go Scan() orchestrator — COMPLETE
+
+- Started: 2026-04-17
+- Goal: Implement `Scan(root string, opts Options) (*ProjectScan, error)` that walks the repo, extracts symbols/imports, builds the import graph, writes project.md, and caches results in scan.json.
+- TDD cycle:
+  - **RED**: Created `internal/scanner/scanner_test.go` with 6 tests: emptyDir_returnsEmptyScan, goFile_extractsSymbols, cacheReusedOnSecondRun, writesProjectMd, noCache_forcesReparse, countLines. Ran tests — compile error "undefined: Scan, Options" (correct RED state).
+  - **GREEN**: Created `internal/scanner/scanner.go` with `Options` struct (`CacheDir`, `NoCache`, `ModulePrefix`), `Scan()` (Walk callback → lang.Detect + Extract → BuildGraph → GenerateReport → cache.Save), and `countLines()`. All 6 tests PASS.
+  - **REFACTOR**: Resolved import cycle `scanner → lang → scanner` by extracting `Symbol`, `Import`, `SymbolKind` types into `internal/scanner/types/types.go`. `scanner` re-exports via type aliases; `lang` tests updated to import `types` directly.
+- Tests: 6 passing, 0 failing (scanner_test.go); all packages green
+- Coverage: internal/scanner: 94.2% of statements (above 90% gate)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run`, 0 issues)
+- Completed: 2026-04-17
+- Notes:
+  - countLines bug: initial impl subtracted 1 for trailing newline; test expects trailing newline to count (e.g., "line1\nline2\n" = 3). Fixed to `bytes.Count("\n") + 1`.
+  - Import cycle fix: `scanner/types/` is a pure types package (no deps); `lang` imports `types`; `scanner` imports both `types` and `lang`. Lang tests updated from `scanner.KindFunc` → `types.KindFunc` etc.

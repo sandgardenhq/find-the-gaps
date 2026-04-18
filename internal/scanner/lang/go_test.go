@@ -3,7 +3,7 @@ package lang
 import (
 	"testing"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 func TestGoExtractor_exportedFunc_extracted(t *testing.T) {
@@ -27,7 +27,7 @@ func unexported() {}
 	if syms[0].Name != "Run" {
 		t.Errorf("name: got %q, want Run", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindFunc {
+	if syms[0].Kind != types.KindFunc {
 		t.Errorf("kind: got %q, want func", syms[0].Kind)
 	}
 	if syms[0].DocComment != "Run executes the program." {
@@ -66,7 +66,7 @@ type Options struct {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if len(syms) != 1 || syms[0].Name != "Options" || syms[0].Kind != scanner.KindType {
+	if len(syms) != 1 || syms[0].Name != "Options" || syms[0].Kind != types.KindType {
 		t.Errorf("got %v", syms)
 	}
 }
@@ -84,7 +84,7 @@ const unexportedConst = 5
 	}
 	found := false
 	for _, s := range syms {
-		if s.Name == "MaxSize" && s.Kind == scanner.KindConst {
+		if s.Name == "MaxSize" && s.Kind == types.KindConst {
 			found = true
 		}
 		if s.Name == "unexportedConst" {
@@ -165,7 +165,7 @@ var privateVar = "secret"
 	}
 	found := false
 	for _, s := range syms {
-		if s.Name == "ErrNotFound" && s.Kind == scanner.KindVar {
+		if s.Name == "ErrNotFound" && s.Kind == types.KindVar {
 			found = true
 		}
 		if s.Name == "privateVar" {
@@ -198,10 +198,10 @@ func (c *Client) private() {}
 	foundType := false
 	foundMethod := false
 	for _, s := range syms {
-		if s.Name == "Client" && s.Kind == scanner.KindType {
+		if s.Name == "Client" && s.Kind == types.KindType {
 			foundType = true
 		}
-		if s.Name == "Do" && s.Kind == scanner.KindFunc {
+		if s.Name == "Do" && s.Kind == types.KindFunc {
 			foundMethod = true
 			if s.DocComment != "Do sends the request." {
 				t.Errorf("method doc: got %q", s.DocComment)

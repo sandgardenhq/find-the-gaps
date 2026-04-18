@@ -1,33 +1,24 @@
 package scanner
 
-import "time"
+import (
+	"time"
 
-// SymbolKind classifies an exported declaration.
-type SymbolKind string
-
-const (
-	KindFunc      SymbolKind = "func"
-	KindType      SymbolKind = "type"
-	KindConst     SymbolKind = "const"
-	KindVar       SymbolKind = "var"
-	KindInterface SymbolKind = "interface"
-	KindClass     SymbolKind = "class"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
-// Symbol is a single exported declaration in a source file.
-type Symbol struct {
-	Name       string     `json:"name"`
-	Kind       SymbolKind `json:"kind"`
-	Signature  string     `json:"signature"`
-	DocComment string     `json:"doc_comment,omitempty"`
-	Line       int        `json:"line"`
-}
+// Re-export shared types so callers can use scanner.Symbol etc.
+type SymbolKind = types.SymbolKind
+type Symbol = types.Symbol
+type Import = types.Import
 
-// Import is a single import statement.
-type Import struct {
-	Path  string `json:"path"`
-	Alias string `json:"alias,omitempty"`
-}
+const (
+	KindFunc      = types.KindFunc
+	KindType      = types.KindType
+	KindConst     = types.KindConst
+	KindVar       = types.KindVar
+	KindInterface = types.KindInterface
+	KindClass     = types.KindClass
+)
 
 // ScannedFile holds everything extracted from one source file.
 type ScannedFile struct {

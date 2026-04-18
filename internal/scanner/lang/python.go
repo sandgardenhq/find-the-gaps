@@ -7,7 +7,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	python "github.com/smacker/go-tree-sitter/python"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 // PythonExtractor extracts public symbols and imports from Python source files
@@ -19,7 +19,7 @@ func (e *PythonExtractor) Extensions() []string { return []string{".py", ".pyw"}
 
 // Extract parses Python source and returns public module-level declarations and all imports.
 // Public means the name does NOT start with '_'.
-func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []scanner.Import, error) {
+func (e *PythonExtractor) Extract(_ string, content []byte) ([]types.Symbol, []types.Import, error) {
 	parser := sitter.NewParser()
 	parser.SetLanguage(python.GetLanguage())
 	tree, err := parser.ParseCtx(context.Background(), nil, content)
@@ -29,8 +29,8 @@ func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, [
 	defer tree.Close()
 
 	root := tree.RootNode()
-	symbols := []scanner.Symbol{}
-	imports := []scanner.Import{}
+	symbols := []types.Symbol{}
+	imports := []types.Import{}
 
 	n := int(root.ChildCount())
 	for i := 0; i < n; i++ {
@@ -50,9 +50,9 @@ func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, [
 			if params != nil {
 				sig += params.Content(content)
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       name,
-				Kind:       scanner.KindFunc,
+				Kind:       types.KindFunc,
 				Signature:  sig,
 				DocComment: pyDocstring(node, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -67,9 +67,9 @@ func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, [
 			if strings.HasPrefix(name, "_") {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       name,
-				Kind:       scanner.KindClass,
+				Kind:       types.KindClass,
 				Signature:  "class " + name,
 				DocComment: pyDocstring(node, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -81,12 +81,12 @@ func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, [
 				child := node.Child(j)
 				switch child.Type() {
 				case "dotted_name":
-					imports = append(imports, scanner.Import{Path: child.Content(content)})
+					imports = append(imports, types.Import{Path: child.Content(content)})
 				case "aliased_import":
 					nameN := child.ChildByFieldName("name")
 					aliasN := child.ChildByFieldName("alias")
 					if nameN != nil {
-						imp := scanner.Import{Path: nameN.Content(content)}
+						imp := types.Import{Path: nameN.Content(content)}
 						if aliasN != nil {
 							imp.Alias = aliasN.Content(content)
 						}
@@ -99,7 +99,7 @@ func (e *PythonExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, [
 			// from pathlib import Path  /  from os.path import join, dirname
 			moduleNode := node.ChildByFieldName("module_name")
 			if moduleNode != nil {
-				imports = append(imports, scanner.Import{Path: moduleNode.Content(content)})
+				imports = append(imports, types.Import{Path: moduleNode.Content(content)})
 			}
 		}
 	}

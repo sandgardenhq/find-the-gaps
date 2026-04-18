@@ -9,7 +9,7 @@ import (
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 // TypeScriptExtractor extracts exported symbols and imports from TypeScript and JavaScript source files.
@@ -20,9 +20,9 @@ func (e *TypeScriptExtractor) Extensions() []string {
 	return []string{".ts", ".tsx", ".js", ".jsx", ".mjs"}
 }
 
-func (e *TypeScriptExtractor) Extract(path string, content []byte) ([]scanner.Symbol, []scanner.Import, error) {
-	syms := []scanner.Symbol{}
-	imps := []scanner.Import{}
+func (e *TypeScriptExtractor) Extract(path string, content []byte) ([]types.Symbol, []types.Import, error) {
+	syms := []types.Symbol{}
+	imps := []types.Import{}
 
 	parser := sitter.NewParser()
 	defer parser.Close()
@@ -57,30 +57,30 @@ func (e *TypeScriptExtractor) Extract(path string, content []byte) ([]scanner.Sy
 	return syms, imps, nil
 }
 
-func tsExtractExport(node *sitter.Node, content []byte) (scanner.Symbol, bool) {
+func tsExtractExport(node *sitter.Node, content []byte) (types.Symbol, bool) {
 	decl := node.ChildByFieldName("declaration")
 	if decl == nil {
-		return scanner.Symbol{}, false
+		return types.Symbol{}, false
 	}
 
 	var name string
-	var kind scanner.SymbolKind
+	var kind types.SymbolKind
 
 	switch decl.Type() {
 	case "function_declaration", "function":
 		nameNode := decl.ChildByFieldName("name")
 		if nameNode == nil {
-			return scanner.Symbol{}, false
+			return types.Symbol{}, false
 		}
 		name = nameNode.Content(content)
-		kind = scanner.KindFunc
+		kind = types.KindFunc
 	case "class_declaration", "class":
 		nameNode := decl.ChildByFieldName("name")
 		if nameNode == nil {
-			return scanner.Symbol{}, false
+			return types.Symbol{}, false
 		}
 		name = nameNode.Content(content)
-		kind = scanner.KindClass
+		kind = types.KindClass
 	case "lexical_declaration":
 		// const/let — grab first declarator's name
 		for j := 0; j < int(decl.ChildCount()); j++ {
@@ -88,39 +88,39 @@ func tsExtractExport(node *sitter.Node, content []byte) (scanner.Symbol, bool) {
 			if child.Type() == "variable_declarator" {
 				nameNode := child.ChildByFieldName("name")
 				if nameNode == nil {
-					return scanner.Symbol{}, false
+					return types.Symbol{}, false
 				}
 				name = nameNode.Content(content)
-				kind = scanner.KindConst
+				kind = types.KindConst
 				break
 			}
 		}
 		if name == "" {
-			return scanner.Symbol{}, false
+			return types.Symbol{}, false
 		}
 	case "interface_declaration":
 		nameNode := decl.ChildByFieldName("name")
 		if nameNode == nil {
-			return scanner.Symbol{}, false
+			return types.Symbol{}, false
 		}
 		name = nameNode.Content(content)
-		kind = scanner.KindInterface
+		kind = types.KindInterface
 	case "type_alias_declaration":
 		nameNode := decl.ChildByFieldName("name")
 		if nameNode == nil {
-			return scanner.Symbol{}, false
+			return types.Symbol{}, false
 		}
 		name = nameNode.Content(content)
-		kind = scanner.KindType
+		kind = types.KindType
 	default:
-		return scanner.Symbol{}, false
+		return types.Symbol{}, false
 	}
 
 	line := int(decl.StartPoint().Row) + 1
 	sig := tsDeclSignature(decl, content)
 	doc := tsPrecedingComment(node, content)
 
-	return scanner.Symbol{
+	return types.Symbol{
 		Name:       name,
 		Kind:       kind,
 		Signature:  sig,
@@ -163,8 +163,8 @@ func tsPrecedingComment(node *sitter.Node, content []byte) string {
 }
 
 // tsExtractImports extracts Import entries from an import_statement node.
-func tsExtractImports(node *sitter.Node, content []byte) []scanner.Import {
-	var imps []scanner.Import
+func tsExtractImports(node *sitter.Node, content []byte) []types.Import {
+	var imps []types.Import
 
 	sourceNode := node.ChildByFieldName("source")
 	if sourceNode == nil {
@@ -184,7 +184,7 @@ func tsExtractImports(node *sitter.Node, content []byte) []scanner.Import {
 
 	if clause == nil {
 		// Side-effect import: import './polyfills'
-		imps = append(imps, scanner.Import{Path: path})
+		imps = append(imps, types.Import{Path: path})
 		return imps
 	}
 
@@ -193,7 +193,7 @@ func tsExtractImports(node *sitter.Node, content []byte) []scanner.Import {
 		switch child.Type() {
 		case "identifier":
 			// Default import: import Foo from 'x'
-			imps = append(imps, scanner.Import{Path: path})
+			imps = append(imps, types.Import{Path: path})
 		case "namespace_import":
 			// import * as Foo from 'x'
 			var alias string
@@ -203,7 +203,7 @@ func tsExtractImports(node *sitter.Node, content []byte) []scanner.Import {
 					alias = c.Content(content)
 				}
 			}
-			imps = append(imps, scanner.Import{Path: path, Alias: alias})
+			imps = append(imps, types.Import{Path: path, Alias: alias})
 		case "named_imports":
 			// import { X, Y as Z } from 'x'
 			for j := 0; j < int(child.ChildCount()); j++ {
@@ -216,7 +216,7 @@ func tsExtractImports(node *sitter.Node, content []byte) []scanner.Import {
 				if nameNode == nil {
 					continue
 				}
-				imp := scanner.Import{Path: path}
+				imp := types.Import{Path: path}
 				if aliasNode != nil {
 					imp.Alias = aliasNode.Content(content)
 				}

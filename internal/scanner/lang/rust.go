@@ -7,7 +7,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/rust"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 // RustExtractor extracts exported symbols and imports from Rust source files
@@ -20,7 +20,7 @@ func (e *RustExtractor) Extensions() []string { return []string{".rs"} }
 // Extract parses Rust source and returns pub top-level declarations and all use declarations.
 // Only items with a visibility_modifier of "pub" at the top level are returned.
 // Methods inside impl blocks are excluded.
-func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []scanner.Import, error) {
+func (e *RustExtractor) Extract(_ string, content []byte) ([]types.Symbol, []types.Import, error) {
 	parser := sitter.NewParser()
 	parser.SetLanguage(rust.GetLanguage())
 	tree, err := parser.ParseCtx(context.Background(), nil, content)
@@ -30,8 +30,8 @@ func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []s
 	defer tree.Close()
 
 	root := tree.RootNode()
-	symbols := []scanner.Symbol{}
-	imports := []scanner.Import{}
+	symbols := []types.Symbol{}
+	imports := []types.Import{}
 
 	n := int(root.ChildCount())
 	for i := 0; i < n; i++ {
@@ -45,9 +45,9 @@ func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []s
 			if nameNode == nil {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       nameNode.Content(content),
-				Kind:       scanner.KindFunc,
+				Kind:       types.KindFunc,
 				Signature:  rustFuncSig(node, content),
 				DocComment: rustPrecedingDocComment(root, i, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -61,9 +61,9 @@ func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []s
 			if nameNode == nil {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       nameNode.Content(content),
-				Kind:       scanner.KindType,
+				Kind:       types.KindType,
 				Signature:  "pub struct " + nameNode.Content(content),
 				DocComment: rustPrecedingDocComment(root, i, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -77,9 +77,9 @@ func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []s
 			if nameNode == nil {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       nameNode.Content(content),
-				Kind:       scanner.KindType,
+				Kind:       types.KindType,
 				Signature:  "pub enum " + nameNode.Content(content),
 				DocComment: rustPrecedingDocComment(root, i, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -93,9 +93,9 @@ func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []s
 			if nameNode == nil {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       nameNode.Content(content),
-				Kind:       scanner.KindInterface,
+				Kind:       types.KindInterface,
 				Signature:  "pub trait " + nameNode.Content(content),
 				DocComment: rustPrecedingDocComment(root, i, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -109,9 +109,9 @@ func (e *RustExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []s
 			if nameNode == nil {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       nameNode.Content(content),
-				Kind:       scanner.KindConst,
+				Kind:       types.KindConst,
 				Signature:  "pub const " + nameNode.Content(content),
 				DocComment: rustPrecedingDocComment(root, i, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -183,14 +183,14 @@ func rustPrecedingDocComment(parent *sitter.Node, childIdx int, content []byte) 
 //	use std::io;                           → use_declaration > scoped_identifier
 //	use std::collections::HashMap as Map; → use_declaration > use_as_clause
 //	                                              > scoped_identifier + "as" + identifier
-func rustParseUseDecl(node *sitter.Node, content []byte) (scanner.Import, bool) {
+func rustParseUseDecl(node *sitter.Node, content []byte) (types.Import, bool) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		switch child.Type() {
 		case "scoped_identifier", "identifier":
 			// Plain use: `use std::io;`
 			path := child.Content(content)
-			return scanner.Import{Path: path}, true
+			return types.Import{Path: path}, true
 
 		case "use_as_clause":
 			// Aliased use: `use std::collections::HashMap as Map;`
@@ -208,10 +208,10 @@ func rustParseUseDecl(node *sitter.Node, content []byte) (scanner.Import, bool) 
 				}
 			}
 			if path == "" {
-				return scanner.Import{}, false
+				return types.Import{}, false
 			}
-			return scanner.Import{Path: path, Alias: alias}, true
+			return types.Import{Path: path, Alias: alias}, true
 		}
 	}
-	return scanner.Import{}, false
+	return types.Import{}, false
 }

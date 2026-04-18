@@ -3,7 +3,7 @@ package lang
 import (
 	"testing"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 // TestRustExtractor_pubFn_extracted verifies that a pub fn is extracted as KindFunc.
@@ -27,7 +27,7 @@ fn private_helper() {}
 	if syms[0].Name != "process" {
 		t.Errorf("name: got %q, want process", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindFunc {
+	if syms[0].Kind != types.KindFunc {
 		t.Errorf("kind: got %q, want func", syms[0].Kind)
 	}
 	if syms[0].Line == 0 {
@@ -74,7 +74,7 @@ struct InternalState {}
 	if syms[0].Name != "Config" {
 		t.Errorf("name: got %q, want Config", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindType {
+	if syms[0].Kind != types.KindType {
 		t.Errorf("kind: got %q, want type", syms[0].Kind)
 	}
 }
@@ -103,7 +103,7 @@ enum PrivateState {
 	if syms[0].Name != "Status" {
 		t.Errorf("name: got %q, want Status", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindType {
+	if syms[0].Kind != types.KindType {
 		t.Errorf("kind: got %q, want type", syms[0].Kind)
 	}
 }
@@ -131,7 +131,7 @@ trait PrivateTrait {
 	if syms[0].Name != "Drawable" {
 		t.Errorf("name: got %q, want Drawable", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindInterface {
+	if syms[0].Kind != types.KindInterface {
 		t.Errorf("kind: got %q, want interface", syms[0].Kind)
 	}
 }
@@ -153,7 +153,7 @@ const PRIVATE_LIMIT: usize = 64;
 	if syms[0].Name != "MAX_SIZE" {
 		t.Errorf("name: got %q, want MAX_SIZE", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindConst {
+	if syms[0].Kind != types.KindConst {
 		t.Errorf("kind: got %q, want const", syms[0].Kind)
 	}
 }

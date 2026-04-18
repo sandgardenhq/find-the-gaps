@@ -9,7 +9,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	golang "github.com/smacker/go-tree-sitter/golang"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 // GoExtractor extracts exported symbols and imports from Go source files
@@ -20,7 +20,7 @@ func (e *GoExtractor) Language() string     { return "Go" }
 func (e *GoExtractor) Extensions() []string { return []string{".go"} }
 
 // Extract parses Go source and returns exported top-level declarations and all imports.
-func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []scanner.Import, error) {
+func (e *GoExtractor) Extract(_ string, content []byte) ([]types.Symbol, []types.Import, error) {
 	parser := sitter.NewParser()
 	parser.SetLanguage(golang.GetLanguage())
 	tree, err := parser.ParseCtx(context.Background(), nil, content)
@@ -30,8 +30,8 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 	defer tree.Close()
 
 	root := tree.RootNode()
-	var symbols []scanner.Symbol
-	var imports []scanner.Import
+	var symbols []types.Symbol
+	var imports []types.Import
 
 	n := int(root.ChildCount())
 	for i := 0; i < n; i++ {
@@ -42,9 +42,9 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 			if nameNode == nil || !goIsExported(nameNode.Content(content)) {
 				continue
 			}
-			symbols = append(symbols, scanner.Symbol{
+			symbols = append(symbols, types.Symbol{
 				Name:       nameNode.Content(content),
-				Kind:       scanner.KindFunc,
+				Kind:       types.KindFunc,
 				Signature:  goFuncSig(node, content),
 				DocComment: goPrecedingComment(root, i, content),
 				Line:       int(node.StartPoint().Row) + 1,
@@ -65,9 +65,9 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 				if typeNode != nil {
 					sig += " " + typeNode.Type()
 				}
-				symbols = append(symbols, scanner.Symbol{
+				symbols = append(symbols, types.Symbol{
 					Name:       nameNode.Content(content),
-					Kind:       scanner.KindType,
+					Kind:       types.KindType,
 					Signature:  sig,
 					DocComment: goPrecedingComment(root, i, content),
 					Line:       int(spec.StartPoint().Row) + 1,
@@ -84,9 +84,9 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 				if nameNode == nil || !goIsExported(nameNode.Content(content)) {
 					continue
 				}
-				symbols = append(symbols, scanner.Symbol{
+				symbols = append(symbols, types.Symbol{
 					Name:       nameNode.Content(content),
-					Kind:       scanner.KindConst,
+					Kind:       types.KindConst,
 					Signature:  "const " + nameNode.Content(content),
 					DocComment: goPrecedingComment(root, i, content),
 					Line:       int(spec.StartPoint().Row) + 1,
@@ -103,9 +103,9 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 					if nameNode == nil || !goIsExported(nameNode.Content(content)) {
 						continue
 					}
-					symbols = append(symbols, scanner.Symbol{
+					symbols = append(symbols, types.Symbol{
 						Name:       nameNode.Content(content),
-						Kind:       scanner.KindVar,
+						Kind:       types.KindVar,
 						Signature:  "var " + nameNode.Content(content),
 						DocComment: goPrecedingComment(root, i, content),
 						Line:       int(child.StartPoint().Row) + 1,
@@ -121,9 +121,9 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 						if nameNode == nil || !goIsExported(nameNode.Content(content)) {
 							continue
 						}
-						symbols = append(symbols, scanner.Symbol{
+						symbols = append(symbols, types.Symbol{
 							Name:       nameNode.Content(content),
-							Kind:       scanner.KindVar,
+							Kind:       types.KindVar,
 							Signature:  "var " + nameNode.Content(content),
 							DocComment: goPrecedingComment(root, i, content),
 							Line:       int(spec.StartPoint().Row) + 1,
@@ -143,8 +143,8 @@ func (e *GoExtractor) Extract(_ string, content []byte) ([]scanner.Symbol, []sca
 // goExtractImports handles both grouped import blocks and single-line imports.
 // A grouped block has an import_spec_list child; a single-line import has an
 // import_spec directly under the import_declaration.
-func goExtractImports(importDecl *sitter.Node, content []byte) []scanner.Import {
-	var result []scanner.Import
+func goExtractImports(importDecl *sitter.Node, content []byte) []types.Import {
+	var result []types.Import
 	for j := 0; j < int(importDecl.ChildCount()); j++ {
 		child := importDecl.Child(j)
 		switch child.Type() {
@@ -167,12 +167,12 @@ func goExtractImports(importDecl *sitter.Node, content []byte) []scanner.Import 
 	return result
 }
 
-func goParseImportSpec(spec *sitter.Node, content []byte) (scanner.Import, bool) {
+func goParseImportSpec(spec *sitter.Node, content []byte) (types.Import, bool) {
 	pathNode := spec.ChildByFieldName("path")
 	if pathNode == nil {
-		return scanner.Import{}, false
+		return types.Import{}, false
 	}
-	imp := scanner.Import{
+	imp := types.Import{
 		Path: strings.Trim(pathNode.Content(content), `"`),
 	}
 	aliasNode := spec.ChildByFieldName("name")

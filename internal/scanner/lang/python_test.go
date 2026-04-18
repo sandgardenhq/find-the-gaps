@@ -3,7 +3,7 @@ package lang
 import (
 	"testing"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 func TestPythonExtractor_publicFunc_extracted(t *testing.T) {
@@ -22,7 +22,7 @@ def _private(x):
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %v", len(syms), syms)
 	}
-	if syms[0].Name != "process_data" || syms[0].Kind != scanner.KindFunc {
+	if syms[0].Name != "process_data" || syms[0].Kind != types.KindFunc {
 		t.Errorf("got %+v", syms[0])
 	}
 }
@@ -40,7 +40,7 @@ class _Internal:
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if len(syms) != 1 || syms[0].Name != "MyClient" || syms[0].Kind != scanner.KindClass {
+	if len(syms) != 1 || syms[0].Name != "MyClient" || syms[0].Kind != types.KindClass {
 		t.Errorf("got %v", syms)
 	}
 }

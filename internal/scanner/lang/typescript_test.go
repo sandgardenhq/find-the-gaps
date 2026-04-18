@@ -3,7 +3,7 @@ package lang
 import (
 	"testing"
 
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
 )
 
 // --- exported function ---
@@ -27,7 +27,7 @@ function internal() {}
 	if syms[0].Name != "processData" {
 		t.Errorf("name: got %q, want processData", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindFunc {
+	if syms[0].Kind != types.KindFunc {
 		t.Errorf("kind: got %q, want func", syms[0].Kind)
 	}
 }
@@ -47,7 +47,7 @@ func TestTypeScriptExtractor_exportedClass_extracted(t *testing.T) {
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %v", len(syms), syms)
 	}
-	if syms[0].Name != "MyService" || syms[0].Kind != scanner.KindClass {
+	if syms[0].Name != "MyService" || syms[0].Kind != types.KindClass {
 		t.Errorf("got %+v", syms[0])
 	}
 }
@@ -66,7 +66,7 @@ const hidden = true;
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %v", len(syms), syms)
 	}
-	if syms[0].Name != "MAX_RETRIES" || syms[0].Kind != scanner.KindConst {
+	if syms[0].Name != "MAX_RETRIES" || syms[0].Kind != types.KindConst {
 		t.Errorf("got %+v", syms[0])
 	}
 }
@@ -87,7 +87,7 @@ func TestTypeScriptExtractor_exportedInterface_extracted(t *testing.T) {
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %v", len(syms), syms)
 	}
-	if syms[0].Name != "User" || syms[0].Kind != scanner.KindInterface {
+	if syms[0].Name != "User" || syms[0].Kind != types.KindInterface {
 		t.Errorf("got %+v", syms[0])
 	}
 }
@@ -105,7 +105,7 @@ func TestTypeScriptExtractor_exportedTypeAlias_extracted(t *testing.T) {
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %v", len(syms), syms)
 	}
-	if syms[0].Name != "ID" || syms[0].Kind != scanner.KindType {
+	if syms[0].Name != "ID" || syms[0].Kind != types.KindType {
 		t.Errorf("got %+v", syms[0])
 	}
 }
@@ -289,7 +289,7 @@ func TestTypeScriptExtractor_jsFile_exportedFunc(t *testing.T) {
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %v", len(syms), syms)
 	}
-	if syms[0].Name != "greet" || syms[0].Kind != scanner.KindFunc {
+	if syms[0].Name != "greet" || syms[0].Kind != types.KindFunc {
 		t.Errorf("got %+v", syms[0])
 	}
 }
@@ -310,7 +310,7 @@ func TestTypeScriptExtractor_exportedLet_extracted(t *testing.T) {
 	if syms[0].Name != "defaultTimeout" {
 		t.Errorf("name: got %q", syms[0].Name)
 	}
-	if syms[0].Kind != scanner.KindConst {
+	if syms[0].Kind != types.KindConst {
 		t.Errorf("kind: got %q, want const", syms[0].Kind)
 	}
 }
