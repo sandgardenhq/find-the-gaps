@@ -46,3 +46,18 @@
 - Linting: Clean (`golangci-lint run`, 0 issues)
 - Dependencies added: `github.com/smacker/go-tree-sitter@v0.0.0-20240827094217-dd81d9e9be82`, `github.com/sabhiram/go-gitignore@v0.0.0-20210923224102-525f6e181f06`
 - Completed: 2026-04-17
+
+## Task 2: Extractor Interface + Language Stubs - COMPLETE
+
+- Started: 2026-04-17
+- Goal: Define the `Extractor` interface in `internal/scanner/lang/extractor.go`, implement `Detect()` in `detect.go`, and add stub extractors for Go, Python, TypeScript, Rust, and Generic.
+- TDD cycle:
+  - **RED**: Wrote `detect_test.go` with 7 tests (per-language detection, generic fallback, binary nil return). All failed — package did not exist.
+  - **GREEN**: Created `extractor.go` (interface), `detect.go` (registry + `Detect`), `go.go`, `python.go`, `typescript.go`, `rust.go`, `generic.go` (stub extractors). Tests passed; coverage was 75% due to uncovered `Extract()` stubs and `GenericExtractor.Extensions()`.
+  - **COVERAGE FIX**: Added `stubs_test.go` with `TestStub_Extract_returnsNil` and `TestGenericExtractor_Extensions` to exercise all stub bodies. Coverage reached 100%.
+- Tests: 9 passing, 0 failing (7 detect tests + 2 stub coverage tests)
+- Coverage: internal/scanner/lang: 100.0% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-17
+- Notes: Stub `Extract()` bodies intentionally return `nil, nil, nil` (to be replaced in Tasks 3-7 with real tree-sitter implementations). Coverage tests satisfy the 90% gate without adding logic.
