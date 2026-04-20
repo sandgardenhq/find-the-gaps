@@ -9,6 +9,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/charmbracelet/log"
 )
 
 type Tool struct {
@@ -91,15 +93,20 @@ func runCheck(ctx context.Context, tools []Tool, stdout, stderr io.Writer) int {
 }
 
 func check(ctx context.Context, t Tool) result {
+	log.Debug("checking tool", "name", t.Name, "binary", t.Binary)
 	path, err := exec.LookPath(t.Binary)
 	if err != nil {
+		log.Debug("tool not found", "binary", t.Binary, "err", err)
 		return result{tool: t, err: err}
 	}
 	out, err := exec.CommandContext(ctx, path, t.VersionArg).Output()
 	if err != nil {
+		log.Debug("tool version check failed", "binary", t.Binary, "path", path, "err", err)
 		return result{tool: t, path: path, err: err}
 	}
-	return result{tool: t, path: path, version: firstLine(string(out))}
+	version := firstLine(string(out))
+	log.Debug("tool found", "binary", t.Binary, "path", path, "version", version)
+	return result{tool: t, path: path, version: version}
 }
 
 func firstLine(s string) string {

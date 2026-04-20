@@ -183,6 +183,21 @@ func TestRun_noVerbose_noDebugOutput(t *testing.T) {
 	}
 }
 
+func TestRun_verbose_doctorShowsDebugOutput(t *testing.T) {
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(log.InfoLevel)
+	})
+	// Running doctor --verbose must produce DEBU lines in stderr
+	// regardless of whether rg/mdfetch are installed.
+	var stdout, stderr bytes.Buffer
+	run(&stdout, &stderr, []string{"--verbose", "doctor"})
+	// Do not assert exit code — tools may or may not be present in CI.
+	if !strings.Contains(stderr.String(), "DEBU") {
+		t.Errorf("expected DEBU lines in stderr with --verbose doctor; got: %q", stderr.String())
+	}
+}
+
 func TestRun_noVerbose_infoLogsVisible(t *testing.T) {
 	t.Cleanup(func() {
 		log.SetOutput(os.Stderr)
