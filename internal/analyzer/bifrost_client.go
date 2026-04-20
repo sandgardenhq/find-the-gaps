@@ -32,7 +32,11 @@ func (a *bifrostAccount) GetConfiguredProviders() ([]schemas.ModelProvider, erro
 
 func (a *bifrostAccount) GetKeysForProvider(ctx context.Context, provider schemas.ModelProvider) ([]schemas.Key, error) {
 	if provider == a.provider {
-		return []schemas.Key{{Value: *schemas.NewEnvVar(a.apiKey), Weight: 1.0}}, nil
+		return []schemas.Key{{
+			Value:  *schemas.NewEnvVar(a.apiKey),
+			Models: schemas.WhiteList{"*"},
+			Weight: 1.0,
+		}}, nil
 	}
 	return nil, fmt.Errorf("unsupported provider: %s", provider)
 }
