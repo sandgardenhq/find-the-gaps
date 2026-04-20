@@ -195,5 +195,7 @@ func TestMapFeaturesToCode_FilesWithNoSymbols_Skipped(t *testing.T) {
 	if c.callCount != 0 {
 		t.Errorf("expected 0 LLM calls, got %d", c.callCount)
 	}
-	_ = got
+	if len(got) != 0 {
+		t.Errorf("expected empty FeatureMap, got %v", got)
+	}
 }

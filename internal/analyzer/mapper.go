@@ -10,7 +10,7 @@ import (
 )
 
 // MapperTokenBudget is the maximum tokens per MapFeaturesToCode LLM call.
-// Set well below the model minimum (1M) to leave room for the response.
+// Set well below the model maximum (1M) to leave room for the response.
 const MapperTokenBudget = 80_000
 
 type mapEntry struct {
@@ -93,12 +93,14 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 		}
 		if tokenCount > tokenBudget && len(batch) > 1 {
 			mid := len(batch) / 2
-			first := batch[:mid]
-			second := batch[mid:]
-			// Insert both halves at position i+1 so they are processed next.
-			rest := append([][]string{first, second}, queue[i+1:]...)
-			queue = append(queue[:i], rest...)
-			i-- // re-process position i (now has first half)
+			first := append([]string(nil), batch[:mid]...)
+			second := append([]string(nil), batch[mid:]...)
+			newQueue := make([][]string, 0, len(queue)-1+2)
+			newQueue = append(newQueue, queue[:i]...)
+			newQueue = append(newQueue, first, second)
+			newQueue = append(newQueue, queue[i+1:]...)
+			queue = newQueue
+			i-- // re-process position i so the loop counter increment lands on `first`
 			continue
 		}
 
