@@ -24,7 +24,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		}
 		model := cfg.Model
 		if model == "" {
-			model = "llama4"
+			model = "llama3.1"
 		}
 		return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), nil
 
