@@ -1,5 +1,15 @@
 # Progress
 
+## Task 5 (LLM Analysis): Extend spider.Index with analysis fields - COMPLETE
+- Started: 2026-04-20
+- Tests written: TestIndex_RecordAnalysis_PersistsAndLoads, TestIndex_SetProductSummary_PersistsAndLoads
+- Tests: 30 passing, 0 failing (2 new + 28 existing spider tests)
+- Coverage: 94.4% of statements (internal/spider)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes: RED confirmed with 7x compile errors (RecordAnalysis/Analysis/SetProductSummary/ProductSummary/AllFeatures undefined). Schema is backward-incompatible: old flat map `{"url":{...}}` replaced with `{"pages":{"url":{...}},"product_summary":"...","all_features":[...]}`. Existing TestLoadIndex_existingIndex_loadsEntries test updated to use new schema format. Record() now preserves existing Summary/Features when updating Filename/FetchedAt (reads entry, updates fields, writes back). Commit: 790165e.
+
 ## Task 4 (LLM Analysis): MapFeaturesToCode - COMPLETE
 - Started: 2026-04-20
 - Tests written: TestMapFeaturesToCode_ReturnsMappings, TestMapFeaturesToCode_EmptyFeatures_ReturnsEmpty, TestMapFeaturesToCode_ClientError_Propagates, TestMapFeaturesToCode_InvalidJSON_ReturnsError, TestMapFeaturesToCode_NilFilesAndSymbols_NormalizedToEmpty
