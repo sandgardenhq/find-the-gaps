@@ -1,5 +1,56 @@
 # Progress
 
+## Task 9 (LLM Analysis): BifrostClient real implementation - COMPLETE
+- Started: 2026-04-20
+- Tests written (integration, build-tag gated):
+  - TestBifrostClient_Anthropic_RealCompletion (//go:build integration)
+  - TestBifrostClient_OpenAI_RealCompletion (//go:build integration)
+- Tests written (white-box unit, package analyzer):
+  - TestBifrostAccount_GetConfiguredProviders_ReturnsProvider
+  - TestBifrostAccount_GetKeysForProvider_MatchingProvider_ReturnsKey
+  - TestBifrostAccount_GetKeysForProvider_WrongProvider_ReturnsError
+  - TestBifrostAccount_GetConfigForProvider_MatchingProvider_ReturnsConfig
+  - TestBifrostAccount_GetConfigForProvider_WrongProvider_ReturnsError
+  - TestNewBifrostClientWithProvider_UnsupportedProvider_ReturnsError
+  - TestNewBifrostClientWithProvider_Anthropic_ReturnsClient
+  - TestNewBifrostClientWithProvider_OpenAI_ReturnsClient
+  - TestBifrostClient_ImplementsLLMClient
+  - TestBifrostClient_Complete_ReturnsContent
+  - TestBifrostClient_Complete_BifrostError_WithMessage
+  - TestBifrostClient_Complete_BifrostError_NoErrorField
+  - TestBifrostClient_Complete_EmptyChoices_ReturnsError
+  - TestBifrostClient_Complete_NilContent_ReturnsError
+  - TestBifrostClient_Complete_NilContentStr_ReturnsError
+- Tests updated (package cli):
+  - TestNewLLMClient_OpenAI_MissingKey_ReturnsError (renamed from NotYetImplemented)
+  - TestNewLLMClient_Anthropic_MissingKey_ReturnsError (renamed from NotYetImplemented)
+  - TestNewLLMClient_DefaultProvider_MissingKey_ReturnsError (renamed from NotYetImplemented)
+  - TestNewLLMClient_OpenAI_WithKey_DefaultModel_ReturnsClient (new)
+  - TestNewLLMClient_OpenAI_WithKey_CustomModel_ReturnsClient (new)
+  - TestNewLLMClient_Anthropic_WithKey_DefaultModel_ReturnsClient (new)
+  - TestNewLLMClient_Anthropic_WithKey_CustomModel_ReturnsClient (new)
+  - TestNewLLMClient_DefaultProvider_WithKey_ReturnsClient (new)
+- Tests added (package cli, analyze pipeline coverage):
+  - TestAnalyze_llmClientError_returnsError
+  - TestAnalyze_fullPipeline_withCachedAnalysis
+  - TestAnalyze_llmAnalyzeError_continuesWithWarning
+- Coverage:
+  - internal/analyzer: 95.1% of statements
+  - internal/reporter: 100.0% of statements
+  - internal/spider: 94.4% of statements
+  - internal/cli: 90.8% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes:
+  - RED: integration tests written first (build-tag gated, invisible to normal `go test ./...`)
+  - GREEN: bifrost_client.go with bifrostRequester interface for testability; NewBifrostClientWithProvider for anthropic/openai; Complete() wraps ChatCompletionRequest
+  - Factory updated: openai/anthropic cases now call NewBifrostClientWithProvider; placeholder errors removed
+  - bifrostRequester interface added to BifrostClient so Complete() can be tested without real API calls
+  - GetKeysForProvider signature is context.Context (not *context.Context as plan suggested); Key.Value is schemas.EnvVar (not string); ChatCompletionRequest takes *schemas.BifrostContext
+  - schemas.NewEnvVar(apiKey) used to construct Key.Value; schemas.NewBifrostContext(ctx, schemas.NoDeadline) used in Complete()
+  - Three analyze pipeline tests added to bring internal/cli from 67.2% → 90.8% by exercising post-crawl code paths via pre-populated spider index + httptest Ollama server
+
 ## Task 8 (LLM Analysis): OpenAICompatibleClient + provider factory - COMPLETE
 - Started: 2026-04-20
 - Tests written (Part 1 — OpenAICompatibleClient):

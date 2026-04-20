@@ -45,24 +45,27 @@ func TestNewLLMClient_UnknownProvider_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestNewLLMClient_OpenAI_NotYetImplemented_ReturnsError(t *testing.T) {
+func TestNewLLMClient_OpenAI_MissingKey_ReturnsError(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
 	_, err := newLLMClient(LLMConfig{Provider: "openai"})
 	if err == nil {
-		t.Fatal("expected error: bifrost provider not yet implemented")
+		t.Fatal("expected error when OPENAI_API_KEY is not set")
 	}
 }
 
-func TestNewLLMClient_Anthropic_NotYetImplemented_ReturnsError(t *testing.T) {
+func TestNewLLMClient_Anthropic_MissingKey_ReturnsError(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	_, err := newLLMClient(LLMConfig{Provider: "anthropic"})
 	if err == nil {
-		t.Fatal("expected error: bifrost provider not yet implemented")
+		t.Fatal("expected error when ANTHROPIC_API_KEY is not set")
 	}
 }
 
-func TestNewLLMClient_DefaultProvider_NotYetImplemented_ReturnsError(t *testing.T) {
+func TestNewLLMClient_DefaultProvider_MissingKey_ReturnsError(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	_, err := newLLMClient(LLMConfig{Provider: ""})
 	if err == nil {
-		t.Fatal("expected error: bifrost provider not yet implemented")
+		t.Fatal("expected error when ANTHROPIC_API_KEY is not set for default provider")
 	}
 }
 
@@ -86,6 +89,61 @@ func TestNewLLMClient_LMStudio_CustomBaseURL(t *testing.T) {
 func TestNewLLMClient_OpenAICompatible_WithAPIKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	c, err := newLLMClient(LLMConfig{Provider: "openai-compatible", BaseURL: "http://localhost:8080", Model: "my-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_OpenAI_WithKey_DefaultModel_ReturnsClient(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "fake-key")
+	c, err := newLLMClient(LLMConfig{Provider: "openai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_OpenAI_WithKey_CustomModel_ReturnsClient(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "fake-key")
+	c, err := newLLMClient(LLMConfig{Provider: "openai", Model: "gpt-4-turbo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_Anthropic_WithKey_DefaultModel_ReturnsClient(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+	c, err := newLLMClient(LLMConfig{Provider: "anthropic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_Anthropic_WithKey_CustomModel_ReturnsClient(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+	c, err := newLLMClient(LLMConfig{Provider: "anthropic", Model: "claude-3-haiku-20240307"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestNewLLMClient_DefaultProvider_WithKey_ReturnsClient(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+	c, err := newLLMClient(LLMConfig{Provider: ""})
 	if err != nil {
 		t.Fatal(err)
 	}

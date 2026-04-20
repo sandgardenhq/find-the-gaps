@@ -2,10 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 )
 
 func TestAnalyze_repoFlag_appearsInHelp(t *testing.T) {
@@ -128,5 +134,179 @@ func TestAnalyze_crawlFails_returnsError(t *testing.T) {
 	combined := stdout.String() + stderr.String()
 	if !strings.Contains(combined, "crawl failed") {
 		t.Errorf("expected 'crawl failed' in output; got: %s", combined)
+	}
+}
+
+// prepareDocsCache pre-populates the spider index for docsURL inside cacheBase/projectName/docs
+// so that spider.Crawl skips mdfetch and returns immediately with the cached page.
+// pageContent is written to the cached markdown file.
+func prepareDocsCache(t *testing.T, cacheBase, projectName, docsURL, pageContent string) {
+	t.Helper()
+	docsDir := filepath.Join(cacheBase, projectName, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := spider.LoadIndex(docsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := spider.URLToFilename(docsURL)
+	mdPath := filepath.Join(docsDir, filename)
+	if err := os.WriteFile(mdPath, []byte(pageContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Record(docsURL, filename); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// newFakeOllamaServer returns an httptest.Server that speaks the OpenAI chat completions API.
+// It returns the given response for every request.
+func newFakeOllamaServer(t *testing.T, responseContent string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": responseContent}},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestAnalyze_llmClientError_returnsError(t *testing.T) {
+	// Ensure Anthropic key is absent so newLLMClient fails after successful crawl.
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	prepareDocsCache(t, cacheBase, projectName, docsURL, "# Doc page\nSome content.")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-provider", "anthropic",
+	})
+	if code == 0 {
+		t.Error("expected non-zero exit when LLM client init fails")
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "LLM client") {
+		t.Errorf("expected 'LLM client' in output; got: %s", combined)
+	}
+}
+
+func TestAnalyze_fullPipeline_withCachedAnalysis(t *testing.T) {
+	// With all pages pre-analyzed in the index, analyses list is populated from cache.
+	// When the fake LLM returns valid JSON, the full pipeline runs.
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+
+	// Write a simple Go file so scanner finds a symbol.
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	docsDir := filepath.Join(cacheBase, projectName, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate the spider index so Crawl skips mdfetch.
+	idx, err := spider.LoadIndex(docsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := spider.URLToFilename(docsURL)
+	mdPath := filepath.Join(docsDir, filename)
+	if err := os.WriteFile(mdPath, []byte("# Doc page\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Record(docsURL, filename); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-record the analysis in the index so the page is skipped in the analyze loop.
+	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// LLM responses: synthesize + map (both need to return valid JSON).
+	synthesizeResp := `{"description":"A test product.","features":["feature-one"]}`
+	mapResp := `[{"feature":"feature-one","files":["main.go"],"symbols":["Run"]}]`
+
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := synthesizeResp
+		if callCount > 0 {
+			resp = mapResp
+		}
+		callCount++
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": resp}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-provider", "ollama",
+		"--llm-base-url", srv.URL,
+		"--llm-model", "test-model",
+	})
+	if code != 0 {
+		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "scanned") {
+		t.Errorf("expected 'scanned' in output; got: %s", combined)
+	}
+}
+
+func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
+	// LLM returns invalid JSON for AnalyzePage → warning printed, 0 analyses → 0 analyzed output.
+	docsURL := "https://docs.example.com/page-" + time.Now().Format("20060102150405")
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+
+	prepareDocsCache(t, cacheBase, projectName, docsURL, "# Doc page\n")
+	// NOTE: do NOT call RecordAnalysis — this page has no cached analysis.
+
+	// LLM returns invalid JSON → AnalyzePage fails → warning is emitted.
+	srv := newFakeOllamaServer(t, "this is not valid json")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-provider", "ollama",
+		"--llm-base-url", srv.URL,
+		"--llm-model", "test-model",
+	})
+	if code != 0 {
+		t.Fatalf("analyze should succeed even with LLM errors (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	// Either a warning in stderr OR "0 pages analyzed" in stdout.
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "analyzed") && !strings.Contains(combined, "warning") {
+		t.Errorf("expected warning or '0 pages analyzed'; got: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }

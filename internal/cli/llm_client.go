@@ -48,12 +48,26 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		return analyzer.NewOpenAICompatibleClient(cfg.BaseURL, cfg.Model, os.Getenv("OPENAI_API_KEY")), nil
 
 	case "openai":
-		// BifrostClient not yet implemented (Task 9).
-		return nil, fmt.Errorf("bifrost provider not yet implemented")
+		key := os.Getenv("OPENAI_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("OPENAI_API_KEY environment variable not set")
+		}
+		model := cfg.Model
+		if model == "" {
+			model = "gpt-4o-mini"
+		}
+		return analyzer.NewBifrostClientWithProvider("openai", key, model)
 
 	case "anthropic", "":
-		// BifrostClient not yet implemented (Task 9).
-		return nil, fmt.Errorf("bifrost provider not yet implemented")
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set (or use --llm-provider ollama for a local model)")
+		}
+		model := cfg.Model
+		if model == "" {
+			model = "claude-3-5-sonnet-20241022"
+		}
+		return analyzer.NewBifrostClientWithProvider("anthropic", key, model)
 
 	default:
 		return nil, fmt.Errorf("unknown --llm-provider %q (supported: anthropic, openai, ollama, lmstudio, openai-compatible)", cfg.Provider)
