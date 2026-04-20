@@ -1,5 +1,15 @@
 # Progress
 
+## Task 7 (LLM Analysis): Wire analyzer into analyze CLI - COMPLETE
+- Started: 2026-04-20
+- Tests written: analyze_llm_flags.txtar (new txtar asserting --llm-provider accepted without error)
+- Tests: 196 passing, 0 failing
+- Coverage: Existing packages unaffected; stub llm_client.go path not reachable without --docs-url
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues via golangci-lint ./internal/cli/... ./cmd/...)
+- Completed: 2026-04-20
+- Notes: RED = "unknown flag: --llm-provider"; GREEN = analyze.go rewritten with 3 new flags + full pipeline; llm_client.go stub returns error never reached when no --docs-url; both analyze_llm_flags.txtar and analyze_stub.txtar pass; commit d8f3022
+
 ## Task 6 (LLM Analysis): internal/reporter WriteMapping and WriteGaps - COMPLETE
 - Started: 2026-04-20
 - Tests written: TestWriteMapping_CreatesFile, TestWriteGaps_CreatesFile, TestWriteMapping_EmptyMapping_Succeeds, TestWriteGaps_NoneFound, TestWriteGaps_SkipsNonFuncTypeInterface, TestWriteGaps_UnexportedSymbolSkipped
