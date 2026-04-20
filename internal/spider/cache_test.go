@@ -52,7 +52,7 @@ func TestLoadIndex_emptyDir_returnsEmptyIndex(t *testing.T) {
 
 func TestLoadIndex_existingIndex_loadsEntries(t *testing.T) {
 	dir := t.TempDir()
-	data := `{"https://docs.example.com/intro":{"filename":"abc.md","fetched_at":"2026-01-01T00:00:00Z"}}`
+	data := `{"pages":{"https://docs.example.com/intro":{"filename":"abc.md","fetched_at":"2026-01-01T00:00:00Z"}}}`
 	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -144,5 +144,61 @@ func TestIndex_All_returnsAllEntries(t *testing.T) {
 	}
 	if all["https://docs.example.com/a"] != filepath.Join(dir, "a.md") {
 		t.Errorf("wrong path for /a: %q", all["https://docs.example.com/a"])
+	}
+}
+
+func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := idx.Record("https://example.com", "abc.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.RecordAnalysis("https://example.com", "Covers install.", []string{"Homebrew install"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reload and verify
+	idx2, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	summary, features, ok := idx2.Analysis("https://example.com")
+	if !ok {
+		t.Fatal("expected analysis to be found")
+	}
+	if summary != "Covers install." {
+		t.Errorf("Summary: got %q", summary)
+	}
+	if len(features) != 1 || features[0] != "Homebrew install" {
+		t.Errorf("Features: got %v", features)
+	}
+}
+
+func TestIndex_SetProductSummary_PersistsAndLoads(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := idx.SetProductSummary("A CLI tool.", []string{"gap analysis", "doctor"}); err != nil {
+		t.Fatal(err)
+	}
+
+	idx2, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if idx2.ProductSummary != "A CLI tool." {
+		t.Errorf("ProductSummary: got %q", idx2.ProductSummary)
+	}
+	if len(idx2.AllFeatures) != 2 {
+		t.Errorf("AllFeatures: got %v", idx2.AllFeatures)
 	}
 }
