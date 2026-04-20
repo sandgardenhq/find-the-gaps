@@ -4,12 +4,14 @@ import "context"
 
 // fakeClient is a test double for analyzer.LLMClient.
 type fakeClient struct {
-	responses []string // popped in order; last entry repeated when exhausted
-	callCount int
-	forcedErr error
+	responses       []string // popped in order; last entry repeated when exhausted
+	callCount       int
+	forcedErr       error
+	receivedPrompts []string
 }
 
-func (f *fakeClient) Complete(_ context.Context, _ string) (string, error) {
+func (f *fakeClient) Complete(_ context.Context, prompt string) (string, error) {
+	f.receivedPrompts = append(f.receivedPrompts, prompt)
 	if f.forcedErr != nil {
 		return "", f.forcedErr
 	}
@@ -19,7 +21,8 @@ func (f *fakeClient) Complete(_ context.Context, _ string) (string, error) {
 	idx := f.callCount
 	if idx >= len(f.responses) {
 		idx = len(f.responses) - 1
+	} else {
+		f.callCount++
 	}
-	f.callCount++
 	return f.responses[idx], nil
 }
