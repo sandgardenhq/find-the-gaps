@@ -5,18 +5,23 @@
 - Tests written first (RED):
   - TestMapFeaturesToCode_AllFilesProcessed_NoneSkipped — 5 files, budget=1, fakeCounter returns 0, asserts 5 LLM calls (one per file), no error
   - TestMapFeaturesToCode_TinyBudget_AllFilesStillCovered — 2 files, budget=0, fakeCounter returns 0, asserts both files appear in merged result
-- RED state: both tests are new; they verify the happy path (all files ARE covered). The coverage check guards against future regressions where batching might silently skip files.
+  - TestMapFeaturesToCode_MixedScan_SymbollessFilesSkippedInCoverageCheck — exercises len(f.Symbols)==0 continue branch in coverage check loop
+  - TestMapFeaturesToCode_CoverageCheckFails_ReturnsError — file path with ": " triggers SplitN mismatch → coverage check error path
+  - TestMapFeaturesToCode_CounterError_Propagates — errorCounter returns error, verifies propagation through counter.CountTokens path
+  - TestMapFeaturesToCode_UnknownFeatureInResponse_Ignored — LLM returns unknown feature name, verifies silent skip in accumulator
+- RED state: first two tests verify happy path (all files ARE covered); last four specifically target uncovered defensive branches.
 - GREEN: Added post-batch coverage verification to mapper.go — builds `batched` map from all initial batches, then checks every file with symbols appears in at least one batch; returns error immediately if not (fail-fast before any LLM calls).
-- Tests: 10 passing (all MapFeaturesToCode_* tests), 0 failing; all packages green
+- Tests: 14 passing (all MapFeaturesToCode_* tests), 0 failing; all packages green
 - Coverage:
-  - internal/analyzer: 89.7% of statements
-  - mapper.go: 94.4%
+  - internal/analyzer: 91.9% of statements (up from 89.7%)
+  - mapper.go: MapFeaturesToCode now exercises all 4 previously-uncovered branch paths
 - Build: ✅ Successful
 - Linting: ✅ Clean (0 issues)
 - Completed: 2026-04-20
 - Notes:
   - Coverage check uses initialBatches (not queue) so it runs before any split-and-retry; this is correct — if batchSymLines dropped a file it would be caught here before spending tokens
   - AnthropicCounter (NewAnthropicCounter/CountTokens) at 0% is expected — integration-only, requires live API key per plan design
+  - The colon-space trick (path "a: b.go") is the only way to trigger the defensive error path from outside the package without mocking internal batcher state
 
 ## Task 3 (context-length plan): Rewrite MapFeaturesToCode with batching - COMPLETE
 - Started: 2026-04-20

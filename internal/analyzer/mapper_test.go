@@ -3,6 +3,7 @@ package analyzer_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -249,5 +250,88 @@ func TestMapFeaturesToCode_TinyBudget_AllFilesStillCovered(t *testing.T) {
 	}
 	if len(got[0].Files) != 2 {
 		t.Errorf("expected both files in result, got %v", got[0].Files)
+	}
+}
+
+func TestMapFeaturesToCode_MixedScan_SymbollessFilesSkippedInCoverageCheck(t *testing.T) {
+	// A scan with both files-with-symbols and files-without-symbols exercises the
+	// len(f.Symbols)==0 continue branch in the post-batch coverage check loop.
+	c := &fakeClient{responses: []string{
+		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
+	}}
+	counter := &fakeCounter{n: 0}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}}, // has symbols
+			{Path: "b.go", Symbols: nil},                            // no symbols — skipped in coverage check
+		},
+	}
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMapFeaturesToCode_CoverageCheckFails_ReturnsError(t *testing.T) {
+	// A file path containing ": " causes the coverage check's SplitN extraction
+	// to return only the part before the first ": ", which won't match f.Path.
+	// This is the only way to trigger the defensive error path without mocking internals.
+	c := &fakeClient{responses: []string{}}
+	counter := &fakeCounter{n: 0}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a: b.go", Symbols: []scanner.Symbol{{Name: "Sym"}}},
+		},
+	}
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000)
+	if err == nil {
+		t.Fatal("expected coverage check error, got nil")
+	}
+	if !strings.Contains(err.Error(), "was not included in any batch") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// errorCounter is a TokenCounter that always returns an error.
+type errorCounter struct{}
+
+func (e *errorCounter) CountTokens(_ context.Context, _ string) (int, error) {
+	return 0, errors.New("counter failed")
+}
+
+func TestMapFeaturesToCode_CounterError_Propagates(t *testing.T) {
+	c := &fakeClient{responses: []string{}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
+		},
+	}
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, &errorCounter{}, []string{"f"}, scan, 80_000)
+	if err == nil {
+		t.Fatal("expected counter error, got nil")
+	}
+}
+
+func TestMapFeaturesToCode_UnknownFeatureInResponse_Ignored(t *testing.T) {
+	// LLM returns "unknown-feature" which was not in the input list.
+	// It should be silently skipped; only the known feature appears in output.
+	c := &fakeClient{responses: []string{
+		`[{"feature":"f","files":["a.go"],"symbols":["A"]},{"feature":"unknown-feature","files":["x.go"],"symbols":[]}]`,
+	}}
+	counter := &fakeCounter{n: 0}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
+		},
+	}
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 feature entry, got %d", len(got))
+	}
+	if got[0].Feature != "f" {
+		t.Errorf("expected feature 'f', got %q", got[0].Feature)
 	}
 }
