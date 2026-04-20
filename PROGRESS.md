@@ -1,5 +1,39 @@
 # Progress
 
+## Task 8 (LLM Analysis): OpenAICompatibleClient + provider factory - COMPLETE
+- Started: 2026-04-20
+- Tests written (Part 1 — OpenAICompatibleClient):
+  - TestOpenAICompatibleClient_Complete_ReturnsContent
+  - TestOpenAICompatibleClient_ServerError_ReturnsError
+  - TestOpenAICompatibleClient_EmptyChoices_ReturnsError
+  - TestOpenAICompatibleClient_ImplementsLLMClient
+  - TestOpenAICompatibleClient_WithAPIKey_SendsAuthHeader
+  - TestOpenAICompatibleClient_BadJSON_ReturnsError
+- Tests written (Part 2 — provider factory, package cli):
+  - TestNewLLMClient_Ollama_DefaultsApplied
+  - TestNewLLMClient_Ollama_CustomBaseURL
+  - TestNewLLMClient_LMStudio_MissingModel_ReturnsError
+  - TestNewLLMClient_OpenAICompatible_MissingBaseURL_ReturnsError
+  - TestNewLLMClient_UnknownProvider_ReturnsError
+  - TestNewLLMClient_OpenAI_NotYetImplemented_ReturnsError
+  - TestNewLLMClient_Anthropic_NotYetImplemented_ReturnsError
+  - TestNewLLMClient_DefaultProvider_NotYetImplemented_ReturnsError
+  - TestNewLLMClient_OpenAICompatible_MissingModel_ReturnsError
+  - TestNewLLMClient_LMStudio_CustomBaseURL
+  - TestNewLLMClient_OpenAICompatible_WithAPIKey
+- Tests: 25 analyzer tests + 30 cli tests, 0 failing (all packages green)
+- Coverage: internal/analyzer 94.6% of statements; internal/cli: llm_client.go 100%, overall 63.6% (analyze.go RunE pre-existing low coverage from Task 7)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues via golangci-lint ./internal/analyzer/... ./internal/cli/...)
+- Completed: 2026-04-20
+- Notes:
+  - RED (Part 1): "undefined: analyzer.NewOpenAICompatibleClient" on 4 test references
+  - GREEN (Part 1): openai_compatible_client.go with NewOpenAICompatibleClient + Complete; uses only net/http + encoding/json
+  - RED (Part 2): Ollama tests got "LLM client not yet implemented — see Task 8" from stub
+  - GREEN (Part 2): llm_client.go factory with ollama/lmstudio/openai-compatible cases; openai and anthropic return placeholder error pending Task 9 BifrostClient
+  - apiKey Authorization header path and bad-JSON decode path added as extra tests to push Complete coverage from 78% to 87%
+  - newLLMClient reaches 100% statement coverage; placeholder branches are exercised by the NotYetImplemented tests
+
 ## Task 7 (LLM Analysis): Wire analyzer into analyze CLI - COMPLETE
 - Started: 2026-04-20
 - Tests written: analyze_llm_flags.txtar (new txtar asserting --llm-provider accepted without error)
