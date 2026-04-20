@@ -24,7 +24,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		}
 		model := cfg.Model
 		if model == "" {
-			model = "llama3"
+			model = "llama3.1"
 		}
 		return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), nil
 
@@ -54,7 +54,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		}
 		model := cfg.Model
 		if model == "" {
-			model = "gpt-4o-mini"
+			model = "gpt-4.1-mini"
 		}
 		return analyzer.NewBifrostClientWithProvider("openai", key, model)
 
@@ -65,7 +65,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		}
 		model := cfg.Model
 		if model == "" {
-			model = "claude-3-5-sonnet-20241022"
+			model = "claude-sonnet-4-6"
 		}
 		return analyzer.NewBifrostClientWithProvider("anthropic", key, model)
 
