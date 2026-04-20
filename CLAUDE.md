@@ -59,6 +59,17 @@ README installation docs must list `ripgrep` and `mdfetch` under a "What this in
 
 ## Rules for Claude
 
+### LLM Prompt Conventions
+
+All prompts sent to an LLM — whether static strings or template-generated — **MUST** be marked with a `// PROMPT:` comment on the line immediately above the string or template literal. This applies in all languages and contexts.
+
+```go
+// PROMPT: Summarizes a single documentation page and extracts product features.
+prompt := fmt.Sprintf(`You are analyzing documentation...`, content)
+```
+
+This rule exists so prompts are easy to find, review, and iterate on without reading all the surrounding code. Every prompt is a product decision and must be visible at a glance.
+
 ### ABSOLUTE RULES - NO EXCEPTIONS
 
 #### 1. Test-Driven Development is MANDATORY
