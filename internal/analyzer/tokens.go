@@ -57,8 +57,13 @@ type anthropicCounter struct {
 
 // NewAnthropicCounter returns a TokenCounter that calls POST /v1/messages/count_tokens.
 // Gives exact token counts for Claude models.
-func NewAnthropicCounter(apiKey, model string) TokenCounter {
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+// Pass baseURL as "" to use the default Anthropic API endpoint.
+func NewAnthropicCounter(apiKey, model, baseURL string) TokenCounter {
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if baseURL != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
+	}
+	client := anthropic.NewClient(opts...)
 	return &anthropicCounter{client: &client, model: model}
 }
 

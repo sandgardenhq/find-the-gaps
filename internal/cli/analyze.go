@@ -123,7 +123,15 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			featureMap, err := analyzer.MapFeaturesToCode(ctx, llmClient, productSummary.Features, scan)
+			var tokenCounter analyzer.TokenCounter
+			switch llmProvider {
+			case "anthropic":
+				tokenCounter = analyzer.NewAnthropicCounter(os.Getenv("ANTHROPIC_API_KEY"), llmModel, os.Getenv("ANTHROPIC_BASE_URL"))
+			default:
+				tokenCounter = analyzer.NewTiktokenCounter()
+			}
+
+			featureMap, err := analyzer.MapFeaturesToCode(ctx, llmClient, tokenCounter, productSummary.Features, scan, analyzer.MapperTokenBudget)
 			if err != nil {
 				return fmt.Errorf("map features: %w", err)
 			}

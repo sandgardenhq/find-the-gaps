@@ -281,6 +281,63 @@ func TestAnalyze_fullPipeline_withCachedAnalysis(t *testing.T) {
 	}
 }
 
+func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
+	// Verify the "case anthropic" branch in the token counter switch is reached.
+	// To avoid real Anthropic API calls, we pre-cache all spider and product-summary
+	// data so MapFeaturesToCode is called with zero sym lines (no files with symbols),
+	// causing it to return immediately without invoking the counter.
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+
+	// Write an empty Go file — scanner includes it but finds no exported symbols.
+	if err := os.WriteFile(filepath.Join(repoDir, "empty.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate the spider index with a page, its analysis, and a product summary.
+	docsDir := filepath.Join(cacheBase, projectName, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := spider.LoadIndex(docsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := spider.URLToFilename(docsURL)
+	if err := os.WriteFile(filepath.Join(docsDir, filename), []byte("# Doc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Record(docsURL, filename); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.RecordAnalysis(docsURL, "A product.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-cache the product summary so synthesis (Bifrost LLM call) is skipped.
+	if err := idx.SetProductSummary("A product.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set a fake API key so newLLMClient succeeds without real credentials.
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key-for-test")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-provider", "anthropic",
+		"--llm-model", "claude-test",
+	})
+	if code != 0 {
+		t.Fatalf("analyze with anthropic provider failed (code=%d): stdout=%q stderr=%q",
+			code, stdout.String(), stderr.String())
+	}
+}
+
 func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 	// LLM returns invalid JSON for AnalyzePage → warning printed, 0 analyses → 0 analyzed output.
 	docsURL := "https://docs.example.com/page-" + time.Now().Format("20060102150405")

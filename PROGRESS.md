@@ -1,5 +1,32 @@
 # Progress
 
+## Task 3 (context-length plan): Rewrite MapFeaturesToCode with batching - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED):
+  - Updated all 5 existing TestMapFeaturesToCode_* calls to new 6-arg signature
+  - TestMapFeaturesToCode_MultipleBatches_MergesResults
+  - TestMapFeaturesToCode_CounterOverBudget_SplitsBatch
+  - TestMapFeaturesToCode_FilesWithNoSymbols_Skipped
+  - fakeCounter and splitForcingCounter types added to mapper_test.go
+  - TestAnalyze_anthropicProvider_usesAnthropicTokenCounter (to cover case "anthropic" branch in analyze.go)
+- RED confirmed: compile error "too many arguments in call to analyzer.MapFeaturesToCode" + "undefined: analyzer.MapperTokenBudget"
+- GREEN:
+  - mapper.go rewritten: MapperTokenBudget=80_000 constant, accEntry type, new 6-arg MapFeaturesToCode with batchSymLines-based batching loop, split-and-retry on oversized batches, result accumulation and merge
+  - tokens.go updated: NewAnthropicCounter now accepts baseURL param ("" = default endpoint)
+  - analyze.go updated: switch on llmProvider to select token counter; uses ANTHROPIC_BASE_URL env var for testability
+- Tests: 8 passing (mapper), all packages green
+- Coverage:
+  - internal/analyzer: 90.1% of statements
+  - internal/cli: 90.6% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes:
+  - PROMPT: comment is on the line immediately above the promptText format string in the batch loop
+  - TestMapFeaturesToCode_ClientError_Propagates and TestMapFeaturesToCode_InvalidJSON_ReturnsError updated to include a file with a symbol (otherwise MapFeaturesToCode returns early before calling the LLM)
+  - fakeClient.callCount increments only when idx < len(responses), which is consistent with how multi-batch tests check 2 LLM calls
+  - TestAnalyze_anthropicProvider_usesAnthropicTokenCounter: pre-caches spider pages, page analysis, and product summary to skip all network-dependent steps; empty Go file has no exported symbols so MapFeaturesToCode returns without calling count_tokens
+
 ## Task 2 (context-length plan): Symbol line batcher - COMPLETE
 - Started: 2026-04-20
 - Tests written first (RED):
