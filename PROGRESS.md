@@ -1,5 +1,15 @@
 # Progress
 
+## Task 6 (LLM Analysis): internal/reporter WriteMapping and WriteGaps - COMPLETE
+- Started: 2026-04-20
+- Tests written: TestWriteMapping_CreatesFile, TestWriteGaps_CreatesFile, TestWriteMapping_EmptyMapping_Succeeds, TestWriteGaps_NoneFound, TestWriteGaps_SkipsNonFuncTypeInterface, TestWriteGaps_UnexportedSymbolSkipped
+- Tests: 6 passing, 0 failing
+- Coverage: 100.0% of statements (internal/reporter) — WriteMapping 100%, WriteGaps 100%, isExported 100%
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes: RED confirmed with "no non-test Go files" compile error. GREEN: reporter.go with WriteMapping and WriteGaps. Initial 3 tests yielded 84.6% coverage; added 3 targeted tests to cover: (1) "_None found." branch when all exported symbols are mapped, (2) kind-filter continue branch for KindConst/KindVar symbols, (3) isExported empty-name early-return. Commit: 2c6b974.
+
 ## Task 5 (LLM Analysis): Extend spider.Index with analysis fields - COMPLETE
 - Started: 2026-04-20
 - Tests written: TestIndex_RecordAnalysis_PersistsAndLoads, TestIndex_SetProductSummary_PersistsAndLoads
