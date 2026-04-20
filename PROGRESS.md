@@ -1,5 +1,23 @@
 # Progress
 
+## Task 1 (context-length plan): Provider-specific TokenCounter - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED):
+  - TestTiktokenCounter_emptyString_returnsZero
+  - TestTiktokenCounter_nonEmptyString_returnsPositive
+  - TestTiktokenCounter_longerString_moreTokens
+- RED confirmed: "undefined: analyzer.NewTiktokenCounter" build failure
+- Dependencies added: github.com/tiktoken-go/tokenizer v0.7.0, github.com/anthropics/anthropic-sdk-go v1.37.0
+- GREEN: tokens.go with TokenCounter interface, tiktokenCounter, AnthropicCounter, countTokens unexported helper
+- Tests: 3 passing, 0 failing
+- Coverage: internal/analyzer: 89.9% of statements (AnthropicCounter not unit-tested per plan design — requires live API key; panic branch in mustGetEncoder is unreachable)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes:
+  - anthropic.WithAPIKey is in the option sub-package (github.com/anthropics/anthropic-sdk-go/option), not the top-level anthropic package
+  - AnthropicCounter is integration-test only per plan design; 0.1% coverage gap is expected and acceptable
+
 ## Task 9 (LLM Analysis): BifrostClient real implementation - COMPLETE
 - Started: 2026-04-20
 - Tests written (integration, build-tag gated):
