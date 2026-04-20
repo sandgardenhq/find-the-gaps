@@ -1,5 +1,15 @@
 # Progress
 
+## Task 4 (LLM Analysis): MapFeaturesToCode - COMPLETE
+- Started: 2026-04-20
+- Tests written: TestMapFeaturesToCode_ReturnsMappings, TestMapFeaturesToCode_EmptyFeatures_ReturnsEmpty, TestMapFeaturesToCode_ClientError_Propagates, TestMapFeaturesToCode_InvalidJSON_ReturnsError, TestMapFeaturesToCode_NilFilesAndSymbols_NormalizedToEmpty
+- Tests: 19 passing, 0 failing (5 new TestMapFeaturesToCode_* + 14 from Tasks 1-3)
+- Coverage: 98.0% of statements (internal/analyzer); mapper.go: 96.3% (unreachable json.Marshal error branch)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues) — staticcheck S1016 fixed by using FeatureEntry(e) type conversion instead of struct literal
+- Completed: 2026-04-20
+- Notes: RED confirmed with 5x "undefined: analyzer.MapFeaturesToCode" compile errors. GREEN: mapper.go with // PROMPT: comment on line immediately above the prompt string. Empty features list short-circuits before any LLM call (callCount assertion confirms this). nil Files/Symbols normalized to empty slices. mapEntry → FeatureEntry converted via type conversion (identical underlying field structure, differing only in json tags).
+
 ## Task: Scaffold CLI skeleton — COMPLETE
 
 - Started: 2026-04-17
