@@ -1,5 +1,24 @@
 # Progress
 
+## Task 2 (context-length plan): Symbol line batcher - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED):
+  - TestBatchSymLines_emptyInput_returnsNoBatches
+  - TestBatchSymLines_allFitInOneBatch
+  - TestBatchSymLines_splitAcrossMultipleBatches
+  - TestBatchSymLines_featuresOverheadAccountedFor
+  - TestBatchSymLines_singleOversizedLine_getsItsOwnBatch
+- RED confirmed: 5x "undefined: batchSymLines" build failure
+- GREEN: batcher.go with batchSymLines — accumulate lines until budget exceeded, flush to new batch; oversized single lines placed alone
+- Tests: 5 passing, 0 failing
+- Coverage: internal/analyzer/batcher.go: 100.0%; internal/analyzer package: 90.6% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes:
+  - budget=0 and featuresTokens==budget cases both result in remaining==0; any line with >=1 token forces a flush because currentTokens+t > 0 when current is non-empty
+  - Oversized single lines (tokens > remaining) are still placed in their own batch because the flush-condition only fires when len(current) > 0
+
 ## Task 1 (context-length plan): Provider-specific TokenCounter - COMPLETE
 - Started: 2026-04-20
 - Tests written first (RED):
