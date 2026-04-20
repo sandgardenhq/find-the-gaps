@@ -48,6 +48,15 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
+			llmClient, err := newLLMClient(LLMConfig{
+				Provider: llmProvider,
+				Model:    llmModel,
+				BaseURL:  llmBaseURL,
+			})
+			if err != nil {
+				return fmt.Errorf("LLM client: %w", err)
+			}
+
 			docsDir := filepath.Join(projectDir, "docs")
 			spiderOpts := spider.Options{
 				CacheDir: docsDir,
@@ -58,15 +67,6 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("crawl failed: %w", err)
 			}
 
-			llmClient, err := newLLMClient(LLMConfig{
-				Provider: llmProvider,
-				Model:    llmModel,
-				BaseURL:  llmBaseURL,
-			})
-			if err != nil {
-				return fmt.Errorf("LLM client: %w", err)
-			}
-
 			idx, err := spider.LoadIndex(docsDir)
 			if err != nil {
 				return fmt.Errorf("load index: %w", err)
@@ -74,6 +74,7 @@ func newAnalyzeCmd() *cobra.Command {
 
 			// Analyze each page; skip cached results.
 			var analyses []analyzer.PageAnalysis
+			freshCount := 0
 			for url, filePath := range pages {
 				if summary, features, ok := idx.Analysis(url); ok {
 					analyses = append(analyses, analyzer.PageAnalysis{
@@ -96,6 +97,7 @@ func newAnalyzeCmd() *cobra.Command {
 					return fmt.Errorf("record analysis: %w", recErr)
 				}
 				analyses = append(analyses, pa)
+				freshCount++
 			}
 
 			if len(analyses) == 0 {
@@ -104,12 +106,21 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
-			productSummary, err := analyzer.SynthesizeProduct(ctx, llmClient, analyses)
-			if err != nil {
-				return fmt.Errorf("synthesize: %w", err)
-			}
-			if err := idx.SetProductSummary(productSummary.Description, productSummary.Features); err != nil {
-				return fmt.Errorf("save product summary: %w", err)
+			// Use cached synthesis when all pages were cache hits.
+			var productSummary analyzer.ProductSummary
+			if freshCount == 0 && idx.ProductSummary != "" {
+				productSummary = analyzer.ProductSummary{
+					Description: idx.ProductSummary,
+					Features:    idx.AllFeatures,
+				}
+			} else {
+				productSummary, err = analyzer.SynthesizeProduct(ctx, llmClient, analyses)
+				if err != nil {
+					return fmt.Errorf("synthesize: %w", err)
+				}
+				if err := idx.SetProductSummary(productSummary.Description, productSummary.Features); err != nil {
+					return fmt.Errorf("save product summary: %w", err)
+				}
 			}
 
 			featureMap, err := analyzer.MapFeaturesToCode(ctx, llmClient, productSummary.Features, scan)

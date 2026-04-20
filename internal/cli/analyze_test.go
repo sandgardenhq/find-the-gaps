@@ -121,12 +121,15 @@ func TestAnalyze_crawlFails_returnsError(t *testing.T) {
 	}
 	_ = f.Close()
 
+	// Use ollama so no API key is required; crawl fails before any LLM call.
 	var stdout, stderr bytes.Buffer
 	code := run(&stdout, &stderr, []string{
 		"analyze",
 		"--docs-url", "https://docs.example.com",
 		"--cache-dir", f.Name(),
 		"--workers", "1",
+		"--llm-provider", "ollama",
+		"--llm-model", "llama3",
 	})
 	if code == 0 {
 		t.Error("expected non-zero exit when crawl fails")

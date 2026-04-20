@@ -65,6 +65,23 @@ func TestLoadIndex_existingIndex_loadsEntries(t *testing.T) {
 	}
 }
 
+func TestLoadIndex_legacyFlatFormat_returnsEmptyIndex(t *testing.T) {
+	// Old flat format had URL keys at the top level, not under "pages".
+	// The new schema silently ignores these entries rather than erroring.
+	dir := t.TempDir()
+	data := `{"https://docs.example.com/intro":{"filename":"abc.md","fetched_at":"2026-01-01T00:00:00Z"}}`
+	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if idx.Has("https://docs.example.com/intro") {
+		t.Error("legacy flat-format entry should not be loaded into new index")
+	}
+}
+
 func TestLoadIndex_corruptedJSON_returnsError(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte("not json at all!!!"), 0o644); err != nil {
