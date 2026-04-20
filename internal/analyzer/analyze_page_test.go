@@ -3,6 +3,7 @@ package analyzer_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -25,6 +26,13 @@ func TestAnalyzePage_ExtractsSummaryAndFeatures(t *testing.T) {
 	}
 	if len(got.Features) != 2 || got.Features[0] != "Homebrew install" {
 		t.Errorf("Features: got %v", got.Features)
+	}
+	// After the existing assertions, add:
+	if len(c.receivedPrompts) == 0 {
+		t.Fatal("expected at least one prompt to be sent")
+	}
+	if !strings.Contains(c.receivedPrompts[0], "https://docs.example.com/install") {
+		t.Errorf("prompt must contain the page URL, got: %s", c.receivedPrompts[0][:100])
 	}
 }
 
@@ -52,5 +60,19 @@ func TestAnalyzePage_InvalidJSON_ReturnsError(t *testing.T) {
 	_, err := analyzer.AnalyzePage(context.Background(), c, "https://example.com", "content")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestAnalyzePage_MissingFeaturesKey_ReturnsEmptySlice(t *testing.T) {
+	c := &fakeClient{responses: []string{`{"summary":"A page with no features key."}`}}
+	got, err := analyzer.AnalyzePage(context.Background(), c, "https://example.com", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Features == nil {
+		t.Error("Features must be a non-nil empty slice, not nil")
+	}
+	if len(got.Features) != 0 {
+		t.Errorf("expected 0 features, got %v", got.Features)
 	}
 }
