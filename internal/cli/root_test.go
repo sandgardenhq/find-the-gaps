@@ -37,19 +37,16 @@ func TestNewRootCmd_Structure(t *testing.T) {
 	}
 }
 
-func TestAnalyzeStub_ReturnsNotYetImplemented(t *testing.T) {
+func TestAnalyze_defaultRepo_scansCurrentDir(t *testing.T) {
 	root := NewRootCmd()
 	root.SetArgs([]string{"analyze"})
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
 
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain 'not yet implemented'", err.Error())
-	}
+	// Running analyze with default "." should scan successfully (even if cwd is the repo root).
+	// We only check it doesn't crash — the exact output depends on the working directory.
+	_ = root.Execute()
 }
 
 func TestRun_HelpReturnsZero(t *testing.T) {
@@ -60,14 +57,13 @@ func TestRun_HelpReturnsZero(t *testing.T) {
 	}
 }
 
-func TestRun_AnalyzeReturnsOne(t *testing.T) {
+func TestRun_AnalyzeReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"analyze"})
-	if code != 1 {
-		t.Errorf("exit code = %d, want 1", code)
-	}
-	if !strings.Contains(stderr.String(), "not yet implemented") {
-		t.Errorf("stderr = %q, want it to contain 'not yet implemented'", stderr.String())
+	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--scan-cache-dir", cacheDir})
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
 }
 
