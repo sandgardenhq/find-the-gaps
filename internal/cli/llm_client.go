@@ -56,7 +56,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		if model == "" {
 			model = "gpt-5-mini"
 		}
-		return analyzer.NewOpenAICompatibleClient("https://api.openai.com", model, key), nil
+		return analyzer.NewBifrostClientWithProvider("openai", key, model)
 
 	case "anthropic", "":
 		key := os.Getenv("ANTHROPIC_API_KEY")
@@ -67,7 +67,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		if model == "" {
 			model = "claude-sonnet-4-6"
 		}
-		return analyzer.NewAnthropicClient(key, model), nil
+		return analyzer.NewBifrostClientWithProvider("anthropic", key, model)
 
 	default:
 		return nil, fmt.Errorf("unknown --llm-provider %q (supported: anthropic, openai, ollama, lmstudio, openai-compatible)", cfg.Provider)
