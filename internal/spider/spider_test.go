@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,28 @@ func TestCrawl_invalidURL_returnsError(t *testing.T) {
 	_, err := Crawl("://\x00bad", opts, fakeFetcher(""))
 	if err == nil {
 		t.Error("expected error for invalid startURL")
+	}
+}
+
+func TestMdfetchFetcher_alwaysPassesAllLinks(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	fakeBin := filepath.Join(dir, "mdfetch")
+	script := "#!/bin/sh\nprintf '%s\n' \"$@\" > " + argsFile + "\n"
+	if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	fetch := MdfetchFetcher(Options{CacheDir: t.TempDir()})
+	_ = fetch("https://docs.example.com", filepath.Join(t.TempDir(), "out.md"))
+
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("args file not written: %v", err)
+	}
+	if !strings.Contains(string(got), "--all-links") {
+		t.Errorf("expected --all-links in mdfetch args, got: %s", got)
 	}
 }
 
