@@ -24,7 +24,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		}
 		model := cfg.Model
 		if model == "" {
-			model = "llama3.1"
+			model = "llama4"
 		}
 		return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), nil
 
@@ -54,7 +54,7 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		}
 		model := cfg.Model
 		if model == "" {
-			model = "gpt-4.1-mini"
+			model = "gpt-5-mini"
 		}
 		return analyzer.NewBifrostClientWithProvider("openai", key, model)
 
