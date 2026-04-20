@@ -31,7 +31,10 @@ func countTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	ids, _, _ := defaultEnc.Encode(s)
+	ids, _, err := defaultEnc.Encode(s)
+	if err != nil {
+		return 1 // conservative: treat as non-empty to avoid zero-cost miscounts
+	}
 	return len(ids)
 }
 

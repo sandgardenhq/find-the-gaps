@@ -31,8 +31,14 @@ func TestTiktokenCounter_nonEmptyString_returnsPositive(t *testing.T) {
 
 func TestTiktokenCounter_longerString_moreTokens(t *testing.T) {
 	c := analyzer.NewTiktokenCounter()
-	short, _ := c.CountTokens(context.Background(), "hello")
-	long, _ := c.CountTokens(context.Background(), "hello world this is a longer sentence with many words")
+	short, err := c.CountTokens(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, err2 := c.CountTokens(context.Background(), "hello world this is a longer sentence with many words")
+	if err2 != nil {
+		t.Fatal(err2)
+	}
 	if long <= short {
 		t.Errorf("expected longer string to have more tokens: short=%d long=%d", short, long)
 	}
