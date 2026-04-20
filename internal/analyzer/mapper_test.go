@@ -199,3 +199,55 @@ func TestMapFeaturesToCode_FilesWithNoSymbols_Skipped(t *testing.T) {
 		t.Errorf("expected empty FeatureMap, got %v", got)
 	}
 }
+
+func TestMapFeaturesToCode_AllFilesProcessed_NoneSkipped(t *testing.T) {
+	// budget=1 is below any real featuresTokens, so remaining is negative and every
+	// sym line lands in its own batch → 5 files = 5 LLM calls.
+	// This verifies the batcher processes every file regardless of budget pressure.
+	responses := []string{
+		`[{"feature":"f","files":["a.go"],"symbols":[]}]`,
+		`[{"feature":"f","files":["b.go"],"symbols":[]}]`,
+		`[{"feature":"f","files":["c.go"],"symbols":[]}]`,
+		`[{"feature":"f","files":["d.go"],"symbols":[]}]`,
+		`[{"feature":"f","files":["e.go"],"symbols":[]}]`,
+	}
+	c := &fakeClient{responses: responses}
+	counter := &fakeCounter{n: 0} // always fits, no split-and-retry
+
+	files := make([]scanner.ScannedFile, 5)
+	names := []string{"a.go", "b.go", "c.go", "d.go", "e.go"}
+	for i, name := range names {
+		files[i] = scanner.ScannedFile{Path: name, Symbols: []scanner.Symbol{{Name: "Sym"}}}
+	}
+	scan := &scanner.ProjectScan{Files: files}
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.callCount != 5 {
+		t.Errorf("expected 5 LLM calls (one per file), got %d — some files may have been skipped", c.callCount)
+	}
+}
+
+func TestMapFeaturesToCode_TinyBudget_AllFilesStillCovered(t *testing.T) {
+	// With budget=0, remaining goes negative and every line lands in its own batch.
+	// Verifies that even with extreme fragmentation, all files appear in the merged result.
+	c := &fakeClient{responses: []string{
+		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
+		`[{"feature":"f","files":["b.go"],"symbols":["B"]}]`,
+	}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
+			{Path: "b.go", Symbols: []scanner.Symbol{{Name: "B"}}},
+		},
+	}
+	counter := &fakeCounter{n: 0} // always fits
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got[0].Files) != 2 {
+		t.Errorf("expected both files in result, got %v", got[0].Files)
+	}
+}
