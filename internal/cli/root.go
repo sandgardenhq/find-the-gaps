@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
 
@@ -22,6 +23,8 @@ type ExitCodeError struct {
 func (e *ExitCodeError) Error() string { return fmt.Sprintf("exit code %d", e.Code) }
 
 func NewRootCmd() *cobra.Command {
+	var verbose bool
+
 	cmd := &cobra.Command{
 		Use:   "find-the-gaps",
 		Short: "Find outdated or missing documentation in a codebase.",
@@ -30,7 +33,18 @@ func NewRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			log.SetOutput(cmd.ErrOrStderr())
+			if verbose {
+				log.SetLevel(log.DebugLevel)
+			} else {
+				log.SetLevel(log.InfoLevel)
+			}
+			return nil
+		},
 	}
+
+	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "show debug logs")
 	cmd.AddCommand(newDoctorCmd(), newAnalyzeCmd())
 	return cmd
 }

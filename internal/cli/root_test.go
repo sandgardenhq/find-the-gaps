@@ -114,3 +114,32 @@ func TestExecute_ReturnsInt(t *testing.T) {
 		t.Errorf("Execute() = %d, want 0", code)
 	}
 }
+
+func TestRootCmd_verboseFlag_appearsInHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"--help"})
+	if code != 0 {
+		t.Fatalf("--help failed: %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "--verbose") {
+		t.Errorf("--verbose flag not in help output:\n%s", stdout.String())
+	}
+}
+
+func TestRootCmd_verboseShorthand_appearsInHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	run(&stdout, &stderr, []string{"--help"})
+	if !strings.Contains(stdout.String(), "-v") {
+		t.Errorf("-v shorthand not in help output:\n%s", stdout.String())
+	}
+}
+
+func TestRootCmd_verbose_acceptedWithoutError(t *testing.T) {
+	dir := t.TempDir()
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase})
+	if code != 0 {
+		t.Fatalf("--verbose flag rejected (code=%d): stderr=%q", code, stderr.String())
+	}
+}
