@@ -64,24 +64,6 @@ func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCount
 		}
 	}
 
-	// Build set of all files that entered the batching pipeline.
-	batched := make(map[string]struct{}, len(symLines))
-	for _, batch := range initialBatches {
-		for _, line := range batch {
-			path := strings.SplitN(line, ": ", 2)[0]
-			batched[path] = struct{}{}
-		}
-	}
-	// Verify every file with symbols was batched.
-	for _, f := range scan.Files {
-		if len(f.Symbols) == 0 {
-			continue
-		}
-		if _, ok := batched[f.Path]; !ok {
-			return nil, fmt.Errorf("MapFeaturesToCode: file %q was not included in any batch (coverage check failed)", f.Path)
-		}
-	}
-
 	// Process batches using an index-based queue to allow split-and-retry.
 	queue := initialBatches
 	for i := 0; i < len(queue); i++ {

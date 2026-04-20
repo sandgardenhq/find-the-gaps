@@ -3,7 +3,6 @@ package analyzer_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -272,26 +271,6 @@ func TestMapFeaturesToCode_MixedScan_SymbollessFilesSkippedInCoverageCheck(t *te
 	}
 }
 
-func TestMapFeaturesToCode_CoverageCheckFails_ReturnsError(t *testing.T) {
-	// A file path containing ": " causes the coverage check's SplitN extraction
-	// to return only the part before the first ": ", which won't match f.Path.
-	// This is the only way to trigger the defensive error path without mocking internals.
-	c := &fakeClient{responses: []string{}}
-	counter := &fakeCounter{n: 0}
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{
-			{Path: "a: b.go", Symbols: []scanner.Symbol{{Name: "Sym"}}},
-		},
-	}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000)
-	if err == nil {
-		t.Fatal("expected coverage check error, got nil")
-	}
-	if !strings.Contains(err.Error(), "was not included in any batch") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
 // errorCounter is a TokenCounter that always returns an error.
 type errorCounter struct{}
 
@@ -309,6 +288,29 @@ func TestMapFeaturesToCode_CounterError_Propagates(t *testing.T) {
 	_, err := analyzer.MapFeaturesToCode(context.Background(), c, &errorCounter{}, []string{"f"}, scan, 80_000)
 	if err == nil {
 		t.Fatal("expected counter error, got nil")
+	}
+}
+
+func TestMapFeaturesToCode_PathWithColonSpace_Works(t *testing.T) {
+	// Paths containing ": " must not trigger a false coverage-check error.
+	// Previously, strings.SplitN re-parsing of batch lines extracted only the
+	// prefix before ": ", so "a: b.go" was stored as "a" in the batched set,
+	// causing a spurious "was not included in any batch" error.
+	c := &fakeClient{responses: []string{
+		`[{"feature":"f","files":["a: b.go"],"symbols":["Sym"]}]`,
+	}}
+	counter := &fakeCounter{n: 0}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a: b.go", Symbols: []scanner.Symbol{{Name: "Sym"}}},
+		},
+	}
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(got))
 	}
 }
 

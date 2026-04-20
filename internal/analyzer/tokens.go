@@ -50,6 +50,8 @@ func (c *tiktokenCounter) CountTokens(_ context.Context, text string) (int, erro
 }
 
 // anthropicCounter implements TokenCounter using the Anthropic token counting API.
+// Unit tests are omitted because this type requires a live Anthropic endpoint.
+// It is covered by integration tests (go test -tags integration).
 type anthropicCounter struct {
 	client *anthropic.Client
 	model  string
