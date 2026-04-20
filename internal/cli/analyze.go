@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
@@ -34,6 +35,7 @@ func newAnalyzeCmd() *cobra.Command {
 			projectName := filepath.Base(filepath.Clean(repoPath))
 			projectDir := filepath.Join(cacheDir, projectName)
 
+			log.Info("scanning repository", "path", repoPath)
 			scanOpts := scanner.Options{
 				CacheDir: filepath.Join(projectDir, "scan"),
 				NoCache:  noCache,
@@ -42,6 +44,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("scan failed: %w", err)
 			}
+			log.Debug("scan complete", "files", len(scan.Files))
 
 			if docsURL == "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "scanned %d files\n", len(scan.Files))
@@ -58,6 +61,7 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("LLM client: %w", err)
 			}
 
+			log.Info("crawling docs site", "url", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
 			spiderOpts := spider.Options{
 				CacheDir: docsDir,
@@ -67,6 +71,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("crawl failed: %w", err)
 			}
+			log.Debug("crawl complete", "pages", len(pages))
 
 			idx, err := spider.LoadIndex(docsDir)
 			if err != nil {
@@ -74,10 +79,12 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			// Analyze each page; skip cached results.
+			log.Info("analyzing pages", "count", len(pages))
 			var analyses []analyzer.PageAnalysis
 			freshCount := 0
 			for url, filePath := range pages {
 				if summary, features, ok := idx.Analysis(url); ok {
+					log.Debug("page cache hit", "url", url)
 					analyses = append(analyses, analyzer.PageAnalysis{
 						URL:      url,
 						Summary:  summary,
@@ -89,9 +96,10 @@ func newAnalyzeCmd() *cobra.Command {
 				if readErr != nil {
 					continue
 				}
+				log.Debug("analyzing page", "url", url)
 				pa, analyzeErr := analyzer.AnalyzePage(ctx, llmClient, url, string(content))
 				if analyzeErr != nil {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: AnalyzePage %s: %v\n", url, analyzeErr)
+					log.Warn("AnalyzePage failed", "url", url, "err", analyzeErr)
 					continue
 				}
 				if recErr := idx.RecordAnalysis(url, pa.Summary, pa.Features); recErr != nil {
@@ -108,6 +116,7 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			// Use cached synthesis when all pages were cache hits.
+			log.Info("synthesizing product summary", "fresh_pages", freshCount)
 			var productSummary analyzer.ProductSummary
 			if freshCount == 0 && idx.ProductSummary != "" {
 				productSummary = analyzer.ProductSummary{
@@ -124,6 +133,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			log.Info("mapping features to code", "features", len(productSummary.Features))
 			var tokenCounter analyzer.TokenCounter
 			switch cfg.Provider {
 			case "anthropic":
@@ -136,6 +146,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("map features: %w", err)
 			}
+			log.Debug("feature mapping complete", "mapped", len(featureMap))
 
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)

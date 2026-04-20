@@ -143,3 +143,49 @@ func TestRootCmd_verbose_acceptedWithoutError(t *testing.T) {
 		t.Fatalf("--verbose flag rejected (code=%d): stderr=%q", code, stderr.String())
 	}
 }
+
+func TestRun_verbose_showsDebugOutput(t *testing.T) {
+	// Runs analyze over an empty repo (no docs-url) with --verbose.
+	// Expects at least one DEBUG line in stderr.
+	dir := t.TempDir()
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "DEBU") {
+		t.Errorf("expected DEBU lines in stderr with --verbose; got: %q", stderr.String())
+	}
+}
+
+func TestRun_noVerbose_noDebugOutput(t *testing.T) {
+	// Same analyze call without --verbose must produce no DEBUG lines.
+	dir := t.TempDir()
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "DEBU") {
+		t.Errorf("expected no DEBU lines in stderr without --verbose; got: %q", stderr.String())
+	}
+}
+
+func TestRun_verbose_warnVisibleWithoutVerbose(t *testing.T) {
+	// Warn-level messages from the analyze pipeline must appear even without --verbose.
+	// (Nothing currently triggers a Warn in the no-docs-url path, so just confirm
+	// Info lines appear — the phase-start logs are Info.)
+	dir := t.TempDir()
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	// The "scanning repository" Info log must appear at default level.
+	if !strings.Contains(stderr.String(), "scanning repository") {
+		t.Errorf("expected 'scanning repository' info log in stderr; got: %q", stderr.String())
+	}
+}
