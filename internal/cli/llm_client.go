@@ -10,33 +10,32 @@ import (
 // LLMConfig holds provider selection for the analyze command.
 type LLMConfig struct {
 	Provider string // anthropic | openai | ollama | lmstudio | openai-compatible
-	Model    string // empty = use provider default
+	Model    string // empty = use provider default; resolved in-place by newLLMClient
 	BaseURL  string // empty = use provider default; required for openai-compatible
 }
 
 // newLLMClient constructs the appropriate LLMClient for cfg.
-func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
+// It writes the resolved model name back to cfg.Model so callers can use the
+// same value (e.g. for token counting) without duplicating provider defaults.
+func newLLMClient(cfg *LLMConfig) (analyzer.LLMClient, error) {
 	switch cfg.Provider {
 	case "ollama":
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = "http://localhost:11434"
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = "http://localhost:11434"
 		}
-		model := cfg.Model
-		if model == "" {
-			model = "llama3.1"
+		if cfg.Model == "" {
+			cfg.Model = "llama3.1"
 		}
-		return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), nil
+		return analyzer.NewOpenAICompatibleClient(cfg.BaseURL, cfg.Model, ""), nil
 
 	case "lmstudio":
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = "http://localhost:1234"
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = "http://localhost:1234"
 		}
 		if cfg.Model == "" {
 			return nil, fmt.Errorf("--llm-model is required for lmstudio (check the Local Server tab in LM Studio for the loaded model name)")
 		}
-		return analyzer.NewOpenAICompatibleClient(baseURL, cfg.Model, ""), nil
+		return analyzer.NewOpenAICompatibleClient(cfg.BaseURL, cfg.Model, ""), nil
 
 	case "openai-compatible":
 		if cfg.BaseURL == "" {
@@ -52,22 +51,20 @@ func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
 		if key == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY environment variable not set")
 		}
-		model := cfg.Model
-		if model == "" {
-			model = "gpt-5-mini"
+		if cfg.Model == "" {
+			cfg.Model = "gpt-5-mini"
 		}
-		return analyzer.NewBifrostClientWithProvider("openai", key, model)
+		return analyzer.NewBifrostClientWithProvider("openai", key, cfg.Model)
 
 	case "anthropic", "":
 		key := os.Getenv("ANTHROPIC_API_KEY")
 		if key == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set (or use --llm-provider ollama for a local model)")
 		}
-		model := cfg.Model
-		if model == "" {
-			model = "claude-sonnet-4-6"
+		if cfg.Model == "" {
+			cfg.Model = "claude-sonnet-4-6"
 		}
-		return analyzer.NewBifrostClientWithProvider("anthropic", key, model)
+		return analyzer.NewBifrostClientWithProvider("anthropic", key, cfg.Model)
 
 	default:
 		return nil, fmt.Errorf("unknown --llm-provider %q (supported: anthropic, openai, ollama, lmstudio, openai-compatible)", cfg.Provider)

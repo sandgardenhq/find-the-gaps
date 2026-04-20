@@ -48,11 +48,12 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
-			llmClient, err := newLLMClient(LLMConfig{
+			cfg := &LLMConfig{
 				Provider: llmProvider,
 				Model:    llmModel,
 				BaseURL:  llmBaseURL,
-			})
+			}
+			llmClient, err := newLLMClient(cfg)
 			if err != nil {
 				return fmt.Errorf("LLM client: %w", err)
 			}
@@ -124,9 +125,9 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			var tokenCounter analyzer.TokenCounter
-			switch llmProvider {
+			switch cfg.Provider {
 			case "anthropic":
-				tokenCounter = analyzer.NewAnthropicCounter(os.Getenv("ANTHROPIC_API_KEY"), llmModel, os.Getenv("ANTHROPIC_BASE_URL"))
+				tokenCounter = analyzer.NewAnthropicCounter(os.Getenv("ANTHROPIC_API_KEY"), cfg.Model, os.Getenv("ANTHROPIC_BASE_URL"))
 			default:
 				tokenCounter = analyzer.NewTiktokenCounter()
 			}
