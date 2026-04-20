@@ -59,9 +59,9 @@ func TestRun_HelpReturnsZero(t *testing.T) {
 
 func TestRun_AnalyzeReturnsZero(t *testing.T) {
 	dir := t.TempDir()
-	cacheDir := t.TempDir()
+	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--scan-cache-dir", cacheDir})
+	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}

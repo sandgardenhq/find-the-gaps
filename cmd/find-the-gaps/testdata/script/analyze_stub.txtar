@@ -1,4 +1,4 @@
 # analyze subcommand accepts --repo flag and scans an empty directory.
 mkdir repo
-exec find-the-gaps analyze --repo repo --scan-cache-dir $WORK/cache
+exec find-the-gaps analyze --repo repo --cache-dir $WORK/cache
 stdout 'scanned 0 files'

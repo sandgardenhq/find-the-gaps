@@ -27,11 +27,35 @@ func TestAnalyze_noCacheFlag_appearsInHelp(t *testing.T) {
 	}
 }
 
-func TestAnalyze_scanCacheDirFlag_appearsInHelp(t *testing.T) {
+func TestAnalyze_cacheDirFlag_appearsInHelp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	run(&stdout, &stderr, []string{"analyze", "--help"})
-	if !strings.Contains(stdout.String(), "--scan-cache-dir") {
-		t.Errorf("--scan-cache-dir flag not in help output:\n%s", stdout.String())
+	if !strings.Contains(stdout.String(), "--cache-dir") {
+		t.Errorf("--cache-dir flag not in help output:\n%s", stdout.String())
+	}
+}
+
+func TestAnalyze_cacheUsesProjectSubdir(t *testing.T) {
+	dir := t.TempDir()
+	cacheBase := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", dir,
+		"--cache-dir", cacheBase,
+	})
+	if code != 0 {
+		t.Fatalf("analyze failed (code=%d): stderr=%q", code, stderr.String())
+	}
+
+	projectName := filepath.Base(dir)
+	scanDir := filepath.Join(cacheBase, projectName, "scan")
+	if _, err := os.Stat(filepath.Join(scanDir, "scan.json")); err != nil {
+		t.Errorf("expected scan.json under %s: %v", scanDir, err)
 	}
 }
 
@@ -49,7 +73,7 @@ func TestAnalyze_docsURLFlag_appearsInHelp(t *testing.T) {
 
 func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 	dir := t.TempDir()
-	cacheDir := t.TempDir()
+	cacheBase := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +82,7 @@ func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 	code := run(&stdout, &stderr, []string{
 		"analyze",
 		"--repo", dir,
-		"--scan-cache-dir", cacheDir,
+		"--cache-dir", cacheBase,
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stderr=%q", code, stderr.String())
@@ -70,13 +94,13 @@ func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 
 func TestAnalyze_noCache_flagAccepted(t *testing.T) {
 	dir := t.TempDir()
-	cacheDir := t.TempDir()
+	cacheBase := t.TempDir()
 
 	var stdout, stderr bytes.Buffer
 	code := run(&stdout, &stderr, []string{
 		"analyze",
 		"--repo", dir,
-		"--scan-cache-dir", cacheDir,
+		"--cache-dir", cacheBase,
 		"--no-cache",
 	})
 	if code != 0 {
