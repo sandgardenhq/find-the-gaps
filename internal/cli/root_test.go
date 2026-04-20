@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/log"
 )
 
 func TestNewRootCmd_Structure(t *testing.T) {
@@ -145,6 +147,10 @@ func TestRootCmd_verbose_acceptedWithoutError(t *testing.T) {
 }
 
 func TestRun_verbose_showsDebugOutput(t *testing.T) {
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(log.InfoLevel)
+	})
 	// Runs analyze over an empty repo (no docs-url) with --verbose.
 	// Expects at least one DEBUG line in stderr.
 	dir := t.TempDir()
@@ -160,6 +166,10 @@ func TestRun_verbose_showsDebugOutput(t *testing.T) {
 }
 
 func TestRun_noVerbose_noDebugOutput(t *testing.T) {
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(log.InfoLevel)
+	})
 	// Same analyze call without --verbose must produce no DEBUG lines.
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
@@ -173,8 +183,12 @@ func TestRun_noVerbose_noDebugOutput(t *testing.T) {
 	}
 }
 
-func TestRun_verbose_warnVisibleWithoutVerbose(t *testing.T) {
-	// Warn-level messages from the analyze pipeline must appear even without --verbose.
+func TestRun_noVerbose_infoLogsVisible(t *testing.T) {
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(log.InfoLevel)
+	})
+	// Info-level messages from the analyze pipeline must appear even without --verbose.
 	// (Nothing currently triggers a Warn in the no-docs-url path, so just confirm
 	// Info lines appear — the phase-start logs are Info.)
 	dir := t.TempDir()
