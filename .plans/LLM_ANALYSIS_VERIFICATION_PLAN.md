@@ -217,6 +217,95 @@ echo "exit: $?"
 
 ---
 
+---
+
+### Scenario 9: Local model via Ollama
+
+**Context**: Verify the tool works end-to-end with a locally hosted Ollama model instead of a hosted API.
+
+**Prerequisites for this scenario only:**
+- Ollama installed and running: `ollama serve`
+- A model pulled locally: `ollama pull llama3` (or another model of your choice)
+- `ollama list` confirms the model is available
+
+**Steps**:
+1. Run:
+   ```
+   find-the-gaps analyze \
+     --repo testdata/fixtures/bubbles \
+     --docs-url https://pkg.go.dev/github.com/charmbracelet/bubbles \
+     --cache-dir /tmp/ftg-verify-ollama \
+     --llm-provider ollama \
+     --llm-model llama3
+   ```
+2. Wait for the command to complete.
+3. Inspect stdout, `mapping.md`, and `gaps.md`.
+
+**Success Criteria**:
+- [ ] Exit code is `0`.
+- [ ] stdout contains `scanned N files, fetched M pages, K features mapped`.
+- [ ] `mapping.md` and `gaps.md` are written and non-empty.
+- [ ] No mention of `ANTHROPIC_API_KEY` in error output.
+- [ ] The run completes within 10 minutes (local models are slower than hosted APIs).
+
+**If Blocked**: If Ollama returns errors, run `ollama run llama3 "ping"` standalone to verify the model is working. If `--llm-provider` is unknown, the CLI flag was not registered — check `analyze.go`.
+
+---
+
+### Scenario 10: Local model via LM Studio
+
+**Context**: Verify the tool works with LM Studio's local server.
+
+**Prerequisites for this scenario only:**
+- LM Studio installed with a model loaded and the local server started (default port 1234).
+- The loaded model name is visible in the LM Studio UI → Local Server tab.
+
+**Steps**:
+1. Note the exact model identifier shown in LM Studio's Local Server tab (e.g., `lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF`).
+2. Run:
+   ```
+   find-the-gaps analyze \
+     --repo testdata/fixtures/bubbles \
+     --docs-url https://pkg.go.dev/github.com/charmbracelet/bubbles \
+     --cache-dir /tmp/ftg-verify-lmstudio \
+     --llm-provider lmstudio \
+     --llm-model <model-identifier-from-step-1>
+   ```
+3. Inspect stdout, `mapping.md`, and `gaps.md`.
+
+**Success Criteria**:
+- [ ] Exit code is `0`.
+- [ ] stdout contains `scanned N files, fetched M pages, K features mapped`.
+- [ ] `mapping.md` and `gaps.md` are written and non-empty.
+- [ ] The tool did not fall back to Anthropic (no `ANTHROPIC_API_KEY` used).
+
+**If Blocked**: If the tool returns `connection refused`, verify LM Studio's local server is running (`curl http://localhost:1234/v1/models`). If `--llm-model` is missing, error message must tell the user to set it.
+
+---
+
+### Scenario 11: Missing `--llm-model` for lmstudio returns actionable error
+
+**Context**: `lmstudio` has no sensible default model name. Verify the error message tells the user exactly what to do.
+
+**Steps**:
+1. Run:
+   ```
+   find-the-gaps analyze \
+     --repo . \
+     --docs-url https://example.com \
+     --llm-provider lmstudio
+   ```
+2. Capture stderr.
+
+**Success Criteria**:
+- [ ] Exit code is non-zero.
+- [ ] Error message mentions `--llm-model` and references the LM Studio Local Server tab.
+- [ ] No panic occurs.
+
+**If Blocked**: If the error message is generic or missing, the factory in `llm_client.go` is not returning the right error for missing model. Stop and ask the developer.
+
+---
+
 ## Verification Rules
 
 - **No mocks, ever.** All LLM calls, all crawl calls, all binary invocations are real.

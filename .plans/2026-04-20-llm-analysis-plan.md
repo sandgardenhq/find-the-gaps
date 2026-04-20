@@ -4,9 +4,30 @@
 
 **Goal:** Analyze crawled documentation pages through an LLM to extract per-page summaries and features, synthesize a product description, map features to code symbols, and produce `mapping.md` + `gaps.md` reports.
 
-**Architecture:** Two new packages: `internal/analyzer` (all LLM calls, behind a `LLMClient` interface) and `internal/reporter` (writes output files). `internal/spider/cache.go` is extended so `index.json` persists analysis results alongside crawl metadata. The `analyze` CLI command (`internal/cli/analyze.go`) orchestrates all stages after crawling. Unit tests use a `fakeClient`; integration tests (tagged `//go:build integration`) use the real Bifrost client.
+**Architecture:** Two new packages: `internal/analyzer` (all LLM calls, behind a `LLMClient` interface) and `internal/reporter` (writes output files). `internal/spider/cache.go` is extended so `index.json` persists analysis results alongside crawl metadata. The `analyze` CLI command (`internal/cli/analyze.go`) orchestrates all stages after crawling. A provider factory in `internal/cli/llm_client.go` selects the right `LLMClient` at runtime based on `--llm-provider`. Unit tests use a `fakeClient`; integration tests (tagged `//go:build integration`) use real providers.
 
-**Tech Stack:** Go 1.26+, `github.com/maximhq/bifrost/core` + `github.com/maximhq/bifrost/core/schemas` (LLM gateway), `encoding/json` for structured prompt responses, standard `testing` package, `//go:build integration` build tag for real-LLM tests.
+**Tech Stack:** Go 1.26+, `github.com/maximhq/bifrost/core` + `github.com/maximhq/bifrost/core/schemas` (hosted LLM gateway), standard `net/http` + `encoding/json` (OpenAI-compatible local models — no extra dependency), standard `testing` package, `//go:build integration` build tag for real-LLM tests.
+
+**Provider support:**
+
+| `--llm-provider` | Implementation | Credential | Default model | Default base URL |
+|---|---|---|---|---|
+| `anthropic` (default) | `BifrostClient` | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022` | — |
+| `openai` | `BifrostClient` | `OPENAI_API_KEY` | `gpt-4o-mini` | — |
+| `ollama` | `OpenAICompatibleClient` | none | `llama3` | `http://localhost:11434` |
+| `lmstudio` | `OpenAICompatibleClient` | none | *(must set `--llm-model`)* | `http://localhost:1234` |
+| `openai-compatible` | `OpenAICompatibleClient` | `OPENAI_API_KEY` (optional) | *(must set `--llm-model`)* | *(must set `--llm-base-url`)* |
+
+---
+
+## Reference: Local model base URLs
+
+| Provider | Default base URL | Verify with |
+|---|---|---|
+| Ollama | `http://localhost:11434` | `ollama list` |
+| LM Studio | `http://localhost:1234` | LM Studio UI → Local Server tab |
+
+Both expose the OpenAI chat completions endpoint at `<base>/v1/chat/completions`. No API key required by default. The `OpenAICompatibleClient` sends a plain `POST` with `net/http` — no SDK.
 
 ---
 
@@ -1229,7 +1250,7 @@ git commit -m "feat(reporter): WriteMapping and WriteGaps
 
 **Files:**
 - Modify: `internal/cli/analyze.go`
-- Modify: `cmd/find-the-gaps/testdata/script/analyze_stub.txtar`
+- Create: `internal/cli/llm_client.go` (stub; fully implemented in Task 8)
 
 The full pipeline after crawling:
 1. Load the spider `Index` for the docs cache dir.
@@ -1240,33 +1261,30 @@ The full pipeline after crawling:
 6. Call `reporter.WriteMapping` and `reporter.WriteGaps`.
 7. Print summary line to stdout.
 
-The `LLMClient` is constructed from a `BifrostClient` (Task 8). For now, the CLI will return a clear error if no LLM client can be constructed (missing API key), so tests can pass without a real key.
+Three new flags drive provider selection: `--llm-provider`, `--llm-model`, `--llm-base-url`. The factory `newLLMClient(cfg LLMConfig)` is implemented fully in Task 8. For now create a stub that returns an error so tests can compile.
 
 **Step 1: Write the failing test**
 
-The existing `analyze_stub.txtar` tests the no-docs-url path. Add a new txtar for the case where `--docs-url` is provided but LLM credentials are missing. This is an integration concern; for unit-level coverage, update the test in `cmd/find-the-gaps/root_test.go`.
+The existing `analyze_stub.txtar` tests the no-docs-url path and must still pass after this change. Verify the flag names are accepted. Add a second txtar for the new flags:
 
-Add to `cmd/find-the-gaps/root_test.go` (or find the relevant test file):
-
-```go
-func TestAnalyze_PrintsFilesAndPages(t *testing.T) {
-    // This test uses a fake spider output; it does not test LLM calls.
-    // Full integration is covered by the VERIFICATION_PLAN.
-}
-```
-
-Actually the CLI wiring is best tested via the existing txtar mechanism. Update `analyze_stub.txtar`:
+Create `cmd/find-the-gaps/testdata/script/analyze_llm_flags.txtar`:
 
 ```
-# analyze subcommand scans an empty repo and prints a summary.
+# analyze accepts LLM provider flags without error (no --docs-url, so no LLM call).
 mkdir repo
-exec find-the-gaps analyze --repo repo --cache-dir $WORK/cache
+exec find-the-gaps analyze --repo repo --cache-dir $WORK/cache --llm-provider ollama --llm-model llama3
 stdout 'scanned 0 files'
 ```
 
-This test already passes. The new behavior (LLM analysis) only runs when `--docs-url` is provided AND a `LLMClient` can be constructed. Guard it so that missing `ANTHROPIC_API_KEY` returns a descriptive error rather than a panic.
+**Step 2: Run — expect FAIL**
 
-**Step 2: Modify `internal/cli/analyze.go`**
+```bash
+go test ./cmd/find-the-gaps/...
+```
+
+Expected: `unknown flag: --llm-provider`.
+
+**Step 3: Modify `internal/cli/analyze.go`**
 
 ```go
 package cli
@@ -1286,11 +1304,14 @@ import (
 
 func newAnalyzeCmd() *cobra.Command {
     var (
-        docsURL  string
-        repoPath string
-        cacheDir string
-        workers  int
-        noCache  bool
+        docsURL     string
+        repoPath    string
+        cacheDir    string
+        workers     int
+        noCache     bool
+        llmProvider string
+        llmModel    string
+        llmBaseURL  string
     )
 
     cmd := &cobra.Command{
@@ -1326,7 +1347,11 @@ func newAnalyzeCmd() *cobra.Command {
                 return fmt.Errorf("crawl failed: %w", err)
             }
 
-            llmClient, err := newBifrostClient()
+            llmClient, err := newLLMClient(LLMConfig{
+                Provider: llmProvider,
+                Model:    llmModel,
+                BaseURL:  llmBaseURL,
+            })
             if err != nil {
                 return fmt.Errorf("LLM client: %w", err)
             }
@@ -1401,20 +1426,18 @@ func newAnalyzeCmd() *cobra.Command {
     cmd.Flags().BoolVar(&noCache, "no-cache", false, "force full re-scan, ignoring any cached results")
     cmd.Flags().StringVar(&docsURL, "docs-url", "", "URL of the documentation site to analyze")
     cmd.Flags().IntVar(&workers, "workers", 5, "number of parallel mdfetch workers")
+    cmd.Flags().StringVar(&llmProvider, "llm-provider", "anthropic",
+        "LLM provider: anthropic | openai | ollama | lmstudio | openai-compatible")
+    cmd.Flags().StringVar(&llmModel, "llm-model", "",
+        "model name (default varies by provider; e.g. llama3 for ollama)")
+    cmd.Flags().StringVar(&llmBaseURL, "llm-base-url", "",
+        "base URL for local providers (required for openai-compatible; default: provider-specific)")
 
     return cmd
 }
-
-// newBifrostClient is declared here; implemented in bifrost_client.go (Task 8).
-// Returns an error if required env vars are missing.
-func newBifrostClient() (analyzer.LLMClient, error) {
-    return newRealBifrostClient()
-}
 ```
 
-Note: `newRealBifrostClient()` will be defined in Task 8. For now, create a stub that returns an error.
-
-**Step 3: Create stub `internal/cli/bifrost_client.go`**
+**Step 4: Create stub `internal/cli/llm_client.go`**
 
 ```go
 package cli
@@ -1425,43 +1448,415 @@ import (
     "github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
-// newRealBifrostClient constructs the Bifrost-backed LLM client.
-// Returns an error if ANTHROPIC_API_KEY is not set.
-// Full implementation added in Task 8.
-func newRealBifrostClient() (analyzer.LLMClient, error) {
+// LLMConfig holds provider selection for the analyze command.
+type LLMConfig struct {
+    Provider string // anthropic | openai | ollama | lmstudio | openai-compatible
+    Model    string // empty = use provider default
+    BaseURL  string // empty = use provider default; required for openai-compatible
+}
+
+// newLLMClient constructs the appropriate LLMClient for cfg.
+// Fully implemented in Task 8; returns an error until then.
+func newLLMClient(_ LLMConfig) (analyzer.LLMClient, error) {
     return nil, errors.New("LLM client not yet implemented — see Task 8")
 }
 ```
 
-**Step 4: Run all tests — expect PASS**
+**Step 5: Run — expect PASS**
 
 ```bash
 go test ./...
 ```
 
-The existing `analyze_stub.txtar` tests the no-docs-url path and must still pass. The LLM path is gated behind `--docs-url`, so no real LLM calls happen in tests.
+The new txtar passes (no LLM called since `--docs-url` is absent). The stub error is never reached.
 
-**Step 5: Commit**
+**Step 6: Commit**
 
 ```bash
-git add internal/cli/analyze.go internal/cli/bifrost_client.go
-git commit -m "feat(cli): wire analyzer pipeline into analyze command
+git add internal/cli/analyze.go internal/cli/llm_client.go \
+        cmd/find-the-gaps/testdata/script/analyze_llm_flags.txtar
+git commit -m "feat(cli): wire analyzer pipeline + LLM provider flags
 
-- RED: existing analyze_stub.txtar still green, no LLM called without --docs-url
-- GREEN: analyze.go orchestrates AnalyzePage→SynthesizeProduct→MapFeaturesToCode→reports
+- RED: analyze_llm_flags.txtar expecting --llm-provider flag
+- GREEN: analyze.go with --llm-provider/--llm-model/--llm-base-url; llm_client.go stub
 - Status: all tests passing, build successful"
 ```
 
 ---
 
-## Task 8: BifrostClient real implementation
+## Task 8: OpenAICompatibleClient + provider factory
 
 **Files:**
-- Replace: `internal/cli/bifrost_client.go` (replaces stub from Task 7)
+- Create: `internal/analyzer/openai_compatible_client.go`
+- Create: `internal/analyzer/openai_compatible_client_test.go`
+- Replace: `internal/cli/llm_client.go` (replaces stub with full factory)
+
+`OpenAICompatibleClient` talks to any server that speaks the OpenAI chat completions format — Ollama, LM Studio, or any other local model server. It uses only `net/http` and `encoding/json`; no new Go module dependencies.
+
+The provider factory `newLLMClient` is also completed in this task. It dispatches to `OpenAICompatibleClient` or `BifrostClient` (Task 9) based on `LLMConfig.Provider`.
+
+**Step 1: Write the failing test**
+
+Create `internal/analyzer/openai_compatible_client_test.go`:
+
+```go
+package analyzer_test
+
+import (
+    "context"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+
+    "github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+)
+
+func TestOpenAICompatibleClient_Complete_ReturnsContent(t *testing.T) {
+    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.URL.Path != "/v1/chat/completions" {
+            http.NotFound(w, r)
+            return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]any{
+            "choices": []map[string]any{
+                {"message": map[string]any{"content": "pong"}},
+            },
+        })
+    }))
+    defer srv.Close()
+
+    client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+    got, err := client.Complete(context.Background(), "ping")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if got != "pong" {
+        t.Errorf("expected pong, got %q", got)
+    }
+}
+
+func TestOpenAICompatibleClient_ServerError_ReturnsError(t *testing.T) {
+    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+        http.Error(w, "internal error", http.StatusInternalServerError)
+    }))
+    defer srv.Close()
+
+    client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+    _, err := client.Complete(context.Background(), "ping")
+    if err == nil {
+        t.Fatal("expected error on 500 response")
+    }
+}
+
+func TestOpenAICompatibleClient_EmptyChoices_ReturnsError(t *testing.T) {
+    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{}})
+    }))
+    defer srv.Close()
+
+    client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+    _, err := client.Complete(context.Background(), "ping")
+    if err == nil {
+        t.Fatal("expected error for empty choices")
+    }
+}
+
+func TestOpenAICompatibleClient_ImplementsLLMClient(t *testing.T) {
+    var _ analyzer.LLMClient = analyzer.NewOpenAICompatibleClient("http://localhost", "model", "")
+}
+```
+
+**Step 2: Run — expect FAIL**
+
+```bash
+go test ./internal/analyzer/...
+```
+
+Expected: `undefined: analyzer.NewOpenAICompatibleClient`.
+
+**Step 3: Create `internal/analyzer/openai_compatible_client.go`**
+
+```go
+package analyzer
+
+import (
+    "bytes"
+    "context"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+// OpenAICompatibleClient calls any server that implements the OpenAI chat
+// completions API — Ollama, LM Studio, or a custom endpoint.
+type OpenAICompatibleClient struct {
+    baseURL string
+    model   string
+    apiKey  string
+    http    *http.Client
+}
+
+// NewOpenAICompatibleClient creates a client for the given base URL and model.
+// apiKey is optional; pass an empty string for local servers that don't require auth.
+func NewOpenAICompatibleClient(baseURL, model, apiKey string) *OpenAICompatibleClient {
+    return &OpenAICompatibleClient{
+        baseURL: baseURL,
+        model:   model,
+        apiKey:  apiKey,
+        http:    &http.Client{},
+    }
+}
+
+type oaiRequest struct {
+    Model    string       `json:"model"`
+    Messages []oaiMessage `json:"messages"`
+}
+
+type oaiMessage struct {
+    Role    string `json:"role"`
+    Content string `json:"content"`
+}
+
+type oaiResponse struct {
+    Choices []struct {
+        Message struct {
+            Content string `json:"content"`
+        } `json:"message"`
+    } `json:"choices"`
+}
+
+// Complete sends prompt as a user message and returns the first completion.
+func (c *OpenAICompatibleClient) Complete(ctx context.Context, prompt string) (string, error) {
+    body, err := json.Marshal(oaiRequest{
+        Model:    c.model,
+        Messages: []oaiMessage{{Role: "user", Content: prompt}},
+    })
+    if err != nil {
+        return "", err
+    }
+
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+        c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+    if err != nil {
+        return "", err
+    }
+    req.Header.Set("Content-Type", "application/json")
+    if c.apiKey != "" {
+        req.Header.Set("Authorization", "Bearer "+c.apiKey)
+    }
+
+    resp, err := c.http.Do(req)
+    if err != nil {
+        return "", fmt.Errorf("openai-compatible request: %w", err)
+    }
+    defer func() { _ = resp.Body.Close() }()
+
+    if resp.StatusCode != http.StatusOK {
+        b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+        return "", fmt.Errorf("openai-compatible: status %d: %s", resp.StatusCode, b)
+    }
+
+    var out oaiResponse
+    if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+        return "", fmt.Errorf("openai-compatible: decode response: %w", err)
+    }
+    if len(out.Choices) == 0 {
+        return "", fmt.Errorf("openai-compatible: no choices in response")
+    }
+    return out.Choices[0].Message.Content, nil
+}
+```
+
+**Step 4: Run — expect PASS**
+
+```bash
+go test ./internal/analyzer/...
+```
+
+Expected: all 20 tests pass (16 existing + 4 new).
+
+**Step 5: Replace `internal/cli/llm_client.go` with the full factory**
+
+```go
+package cli
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+)
+
+// LLMConfig holds provider selection for the analyze command.
+type LLMConfig struct {
+    Provider string // anthropic | openai | ollama | lmstudio | openai-compatible
+    Model    string // empty = use provider default
+    BaseURL  string // empty = use provider default; required for openai-compatible
+}
+
+// newLLMClient constructs the appropriate LLMClient for cfg.
+func newLLMClient(cfg LLMConfig) (analyzer.LLMClient, error) {
+    switch cfg.Provider {
+    case "ollama":
+        baseURL := cfg.BaseURL
+        if baseURL == "" {
+            baseURL = "http://localhost:11434"
+        }
+        model := cfg.Model
+        if model == "" {
+            model = "llama3"
+        }
+        return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), nil
+
+    case "lmstudio":
+        baseURL := cfg.BaseURL
+        if baseURL == "" {
+            baseURL = "http://localhost:1234"
+        }
+        if cfg.Model == "" {
+            return nil, fmt.Errorf("--llm-model is required for lmstudio (check the Local Server tab in LM Studio for the loaded model name)")
+        }
+        return analyzer.NewOpenAICompatibleClient(baseURL, cfg.Model, ""), nil
+
+    case "openai-compatible":
+        if cfg.BaseURL == "" {
+            return nil, fmt.Errorf("--llm-base-url is required for openai-compatible provider")
+        }
+        if cfg.Model == "" {
+            return nil, fmt.Errorf("--llm-model is required for openai-compatible provider")
+        }
+        return analyzer.NewOpenAICompatibleClient(cfg.BaseURL, cfg.Model, os.Getenv("OPENAI_API_KEY")), nil
+
+    case "openai":
+        key := os.Getenv("OPENAI_API_KEY")
+        if key == "" {
+            return nil, fmt.Errorf("OPENAI_API_KEY environment variable not set")
+        }
+        model := cfg.Model
+        if model == "" {
+            model = "gpt-4o-mini"
+        }
+        return analyzer.NewBifrostClientWithProvider("openai", key, model)
+
+    case "anthropic", "":
+        key := os.Getenv("ANTHROPIC_API_KEY")
+        if key == "" {
+            return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set (or use --llm-provider ollama for a local model)")
+        }
+        model := cfg.Model
+        if model == "" {
+            model = "claude-3-5-sonnet-20241022"
+        }
+        return analyzer.NewBifrostClientWithProvider("anthropic", key, model)
+
+    default:
+        return nil, fmt.Errorf("unknown --llm-provider %q (supported: anthropic, openai, ollama, lmstudio, openai-compatible)", cfg.Provider)
+    }
+}
+```
+
+**Step 6: Write the failing test for the factory**
+
+Add to `internal/cli/` — create `internal/cli/llm_client_test.go`:
+
+```go
+package cli
+
+import (
+    "testing"
+)
+
+func TestNewLLMClient_Ollama_DefaultsApplied(t *testing.T) {
+    c, err := newLLMClient(LLMConfig{Provider: "ollama"})
+    if err != nil {
+        t.Fatal(err)
+    }
+    if c == nil {
+        t.Fatal("expected non-nil client")
+    }
+}
+
+func TestNewLLMClient_Ollama_CustomBaseURL(t *testing.T) {
+    c, err := newLLMClient(LLMConfig{Provider: "ollama", BaseURL: "http://localhost:9999", Model: "mistral"})
+    if err != nil {
+        t.Fatal(err)
+    }
+    if c == nil {
+        t.Fatal("expected non-nil client")
+    }
+}
+
+func TestNewLLMClient_LMStudio_MissingModel_ReturnsError(t *testing.T) {
+    _, err := newLLMClient(LLMConfig{Provider: "lmstudio"})
+    if err == nil {
+        t.Fatal("expected error when model not set for lmstudio")
+    }
+}
+
+func TestNewLLMClient_OpenAICompatible_MissingBaseURL_ReturnsError(t *testing.T) {
+    _, err := newLLMClient(LLMConfig{Provider: "openai-compatible", Model: "my-model"})
+    if err == nil {
+        t.Fatal("expected error when base URL not set")
+    }
+}
+
+func TestNewLLMClient_UnknownProvider_ReturnsError(t *testing.T) {
+    _, err := newLLMClient(LLMConfig{Provider: "grok"})
+    if err == nil {
+        t.Fatal("expected error for unknown provider")
+    }
+}
+```
+
+Run before implementing the factory (should fail with compilation error since the factory returned an error stub):
+
+```bash
+go test ./internal/cli/...
+```
+
+Once the factory above is pasted in, run again:
+
+```bash
+go test ./internal/cli/...
+```
+
+Expected: all 5 factory tests pass. `anthropic` and `openai` cases require env vars and will only be exercised via integration tests (Task 9).
+
+**Step 7: Run full suite**
+
+```bash
+go test ./...
+```
+
+**Step 8: Commit**
+
+```bash
+git add internal/analyzer/openai_compatible_client.go \
+        internal/analyzer/openai_compatible_client_test.go \
+        internal/cli/llm_client.go \
+        internal/cli/llm_client_test.go
+git commit -m "feat(analyzer,cli): OpenAICompatibleClient + provider factory
+
+- RED: 4 TestOpenAICompatibleClient_* tests + 5 TestNewLLMClient_* tests
+- GREEN: openai_compatible_client.go (Ollama/LM Studio/custom); llm_client.go factory
+- Status: all tests passing, build successful"
+```
+
+---
+
+## Task 9: BifrostClient real implementation
+
+**Files:**
 - Create: `internal/analyzer/bifrost_client.go`
 - Create: `internal/analyzer/bifrost_client_integration_test.go` (build tag: `integration`)
 
-The real `BifrostClient` wraps the Bifrost Go SDK. Unit tests don't exercise it (they use `fakeClient`). Integration tests require `ANTHROPIC_API_KEY` in the environment and are skipped in normal `go test ./...`.
+The real `BifrostClient` wraps the Bifrost Go SDK and is used by the `anthropic` and `openai` provider cases in the factory from Task 8. Unit tests don't exercise it (they use `fakeClient`). Integration tests require the appropriate API key in the environment and are skipped in normal `go test ./...`.
+
+`NewBifrostClientWithProvider(providerName, apiKey, model string)` is the single constructor the factory calls for both `anthropic` and `openai`.
 
 **Step 1: Write the integration test (RED — skipped in CI)**
 
@@ -1480,13 +1875,34 @@ import (
     "github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
-func TestBifrostClient_RealCompletion(t *testing.T) {
+func TestBifrostClient_Anthropic_RealCompletion(t *testing.T) {
     key := os.Getenv("ANTHROPIC_API_KEY")
     if key == "" {
         t.Skip("ANTHROPIC_API_KEY not set")
     }
 
-    client, err := analyzer.NewBifrostClient(key)
+    client, err := analyzer.NewBifrostClientWithProvider("anthropic", key, "claude-3-5-sonnet-20241022")
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    resp, err := client.Complete(context.Background(), "Reply with the single word: pong")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if resp == "" {
+        t.Error("expected non-empty response")
+    }
+    t.Logf("Response: %s", resp)
+}
+
+func TestBifrostClient_OpenAI_RealCompletion(t *testing.T) {
+    key := os.Getenv("OPENAI_API_KEY")
+    if key == "" {
+        t.Skip("OPENAI_API_KEY not set")
+    }
+
+    client, err := analyzer.NewBifrostClientWithProvider("openai", key, "gpt-4o-mini")
     if err != nil {
         t.Fatal(err)
     }
@@ -1507,9 +1923,10 @@ Run normally (should produce 0 test results, not a failure):
 go test ./internal/analyzer/...
 ```
 
-Run with tag (requires real API key):
+Run with tag:
 ```bash
-ANTHROPIC_API_KEY=your_key go test -tags integration ./internal/analyzer/...
+ANTHROPIC_API_KEY=your_key go test -tags integration ./internal/analyzer/... -run TestBifrostClient_Anthropic
+OPENAI_API_KEY=your_key go test -tags integration ./internal/analyzer/... -run TestBifrostClient_OpenAI
 ```
 
 **Step 2: Create `internal/analyzer/bifrost_client.go`**
@@ -1520,7 +1937,6 @@ package analyzer
 import (
     "context"
     "fmt"
-    "os"
 
     "github.com/maximhq/bifrost/core"
     "github.com/maximhq/bifrost/core/schemas"
@@ -1559,31 +1975,25 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
     return nil, fmt.Errorf("unsupported provider: %s", provider)
 }
 
-// NewBifrostClient creates a BifrostClient using Anthropic as the provider.
-// apiKey is the Anthropic API key.
-func NewBifrostClient(apiKey string) (*BifrostClient, error) {
-    account := &bifrostAccount{
-        provider: schemas.Anthropic,
-        apiKey:   apiKey,
+// NewBifrostClientWithProvider creates a BifrostClient for the named provider.
+// providerName must be "anthropic" or "openai".
+func NewBifrostClientWithProvider(providerName, apiKey, model string) (*BifrostClient, error) {
+    var provider schemas.ModelProvider
+    switch providerName {
+    case "anthropic":
+        provider = schemas.Anthropic
+    case "openai":
+        provider = schemas.OpenAI
+    default:
+        return nil, fmt.Errorf("unsupported Bifrost provider: %q", providerName)
     }
+
+    account := &bifrostAccount{provider: provider, apiKey: apiKey}
     client, err := bifrost.Init(context.Background(), schemas.BifrostConfig{Account: account})
     if err != nil {
         return nil, fmt.Errorf("bifrost init: %w", err)
     }
-    return &BifrostClient{
-        client:   client,
-        provider: schemas.Anthropic,
-        model:    "claude-3-5-sonnet-20241022",
-    }, nil
-}
-
-// NewBifrostClientFromEnv creates a BifrostClient reading ANTHROPIC_API_KEY from the environment.
-func NewBifrostClientFromEnv() (*BifrostClient, error) {
-    key := os.Getenv("ANTHROPIC_API_KEY")
-    if key == "" {
-        return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable not set")
-    }
-    return NewBifrostClient(key)
+    return &BifrostClient{client: client, provider: provider, model: model}, nil
 }
 
 // Complete sends a user prompt and returns the first completion text.
@@ -1612,32 +2022,15 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 }
 ```
 
-**Step 3: Update `internal/cli/bifrost_client.go`**
-
-Replace the stub:
-
-```go
-package cli
-
-import (
-    "github.com/sandgardenhq/find-the-gaps/internal/analyzer"
-)
-
-// newRealBifrostClient constructs the Bifrost-backed LLM client from ANTHROPIC_API_KEY.
-func newRealBifrostClient() (analyzer.LLMClient, error) {
-    return analyzer.NewBifrostClientFromEnv()
-}
-```
-
-**Step 4: Run all tests — expect PASS**
+**Step 3: Run all tests — expect PASS**
 
 ```bash
 go test ./...
 ```
 
-Normal test run must pass (integration test is build-tag-gated and skipped). The `analyze_stub.txtar` and all unit tests pass.
+Normal test run must pass (integration tests are build-tag-gated and skipped). All unit tests and txtar tests pass.
 
-**Step 5: Verify build**
+**Step 4: Verify build**
 
 ```bash
 go build ./...
@@ -1645,7 +2038,7 @@ go build ./...
 
 Expected: success, no errors.
 
-**Step 6: Check coverage**
+**Step 5: Check coverage**
 
 ```bash
 go test -cover ./internal/analyzer/... ./internal/reporter/... ./internal/spider/...
@@ -1653,7 +2046,7 @@ go test -cover ./internal/analyzer/... ./internal/reporter/... ./internal/spider
 
 Expected: ≥90% statement coverage per package.
 
-**Step 7: Run linter**
+**Step 6: Run linter**
 
 ```bash
 golangci-lint run
@@ -1661,14 +2054,14 @@ golangci-lint run
 
 Fix any reported issues before committing.
 
-**Step 8: Commit**
+**Step 7: Commit**
 
 ```bash
-git add internal/analyzer/bifrost_client.go internal/analyzer/bifrost_client_integration_test.go internal/cli/bifrost_client.go
-git commit -m "feat(analyzer): BifrostClient wrapping Bifrost Go SDK
+git add internal/analyzer/bifrost_client.go internal/analyzer/bifrost_client_integration_test.go
+git commit -m "feat(analyzer): BifrostClient with NewBifrostClientWithProvider
 
-- RED: TestBifrostClient_RealCompletion (integration tag, skipped in normal run)
-- GREEN: bifrost_client.go with NewBifrostClient, NewBifrostClientFromEnv, Complete
+- RED: TestBifrostClient_Anthropic_RealCompletion, TestBifrostClient_OpenAI_RealCompletion (integration tag, skipped in normal run)
+- GREEN: bifrost_client.go with NewBifrostClientWithProvider supporting anthropic + openai
 - Status: all unit tests passing, build successful"
 ```
 
