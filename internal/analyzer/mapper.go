@@ -32,23 +32,30 @@ type accEntry struct {
 
 // MapFeaturesToCode maps a list of product features to code files and symbols in scan.
 // It batches the symbol index into token-budget-sized chunks and merges results.
+// When filesOnly is true, the LLM prompt contains only file paths (no symbol names) and
+// symbols are not accumulated even if the LLM response includes them.
 // onBatch, if non-nil, is called with the accumulated results after each LLM call.
-func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []string, scan *scanner.ProjectScan, tokenBudget int, onBatch MapProgressFunc) (FeatureMap, error) {
+func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []string, scan *scanner.ProjectScan, tokenBudget int, filesOnly bool, onBatch MapProgressFunc) (FeatureMap, error) {
 	if len(features) == 0 {
 		return FeatureMap{}, nil
 	}
 
-	// Build a compact symbol index: "path: Symbol1, Symbol2"
+	// Build the code index sent to the LLM.
+	// In filesOnly mode, send only file paths; otherwise send "path: Symbol1, Symbol2".
 	var symLines []string
 	for _, f := range scan.Files {
 		if len(f.Symbols) == 0 {
 			continue
 		}
-		names := make([]string, len(f.Symbols))
-		for i, s := range f.Symbols {
-			names[i] = s.Name
+		if filesOnly {
+			symLines = append(symLines, f.Path)
+		} else {
+			names := make([]string, len(f.Symbols))
+			for i, s := range f.Symbols {
+				names[i] = s.Name
+			}
+			symLines = append(symLines, fmt.Sprintf("%s: %s", f.Path, strings.Join(names, ", ")))
 		}
-		symLines = append(symLines, fmt.Sprintf("%s: %s", f.Path, strings.Join(names, ", ")))
 	}
 
 	if len(symLines) == 0 {
@@ -75,8 +82,26 @@ func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCount
 	for i := 0; i < len(queue); i++ {
 		batch := queue[i]
 
-		// PROMPT: Maps product features to the code files and symbols most likely to implement them. Returns a JSON array only.
-		promptText := fmt.Sprintf(`You are mapping product features to their code implementations.
+		var promptText string
+		if filesOnly {
+			// PROMPT: Maps product features to code files only (symbol analysis disabled). Returns a JSON array only.
+			promptText = fmt.Sprintf(`You are mapping product features to their code implementations.
+
+Product features:
+%s
+
+Code files:
+%s
+
+For each feature, identify which code files are most relevant to implementing it.
+Return a JSON array where each element has:
+- "feature": the feature name exactly as provided
+- "files": list of relevant file paths (empty array if none)
+
+Respond with only the JSON array. No markdown code fences. No prose.`, string(featuresJSON), strings.Join(batch, "\n"))
+		} else {
+			// PROMPT: Maps product features to the code files and symbols most likely to implement them. Returns a JSON array only.
+			promptText = fmt.Sprintf(`You are mapping product features to their code implementations.
 
 Product features:
 %s
@@ -91,6 +116,7 @@ Return a JSON array where each element has:
 - "symbols": list of relevant exported symbol names (empty array if none)
 
 Respond with only the JSON array. No markdown code fences. No prose.`, string(featuresJSON), strings.Join(batch, "\n"))
+		}
 
 		// Validate with provider-exact token count; split if over budget.
 		tokenCount, err := counter.CountTokens(ctx, promptText)
@@ -131,8 +157,10 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 			for _, f := range e.Files {
 				entry.files[f] = struct{}{}
 			}
-			for _, s := range e.Symbols {
-				entry.symbols[s] = struct{}{}
+			if !filesOnly {
+				for _, s := range e.Symbols {
+					entry.symbols[s] = struct{}{}
+				}
 			}
 		}
 

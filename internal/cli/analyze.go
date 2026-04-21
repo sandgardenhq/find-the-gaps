@@ -43,7 +43,7 @@ func runBothMaps(
 	docsCh := make(chan docsMapsResult, 1)
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, onCodeBatch)
+		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, false, onCodeBatch)
 		codeCh <- bothMapsResult{fm, err}
 	}()
 
