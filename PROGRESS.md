@@ -449,6 +449,60 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Completed: 2026-04-20
 - Notes: RED confirmed with "undefined: analyzer.AnalyzePage" compile error. GREEN: analyze_page.go implements AnalyzePage with // PROMPT: comment on line immediately above the prompt string. JSON response struct (analyzePageResponse) is unexported. nil features slice normalized to empty slice before returning.
 
+## Task 4 (verbose logging): Add log.Debug calls to doctor package - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED):
+  - TestRun_verbose_doctorShowsDebugOutput — runs `doctor` with `--verbose`, asserts at least one DEBU line appears in stderr regardless of whether rg/mdfetch are installed
+- RED confirmed: no debug output produced before log calls were added to doctor package
+- GREEN: Added log.Debug calls in internal/doctor/doctor.go to emit per-tool detection results at debug level
+- Tests: 1 new test, all packages green
+- Coverage: internal/doctor: 100.0% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes: Test does not assert exit code because rg/mdfetch presence varies across environments; only DEBU output is checked
+
+## Task 3 (verbose logging): Add log calls to analyze pipeline - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED):
+  - TestRun_verbose_showsDebugOutput — runs analyze with --verbose over an empty temp repo, asserts stderr contains "DEBU"
+  - TestRun_noVerbose_noDebugOutput — same analyze call without --verbose, asserts no "DEBU" in stderr
+  - TestRun_noVerbose_infoLogsVisible — runs analyze without --verbose, asserts "scanning repository" Info log appears in stderr
+- RED confirmed: no debug/info output present before log calls were wired into the analyze pipeline
+- GREEN: Added log.Info and log.Debug calls throughout internal/cli/analyze.go pipeline phases; fixed test expectations
+- Tests: 3 new tests + fixes, all packages green
+- Coverage: internal/cli: 91.5% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes: Tests must not use t.Parallel() — they share the global charmbracelet/log logger; see comment in root_test.go
+
+## Task 2 (verbose logging): Add --verbose/-v persistent flag - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED):
+  - TestRootCmd_verboseFlag_appearsInHelp — asserts "--verbose" appears in `--help` output
+  - TestRootCmd_verboseShorthand_appearsInHelp — asserts "-v" appears in `--help` output
+  - TestRootCmd_verbose_acceptedWithoutError — runs analyze with --verbose, expects exit code 0
+- RED confirmed: "unknown flag: --verbose" error before flag was registered
+- GREEN: Added --verbose/-v persistent flag to root command; PersistentPreRunE sets charmbracelet/log level to Debug and redirects log output to cmd stderr
+- Tests: 3 new tests, all packages green
+- Coverage: internal/cli: 90.8% of statements
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes: PersistentPreRunE resets logger per invocation so sequential test runs don't leak state into each other
+
+## Task 1 (verbose logging): Add charmbracelet/log dependency - COMPLETE
+- Started: 2026-04-20
+- Tests written first (RED): N/A — dependency-only task; no new production logic, no tests required
+- GREEN: Ran `go get github.com/charmbracelet/log` and `go mod tidy`; dependency added to go.mod and go.sum
+- Tests: N/A (no new test code)
+- Coverage: N/A
+- Build: ✅ Successful (go build ./... clean after dependency added)
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-20
+- Notes: charmbracelet/log is a structured leveled logger compatible with charmbracelet/bubbletea output model; imported in subsequent verbose-logging tasks
+
 ## Task 3 (LLM Analysis): SynthesizeProduct - COMPLETE
 - Started: 2026-04-20
 - Tests written: TestSynthesizeProduct_ReturnsDescriptionAndFeatures, TestSynthesizeProduct_SinglePage_OK, TestSynthesizeProduct_ClientError_Propagates, TestSynthesizeProduct_InvalidJSON_ReturnsError, TestSynthesizeProduct_NilFeatures_NormalizedToEmpty

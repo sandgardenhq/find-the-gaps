@@ -146,6 +146,9 @@ func TestRootCmd_verbose_acceptedWithoutError(t *testing.T) {
 	}
 }
 
+// NOTE: do not add t.Parallel() to tests that call run() with --verbose — the global
+// charmbracelet/log logger is shared state; PersistentPreRunE resets it per invocation
+// but parallel execution would race on it.
 func TestRun_verbose_showsDebugOutput(t *testing.T) {
 	t.Cleanup(func() {
 		log.SetOutput(os.Stderr)
