@@ -16,7 +16,7 @@ var skippedDirs = map[string]bool{
 	"node_modules": true, // JavaScript / TypeScript
 	"__pycache__":  true, // Python
 	"venv":         true, // Python virtual environments
-	"target":       true, // Rust
+	"target":       true, // Rust build artifacts (also skips any non-Rust dir named "target")
 }
 
 // Walk recursively walks repoRoot, calling fn for each non-ignored file.
