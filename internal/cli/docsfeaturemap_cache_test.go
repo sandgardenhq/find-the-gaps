@@ -68,3 +68,26 @@ func TestDocsFeatureMapCache_NilPagesNormalized(t *testing.T) {
 	require.True(t, ok)
 	assert.NotNil(t, got[0].Pages, "nil pages should be normalized to empty slice on load")
 }
+
+// TestDocsFeatureMapCache_ReadError_ReturnsMiss covers the generic os.ReadFile error
+// branch (not os.ErrNotExist) in loadDocsFeatureMapCache by pointing at a directory.
+func TestDocsFeatureMapCache_ReadError_ReturnsMiss(t *testing.T) {
+	dir := t.TempDir()
+	_, ok := loadDocsFeatureMapCache(dir, []string{"auth"})
+	assert.False(t, ok, "expected cache miss when path is a directory (read error)")
+}
+
+// TestDocsFeatureMapCache_NilPagesInRawJSON covers the nil-pages normalization branch
+// in loadDocsFeatureMapCache by writing a raw JSON file with null pages.
+func TestDocsFeatureMapCache_NilPagesInRawJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "docsfeaturemap.json")
+	// Write raw JSON where pages is null, bypassing saveDocsFeatureMapCache normalization.
+	raw := `{"features":["auth"],"entries":[{"feature":"auth","pages":null}]}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o644))
+
+	got, ok := loadDocsFeatureMapCache(path, []string{"auth"})
+	require.True(t, ok)
+	assert.NotNil(t, got[0].Pages, "null pages in JSON must be normalized to empty slice on load")
+	assert.Len(t, got[0].Pages, 0)
+}

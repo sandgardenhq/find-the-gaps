@@ -110,3 +110,35 @@ func TestLoadFeatureMapCache_NilSlicesNormalized(t *testing.T) {
 		t.Error("Symbols must be normalized to empty slice, not nil")
 	}
 }
+
+// TestLoadFeatureMapCache_ReadError_ReturnsFalse covers the generic os.ReadFile
+// error branch (not os.ErrNotExist) in loadFeatureMapCache by pointing at a directory.
+func TestLoadFeatureMapCache_ReadError_ReturnsFalse(t *testing.T) {
+	dir := t.TempDir()
+	_, ok := loadFeatureMapCache(dir, []string{"auth"})
+	if ok {
+		t.Error("expected cache miss when path is a directory (read error)")
+	}
+}
+
+// TestLoadFeatureMapCache_NilSlicesInRawJSON covers the nil-files and nil-symbols
+// normalization branches in loadFeatureMapCache by writing raw JSON with null slices,
+// bypassing saveFeatureMapCache normalization.
+func TestLoadFeatureMapCache_NilSlicesInRawJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "featuremap.json")
+	raw := `{"features":["f"],"entries":[{"feature":"f","files":null,"symbols":null}]}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := loadFeatureMapCache(path, []string{"f"})
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if got[0].Files == nil {
+		t.Error("null files in JSON must be normalized to empty slice")
+	}
+	if got[0].Symbols == nil {
+		t.Error("null symbols in JSON must be normalized to empty slice")
+	}
+}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,39 @@ func TestRunBothMaps_DocsMapError(t *testing.T) {
 	)
 	// docs page errors are logged and skipped, not propagated — result is empty pages
 	require.NoError(t, err)
+}
+
+// TestRunBothMaps_DocsMapError_ViaOnPageCallback exercises the docsRes.err != nil
+// path in runBothMaps. MapFeaturesToDocs only propagates an error when the onPage
+// progress callback itself returns an error; individual page LLM errors are logged
+// and skipped. We pass a callback that always returns an error so the docs goroutine
+// returns a non-nil error, triggering the second error guard in runBothMaps.
+func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
+	callbackErr := errors.New("onPage callback error")
+	onDocsPage := func(_ analyzer.DocsFeatureMap) error {
+		return callbackErr
+	}
+
+	_, _, err := runBothMaps(
+		context.Background(),
+		&stubLLMClient{
+			codeResp: `[]`, // empty but valid JSON — code map succeeds immediately
+			docsResp: `["auth"]`,
+		},
+		analyzer.NewTiktokenCounter(),
+		[]string{"auth"},
+		// Empty scan so MapFeaturesToCode returns immediately (no LLM call, no error).
+		&scanner.ProjectScan{Files: []scanner.ScannedFile{}},
+		map[string]string{
+			"https://example.com/auth": writeTempFile(t, "auth content"),
+		},
+		1,
+		10_000,
+		false,
+		nil,
+		onDocsPage, // docs progress callback that errors → propagated to runBothMaps
+	)
+	require.Error(t, err, "expected error propagated from onDocsPage callback")
 }
 
 func TestRunBothMaps_FilesOnly_PassedThrough(t *testing.T) {
