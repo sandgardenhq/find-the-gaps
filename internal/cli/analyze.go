@@ -251,7 +251,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			if err := reporter.WriteGaps(projectDir, scan, featureMap, productSummary.Features); err != nil {
+			if err := reporter.WriteGaps(projectDir, scan, featureMap, productSummary.Features, false); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 

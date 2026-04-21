@@ -57,7 +57,7 @@ func TestWriteGaps_CreatesFile(t *testing.T) {
 	mapping := analyzer.FeatureMap{} // no features map to Undocumented
 	allFeatures := []string{"gap analysis"}
 
-	if err := reporter.WriteGaps(dir, scan, mapping, allFeatures); err != nil {
+	if err := reporter.WriteGaps(dir, scan, mapping, allFeatures, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	}
 	allFeatures := []string{"gap analysis"} // mapped feature → no unmapped features
 
-	if err := reporter.WriteGaps(dir, scan, mapping, allFeatures); err != nil {
+	if err := reporter.WriteGaps(dir, scan, mapping, allFeatures, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,7 +128,7 @@ func TestWriteGaps_SkipsNonFuncTypeInterface(t *testing.T) {
 		},
 	}
 
-	if err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}); err != nil {
+	if err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -156,7 +156,7 @@ func TestWriteGaps_UnexportedSymbolSkipped(t *testing.T) {
 		},
 	}
 
-	if err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}); err != nil {
+	if err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -167,5 +167,30 @@ func TestWriteGaps_UnexportedSymbolSkipped(t *testing.T) {
 	content := string(data)
 	if strings.Contains(content, "unexported") {
 		t.Error("gaps.md must not list unexported symbols")
+	}
+}
+
+func TestWriteGaps_FilesOnly_ReplacesSymbolSectionWithNote(t *testing.T) {
+	dir := t.TempDir()
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{{
+			Path:    "auth.go",
+			Symbols: []scanner.Symbol{{Name: "Login", Kind: scanner.KindFunc}},
+		}},
+	}
+	err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, readErr := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	text := string(content)
+	if strings.Contains(text, "Login") {
+		t.Error("filesOnly mode must not list symbol names in gaps.md")
+	}
+	if !strings.Contains(text, "not available") {
+		t.Error("filesOnly mode must include a 'not available' note in the Undocumented Code section")
 	}
 }

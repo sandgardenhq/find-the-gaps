@@ -45,15 +45,9 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 
 // WriteGaps writes gaps.md to dir.
 // It identifies exported symbols with no feature mapping and features with no code mapping.
-func WriteGaps(dir string, scan *scanner.ProjectScan, mapping analyzer.FeatureMap, allDocFeatures []string) error {
-	// Build set of symbols that appear in any feature mapping
-	mappedSymbols := make(map[string]bool)
-	for _, entry := range mapping {
-		for _, sym := range entry.Symbols {
-			mappedSymbols[sym] = true
-		}
-	}
-
+// When filesOnly is true, the Undocumented Code section is replaced with a note explaining
+// that symbol analysis is not available.
+func WriteGaps(dir string, scan *scanner.ProjectScan, mapping analyzer.FeatureMap, allDocFeatures []string, filesOnly bool) error {
 	// Build set of features that have at least one file mapped
 	mappedFeatures := make(map[string]bool)
 	for _, entry := range mapping {
@@ -67,25 +61,36 @@ func WriteGaps(dir string, scan *scanner.ProjectScan, mapping analyzer.FeatureMa
 
 	// Undocumented code: exported symbols not in any feature mapping
 	sb.WriteString("## Undocumented Code\n\n")
-	found := false
-	for _, f := range scan.Files {
-		for _, sym := range f.Symbols {
-			if sym.Kind != scanner.KindFunc && sym.Kind != scanner.KindType && sym.Kind != scanner.KindInterface {
-				continue
-			}
-			if isExported(sym.Name) && !mappedSymbols[sym.Name] {
-				fmt.Fprintf(&sb, "- `%s` in `%s` — no documentation page covers this symbol\n", sym.Name, f.Path)
-				found = true
+	if filesOnly {
+		sb.WriteString("_Symbol analysis not available (run without --no-symbols to identify undocumented symbols)._\n")
+	} else {
+		// Build set of symbols that appear in any feature mapping
+		mappedSymbols := make(map[string]bool)
+		for _, entry := range mapping {
+			for _, sym := range entry.Symbols {
+				mappedSymbols[sym] = true
 			}
 		}
-	}
-	if !found {
-		sb.WriteString("_None found._\n")
+		found := false
+		for _, f := range scan.Files {
+			for _, sym := range f.Symbols {
+				if sym.Kind != scanner.KindFunc && sym.Kind != scanner.KindType && sym.Kind != scanner.KindInterface {
+					continue
+				}
+				if isExported(sym.Name) && !mappedSymbols[sym.Name] {
+					fmt.Fprintf(&sb, "- `%s` in `%s` — no documentation page covers this symbol\n", sym.Name, f.Path)
+					found = true
+				}
+			}
+		}
+		if !found {
+			sb.WriteString("_None found._\n")
+		}
 	}
 
 	// Unmapped features: doc features with no code match
 	sb.WriteString("\n## Unmapped Features\n\n")
-	found = false
+	found := false
 	for _, feat := range allDocFeatures {
 		if !mappedFeatures[feat] {
 			fmt.Fprintf(&sb, "- \"%s\" mentioned in docs — no code match found\n", feat)
