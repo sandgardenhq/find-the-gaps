@@ -8,7 +8,6 @@ import (
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
-	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 )
 
 func TestWriteMapping_CreatesFile(t *testing.T) {
@@ -48,19 +47,12 @@ func TestWriteMapping_CreatesFile(t *testing.T) {
 
 func TestWriteGaps_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
-
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{
-			{Path: "internal/foo/bar.go", Symbols: []scanner.Symbol{{Name: "Undocumented", Kind: scanner.KindFunc}}},
-		},
+	mapping := analyzer.FeatureMap{
+		{Feature: "auth", Files: []string{"auth.go"}},
 	}
-	mapping := analyzer.FeatureMap{} // no features map to Undocumented
-	allFeatures := []string{"gap analysis"}
-
-	if err := reporter.WriteGaps(dir, scan, mapping, allFeatures, false); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{"search"}); err != nil {
 		t.Fatal(err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -82,25 +74,16 @@ func TestWriteMapping_EmptyMapping_Succeeds(t *testing.T) {
 	}
 }
 
-// TestWriteGaps_NoneFound covers the "_None found._" branches when all symbols
-// are mapped and all doc features have a code match.
+// TestWriteGaps_NoneFound verifies "_None found._" when every feature has both
+// a code implementation and a documentation page.
 func TestWriteGaps_NoneFound(t *testing.T) {
 	dir := t.TempDir()
-
-	// Exported func that IS already in the feature mapping — no gap.
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{
-			{Path: "internal/foo/bar.go", Symbols: []scanner.Symbol{
-				{Name: "Documented", Kind: scanner.KindFunc},
-			}},
-		},
-	}
 	mapping := analyzer.FeatureMap{
-		{Feature: "gap analysis", Files: []string{"internal/foo/bar.go"}, Symbols: []string{"Documented"}},
+		{Feature: "gap analysis", Files: []string{"internal/foo/bar.go"}},
 	}
-	allFeatures := []string{"gap analysis"} // mapped feature → no unmapped features
+	allFeatures := []string{"gap analysis"} // documented AND implemented → no gaps
 
-	if err := reporter.WriteGaps(dir, scan, mapping, allFeatures, false); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, allFeatures); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,89 +91,48 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := string(data)
-	if !strings.Contains(content, "_None found._") {
-		t.Errorf("expected '_None found._' in gaps.md when all symbols are mapped, got:\n%s", content)
+	if !strings.Contains(string(data), "_None found._") {
+		t.Errorf("expected '_None found._' when all features are covered, got:\n%s", string(data))
 	}
 }
 
-// TestWriteGaps_SkipsNonFuncTypeInterface verifies that symbols of kind Const/Var/Class
-// are not listed in the undocumented code section even if they are exported and unmapped.
-func TestWriteGaps_SkipsNonFuncTypeInterface(t *testing.T) {
+// TestWriteGaps_UndocumentedCode verifies that a feature with code but no
+// documentation page appears in the Undocumented Code section.
+func TestWriteGaps_UndocumentedCode(t *testing.T) {
 	dir := t.TempDir()
-
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{
-			{Path: "internal/foo/bar.go", Symbols: []scanner.Symbol{
-				{Name: "MyConst", Kind: scanner.KindConst}, // should be skipped
-				{Name: "MyVar", Kind: scanner.KindVar},     // should be skipped
-			}},
-		},
+	mapping := analyzer.FeatureMap{
+		{Feature: "auth", Files: []string{"auth.go"}},
 	}
-
-	if err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}, false); err != nil {
+	// "auth" exists in code but is absent from docs
+	if err := reporter.WriteGaps(dir, mapping, []string{}); err != nil {
 		t.Fatal(err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if strings.Contains(content, "MyConst") || strings.Contains(content, "MyVar") {
-		t.Error("gaps.md must not list KindConst or KindVar symbols")
+	if !strings.Contains(content, "auth") {
+		t.Error("gaps.md must list 'auth' in Undocumented Code")
+	}
+	if !strings.Contains(content, "no documentation page") {
+		t.Error("gaps.md must describe the undocumented code gap")
 	}
 }
 
-// TestWriteGaps_UnexportedSymbolSkipped verifies that unexported symbols are ignored,
-// including the isExported("") empty-name edge case.
-func TestWriteGaps_UnexportedSymbolSkipped(t *testing.T) {
+// TestWriteGaps_FeatureNoFiles_NotUndocumented verifies that a feature the LLM
+// could not map to any file is not listed as undocumented code.
+func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	dir := t.TempDir()
-
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{
-			{Path: "internal/foo/bar.go", Symbols: []scanner.Symbol{
-				{Name: "unexported", Kind: scanner.KindFunc},
-				{Name: "", Kind: scanner.KindFunc}, // empty name → isExported returns false
-			}},
-		},
+	mapping := analyzer.FeatureMap{
+		{Feature: "auth", Files: []string{}}, // no files — not "implemented"
 	}
-
-	if err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}, false); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}); err != nil {
 		t.Fatal(err)
 	}
-
-	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	content := string(data)
-	if strings.Contains(content, "unexported") {
-		t.Error("gaps.md must not list unexported symbols")
-	}
-}
-
-func TestWriteGaps_FilesOnly_ReplacesSymbolSectionWithNote(t *testing.T) {
-	dir := t.TempDir()
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{{
-			Path:    "auth.go",
-			Symbols: []scanner.Symbol{{Name: "Login", Kind: scanner.KindFunc}},
-		}},
-	}
-	err := reporter.WriteGaps(dir, scan, analyzer.FeatureMap{}, []string{}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content, readErr := os.ReadFile(filepath.Join(dir, "gaps.md"))
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	text := string(content)
-	if strings.Contains(text, "Login") {
-		t.Error("filesOnly mode must not list symbol names in gaps.md")
-	}
-	if !strings.Contains(text, "not available") {
-		t.Error("filesOnly mode must include a 'not available' note in the Undocumented Code section")
+	if strings.Contains(content, "no documentation page") {
+		t.Error("features with no mapped files must not appear in Undocumented Code")
 	}
 }
