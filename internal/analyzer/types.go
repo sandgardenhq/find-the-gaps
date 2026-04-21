@@ -22,3 +22,12 @@ type FeatureEntry struct {
 
 // FeatureMap is the complete feature-to-code mapping for a project.
 type FeatureMap []FeatureEntry
+
+// DocsFeatureEntry maps one product feature to the documentation pages that cover it.
+type DocsFeatureEntry struct {
+	Feature string   `json:"feature"`
+	Pages   []string `json:"pages"`
+}
+
+// DocsFeatureMap is the complete feature-to-docs mapping for a project.
+type DocsFeatureMap []DocsFeatureEntry
