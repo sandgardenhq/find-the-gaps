@@ -221,16 +221,26 @@ func newAnalyzeCmd() *cobra.Command {
 
 			if !codeMapCached || !docsMapCached {
 				log.Infof("mapping %d features across code and docs in parallel...", len(productSummary.Features))
+				// Only wire batch callbacks for the maps that are actually being computed;
+				// passing a non-nil callback for a cached map would overwrite the cache file.
+				var codeBatchFn analyzer.MapProgressFunc
+				if !codeMapCached {
+					codeBatchFn = func(partial analyzer.FeatureMap) error {
+						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
+					}
+				}
+				var docsBatchFn analyzer.DocsMapProgressFunc
+				if !docsMapCached {
+					docsBatchFn = func(partial analyzer.DocsFeatureMap) error {
+						return saveDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features, partial)
+					}
+				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
 					ctx, llmClient, tokenCounter, productSummary.Features,
 					scan, pages, workers, analyzer.DocsMapperPageBudget,
 					noSymbols,
-					func(partial analyzer.FeatureMap) error {
-						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
-					},
-					func(partial analyzer.DocsFeatureMap) error {
-						return saveDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features, partial)
-					},
+					codeBatchFn,
+					docsBatchFn,
 				)
 				if mapErr != nil {
 					return fmt.Errorf("map features: %w", mapErr)
