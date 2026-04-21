@@ -251,6 +251,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
+			// TODO(task3): replace false with noSymbols once --no-symbols flag is wired.
 			if err := reporter.WriteGaps(projectDir, scan, featureMap, productSummary.Features, false); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
