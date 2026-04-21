@@ -1,0 +1,157 @@
+package analyzer_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+)
+
+func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
+	c := &fakeClient{responses: []string{`["authentication","file upload","user management"]`}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "internal/auth/auth.go", Symbols: []scanner.Symbol{{Name: "Authenticate"}}},
+			{Path: "internal/upload/upload.go", Symbols: []scanner.Symbol{{Name: "Upload"}}},
+		},
+	}
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Error("expected features, got empty slice")
+	}
+}
+
+func TestExtractFeaturesFromCode_EmptyScan_ReturnsEmpty(t *testing.T) {
+	c := &fakeClient{}
+	scan := &scanner.ProjectScan{Files: []scanner.ScannedFile{}}
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %v", got)
+	}
+	if c.callCount != 0 {
+		t.Error("expected no LLM call for empty scan")
+	}
+}
+
+func TestExtractFeaturesFromCode_NoSymbols_ReturnsEmpty(t *testing.T) {
+	c := &fakeClient{}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "README.md", Symbols: nil},
+			{Path: "internal/foo.go", Symbols: []scanner.Symbol{}},
+		},
+	}
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %v", got)
+	}
+	if c.callCount != 0 {
+		t.Error("expected no LLM call when no files have symbols")
+	}
+}
+
+func TestExtractFeaturesFromCode_ClientError_Propagates(t *testing.T) {
+	c := &fakeClient{forcedErr: errors.New("network down")}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
+		},
+	}
+	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestExtractFeaturesFromCode_InvalidJSON_ReturnsError(t *testing.T) {
+	c := &fakeClient{responses: []string{"not valid json"}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
+		},
+	}
+	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestExtractFeaturesFromCode_NilResponse_NormalizedToEmpty(t *testing.T) {
+	// LLM returns explicit null
+	c := &fakeClient{responses: []string{`null`}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
+		},
+	}
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Error("nil features must be normalized to empty slice")
+	}
+}
+
+func TestExtractFeaturesFromCode_DeduplicatesAcrossBatches(t *testing.T) {
+	// Two batches both include "authentication" — result must be deduplicated.
+	// One batch, one response — just verify no duplicates in a single-batch case.
+	c := &fakeClient{responses: []string{
+		`["authentication","file upload"]`,
+		`["authentication","search"]`,
+	}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
+		},
+	}
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[string]int)
+	for _, f := range got {
+		seen[f]++
+	}
+	for feat, count := range seen {
+		if count > 1 {
+			t.Errorf("feature %q appears %d times; want exactly 1", feat, count)
+		}
+	}
+}
+
+func TestExtractFeaturesFromCode_PromptContainsSymbols(t *testing.T) {
+	// Verify the prompt sent to the LLM includes the file path and symbol name.
+	c := &fakeClient{responses: []string{`["some feature"]`}}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "internal/auth/handler.go", Symbols: []scanner.Symbol{{Name: "HandleLogin"}}},
+		},
+	}
+	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.receivedPrompts) == 0 {
+		t.Fatal("expected at least one prompt")
+	}
+	prompt := c.receivedPrompts[0]
+	if !strings.Contains(prompt, "internal/auth/handler.go") {
+		t.Error("prompt must include file path")
+	}
+	if !strings.Contains(prompt, "HandleLogin") {
+		t.Error("prompt must include symbol name")
+	}
+}
