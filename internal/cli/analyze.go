@@ -61,7 +61,7 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("LLM client: %w", err)
 			}
 
-			log.Info("crawling docs site", "url", docsURL)
+			log.Infof("crawling %s", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
 			spiderOpts := spider.Options{
 				CacheDir: docsDir,
@@ -79,9 +79,10 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			// Analyze each page; skip cached results.
-			log.Info("analyzing pages", "count", len(pages))
+			log.Infof("analyzing %d pages...", len(pages))
 			var analyses []analyzer.PageAnalysis
 			freshCount := 0
+			pageNum := 0
 			for url, filePath := range pages {
 				if summary, features, ok := idx.Analysis(url); ok {
 					log.Debug("page cache hit", "url", url)
@@ -96,10 +97,11 @@ func newAnalyzeCmd() *cobra.Command {
 				if readErr != nil {
 					continue
 				}
-				log.Debug("analyzing page", "url", url)
+				pageNum++
+				log.Infof("  [%d] %s", pageNum, url)
 				pa, analyzeErr := analyzer.AnalyzePage(ctx, llmClient, url, string(content))
 				if analyzeErr != nil {
-					log.Warn("AnalyzePage failed", "url", url, "err", analyzeErr)
+					log.Warnf("skipping %s: %v", url, analyzeErr)
 					continue
 				}
 				if recErr := idx.RecordAnalysis(url, pa.Summary, pa.Features); recErr != nil {
@@ -116,7 +118,7 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			// Use cached synthesis when all pages were cache hits.
-			log.Info("synthesizing product summary", "fresh_pages", freshCount)
+			log.Infof("synthesizing product from %d pages...", len(analyses))
 			var productSummary analyzer.ProductSummary
 			if freshCount == 0 && idx.ProductSummary != "" {
 				productSummary = analyzer.ProductSummary{
@@ -133,7 +135,6 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			log.Info("mapping features to code", "features", len(productSummary.Features))
 			var tokenCounter analyzer.TokenCounter
 			switch cfg.Provider {
 			case "anthropic":
@@ -142,9 +143,27 @@ func newAnalyzeCmd() *cobra.Command {
 				tokenCounter = analyzer.NewTiktokenCounter()
 			}
 
-			featureMap, err := analyzer.MapFeaturesToCode(ctx, llmClient, tokenCounter, productSummary.Features, scan, analyzer.MapperTokenBudget)
-			if err != nil {
-				return fmt.Errorf("map features: %w", err)
+			featureMapCachePath := filepath.Join(projectDir, "featuremap.json")
+			var featureMap analyzer.FeatureMap
+			if !noCache {
+				if cached, ok := loadFeatureMapCache(featureMapCachePath, productSummary.Features); ok {
+					log.Infof("using cached feature map (%d features)", len(cached))
+					featureMap = cached
+				}
+			}
+
+			if featureMap == nil {
+				log.Infof("mapping %d features across %d code files...", len(productSummary.Features), len(scan.Files))
+				featureMap, err = analyzer.MapFeaturesToCode(ctx, llmClient, tokenCounter, productSummary.Features, scan, analyzer.MapperTokenBudget,
+					func(partial analyzer.FeatureMap) error {
+						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
+					})
+				if err != nil {
+					return fmt.Errorf("map features: %w", err)
+				}
+				if err := saveFeatureMapCache(featureMapCachePath, productSummary.Features, featureMap); err != nil {
+					return fmt.Errorf("save feature map cache: %w", err)
+				}
 			}
 			log.Debug("feature mapping complete", "mapped", len(featureMap))
 

@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 )
 
 // MapperTokenBudget is the maximum tokens per MapFeaturesToCode LLM call.
 // Set well below the model maximum (1M) to leave room for the response.
 const MapperTokenBudget = 80_000
+
+// MapProgressFunc is called with the accumulated results after each LLM batch.
+// Returning a non-nil error aborts the mapping.
+type MapProgressFunc func(partial FeatureMap) error
 
 type mapEntry struct {
 	Feature string   `json:"feature"`
@@ -27,7 +32,8 @@ type accEntry struct {
 
 // MapFeaturesToCode maps a list of product features to code files and symbols in scan.
 // It batches the symbol index into token-budget-sized chunks and merges results.
-func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []string, scan *scanner.ProjectScan, tokenBudget int) (FeatureMap, error) {
+// onBatch, if non-nil, is called with the accumulated results after each LLM call.
+func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []string, scan *scanner.ProjectScan, tokenBudget int, onBatch MapProgressFunc) (FeatureMap, error) {
 	if len(features) == 0 {
 		return FeatureMap{}, nil
 	}
@@ -104,6 +110,8 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 			continue
 		}
 
+		log.Infof("  batch %d/%d: %d symbol groups", i+1, len(queue), len(batch))
+
 		raw, err := client.Complete(ctx, promptText)
 		if err != nil {
 			return nil, fmt.Errorf("MapFeaturesToCode: %w", err)
@@ -127,9 +135,19 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 				entry.symbols[s] = struct{}{}
 			}
 		}
+
+		if onBatch != nil {
+			partial := accToFeatureMap(acc, features)
+			if err := onBatch(partial); err != nil {
+				return nil, fmt.Errorf("MapFeaturesToCode: onBatch: %w", err)
+			}
+		}
 	}
 
-	// Convert accumulator to FeatureMap in original features order.
+	return accToFeatureMap(acc, features), nil
+}
+
+func accToFeatureMap(acc map[string]*accEntry, features []string) FeatureMap {
 	out := make(FeatureMap, 0, len(features))
 	for _, feat := range features {
 		entry := acc[feat]
@@ -147,5 +165,5 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 			Symbols: symbols,
 		})
 	}
-	return out, nil
+	return out
 }
