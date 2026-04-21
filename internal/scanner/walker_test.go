@@ -217,6 +217,82 @@ func TestWalk_gitignoreMatchedDir_skipped(t *testing.T) {
 	}
 }
 
+func TestWalk_skipsKnownDependencyDirs(t *testing.T) {
+	cases := []struct {
+		name    string
+		dirName string
+	}{
+		{"go vendor",      "vendor"},
+		{"node_modules",   "node_modules"},
+		{"python pycache", "__pycache__"},
+		{"rust target",    "target"},
+		{"python venv",    "venv"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, tc.dirName), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, dir, filepath.Join(tc.dirName, "source.go"), "")
+			writeFile(t, dir, "main.go", "")
+
+			var found []string
+			if err := Walk(dir, func(path string, _ os.FileInfo) error {
+				found = append(found, path)
+				return nil
+			}); err != nil {
+				t.Fatalf("Walk: %v", err)
+			}
+			for _, f := range found {
+				if strings.HasPrefix(f, tc.dirName+string(filepath.Separator)) || f == tc.dirName {
+					t.Errorf("dependency dir %q should be skipped, found %q", tc.dirName, f)
+				}
+			}
+			var hasMain bool
+			for _, f := range found {
+				if f == "main.go" {
+					hasMain = true
+				}
+			}
+			if !hasMain {
+				t.Errorf("main.go should be found but was not; got: %v", found)
+			}
+		})
+	}
+}
+
+func TestWalk_skipsNestedDependencyDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pkg", "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "pkg/node_modules/lib.js", "")
+	writeFile(t, dir, "pkg/index.ts", "")
+
+	var found []string
+	if err := Walk(dir, func(path string, _ os.FileInfo) error {
+		found = append(found, path)
+		return nil
+	}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	for _, f := range found {
+		if strings.Contains(f, "node_modules") {
+			t.Errorf("nested node_modules should be skipped, found %q", f)
+		}
+	}
+	var hasIndex bool
+	for _, f := range found {
+		if f == filepath.Join("pkg", "index.ts") {
+			hasIndex = true
+		}
+	}
+	if !hasIndex {
+		t.Errorf("pkg/index.ts should be found but was not; got: %v", found)
+	}
+}
+
 // writeFile is a test helper that creates a file with the given content.
 func writeFile(t *testing.T, dir, rel, content string) {
 	t.Helper()
