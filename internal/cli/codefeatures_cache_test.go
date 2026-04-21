@@ -103,3 +103,22 @@ func TestCodeFeaturesCache_CorruptFile_ReturnsMiss(t *testing.T) {
 		t.Error("expected cache miss for corrupt file")
 	}
 }
+
+func TestCodeFeaturesCache_SaveError_ReturnsError(t *testing.T) {
+	// Writing to a path inside a non-existent directory must fail.
+	path := filepath.Join(t.TempDir(), "nonexistent", "codefeatures.json")
+	err := saveCodeFeaturesCache(path, makeScan("a.go"), []string{"feat"})
+	if err == nil {
+		t.Error("expected error when parent directory does not exist")
+	}
+}
+
+func TestCodeFeaturesCache_ReadError_ReturnsMiss(t *testing.T) {
+	// Pointing at a directory (not a file) causes os.ReadFile to fail with a
+	// non-ErrNotExist error, exercising the generic read-error branch.
+	dir := t.TempDir()
+	_, ok := loadCodeFeaturesCache(dir, makeScan("a.go"))
+	if ok {
+		t.Error("expected cache miss when path is a directory")
+	}
+}
