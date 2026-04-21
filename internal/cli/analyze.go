@@ -14,6 +14,56 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type bothMapsResult struct {
+	codeMap analyzer.FeatureMap
+	err     error
+}
+
+type docsMapsResult struct {
+	docsMap analyzer.DocsFeatureMap
+	err     error
+}
+
+// runBothMaps executes MapFeaturesToCode and MapFeaturesToDocs concurrently.
+// It returns when both complete. onCodeBatch and onDocsPage are passed through
+// to their respective mappers for intermediate persistence; either may be nil.
+func runBothMaps(
+	ctx context.Context,
+	client analyzer.LLMClient,
+	counter analyzer.TokenCounter,
+	features []string,
+	scan *scanner.ProjectScan,
+	pages map[string]string,
+	workers int,
+	docsTokenBudget int,
+	onCodeBatch analyzer.MapProgressFunc,
+	onDocsPage analyzer.DocsMapProgressFunc,
+) (analyzer.FeatureMap, analyzer.DocsFeatureMap, error) {
+	codeCh := make(chan bothMapsResult, 1)
+	docsCh := make(chan docsMapsResult, 1)
+
+	go func() {
+		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, onCodeBatch)
+		codeCh <- bothMapsResult{fm, err}
+	}()
+
+	go func() {
+		fm, err := analyzer.MapFeaturesToDocs(ctx, client, features, pages, workers, docsTokenBudget, onDocsPage)
+		docsCh <- docsMapsResult{fm, err}
+	}()
+
+	codeRes := <-codeCh
+	docsRes := <-docsCh
+
+	if codeRes.err != nil {
+		return nil, nil, codeRes.err
+	}
+	if docsRes.err != nil {
+		return nil, nil, docsRes.err
+	}
+	return codeRes.codeMap, docsRes.docsMap, nil
+}
+
 func newAnalyzeCmd() *cobra.Command {
 	var (
 		docsURL     string
@@ -144,28 +194,59 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			featureMapCachePath := filepath.Join(projectDir, "featuremap.json")
+			docsFeatureMapCachePath := filepath.Join(projectDir, "docsfeaturemap.json")
+
 			var featureMap analyzer.FeatureMap
-			if !noCache {
+			var docsFeatureMap analyzer.DocsFeatureMap
+
+			codeMapCached := !noCache && func() bool {
 				if cached, ok := loadFeatureMapCache(featureMapCachePath, productSummary.Features); ok {
 					log.Infof("using cached feature map (%d features)", len(cached))
 					featureMap = cached
+					return true
+				}
+				return false
+			}()
+
+			docsMapCached := !noCache && func() bool {
+				if cached, ok := loadDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features); ok {
+					log.Infof("using cached docs feature map (%d features)", len(cached))
+					docsFeatureMap = cached
+					return true
+				}
+				return false
+			}()
+
+			if !codeMapCached || !docsMapCached {
+				log.Infof("mapping %d features across code and docs in parallel...", len(productSummary.Features))
+				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
+					ctx, llmClient, tokenCounter, productSummary.Features,
+					scan, pages, workers, analyzer.DocsMapperPageBudget,
+					func(partial analyzer.FeatureMap) error {
+						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
+					},
+					func(partial analyzer.DocsFeatureMap) error {
+						return saveDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features, partial)
+					},
+				)
+				if mapErr != nil {
+					return fmt.Errorf("map features: %w", mapErr)
+				}
+				if !codeMapCached {
+					featureMap = freshCodeMap
+					if err := saveFeatureMapCache(featureMapCachePath, productSummary.Features, featureMap); err != nil {
+						return fmt.Errorf("save feature map cache: %w", err)
+					}
+				}
+				if !docsMapCached {
+					docsFeatureMap = freshDocsMap
+					if err := saveDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features, docsFeatureMap); err != nil {
+						return fmt.Errorf("save docs feature map cache: %w", err)
+					}
 				}
 			}
 
-			if featureMap == nil {
-				log.Infof("mapping %d features across %d code files...", len(productSummary.Features), len(scan.Files))
-				featureMap, err = analyzer.MapFeaturesToCode(ctx, llmClient, tokenCounter, productSummary.Features, scan, analyzer.MapperTokenBudget,
-					func(partial analyzer.FeatureMap) error {
-						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
-					})
-				if err != nil {
-					return fmt.Errorf("map features: %w", err)
-				}
-				if err := saveFeatureMapCache(featureMapCachePath, productSummary.Features, featureMap); err != nil {
-					return fmt.Errorf("save feature map cache: %w", err)
-				}
-			}
-			log.Debug("feature mapping complete", "mapped", len(featureMap))
+			log.Debug("feature mapping complete", "code", len(featureMap), "docs", len(docsFeatureMap))
 
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
