@@ -72,6 +72,9 @@ Respond with only the JSON array. No markdown code fences. No prose.`, strings.J
 		if err := json.Unmarshal([]byte(raw), &features); err != nil {
 			return nil, fmt.Errorf("ExtractFeaturesFromCode: invalid JSON response: %w", err)
 		}
+		if features == nil {
+			features = []string{}
+		}
 
 		for _, f := range features {
 			if f != "" {

@@ -155,7 +155,7 @@ type stubLLMClient struct {
 }
 
 func (s *stubLLMClient) Complete(_ context.Context, prompt string) (string, error) {
-	if strings.Contains(prompt, "Code symbols") || strings.Contains(prompt, "Code files") {
+	if strings.Contains(prompt, "Code symbols (format:") || strings.Contains(prompt, "Code files:\n") {
 		return s.codeResp, nil
 	}
 	return s.docsResp, nil

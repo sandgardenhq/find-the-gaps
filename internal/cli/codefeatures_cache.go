@@ -29,6 +29,8 @@ func loadCodeFeaturesCache(path string, scan *scanner.ProjectScan) ([]string, bo
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, false
 	}
+	// Cache key is the set of scanned file paths. Content changes within existing
+	// files do not invalidate the cache; use --no-cache to force re-extraction.
 	if !featureSetsEqual(cache.Files, scanFilePaths(scan)) {
 		return nil, false
 	}
