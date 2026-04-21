@@ -43,8 +43,10 @@ func (a *bifrostAccount) GetKeysForProvider(ctx context.Context, provider schema
 
 func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*schemas.ProviderConfig, error) {
 	if provider == a.provider {
+		nc := schemas.DefaultNetworkConfig
+		nc.DefaultRequestTimeoutInSeconds = 300 // 5 minutes — feature mapping batches can be large
 		return &schemas.ProviderConfig{
-			NetworkConfig:            schemas.DefaultNetworkConfig,
+			NetworkConfig:            nc,
 			ConcurrencyAndBufferSize: schemas.DefaultConcurrencyAndBufferSize,
 		}, nil
 	}

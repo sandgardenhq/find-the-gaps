@@ -24,6 +24,18 @@ func newBifrostClientWithFake(fake bifrostRequester, provider schemas.ModelProvi
 	return &BifrostClient{client: fake, provider: provider, model: model}
 }
 
+func TestBifrostAccount_GetConfigForProvider_TimeoutIs5Minutes(t *testing.T) {
+	acc := &bifrostAccount{provider: schemas.Anthropic, apiKey: "test-key"}
+	cfg, err := acc.GetConfigForProvider(schemas.Anthropic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = 300 // 5 minutes
+	if cfg.NetworkConfig.DefaultRequestTimeoutInSeconds != want {
+		t.Errorf("timeout = %d seconds, want %d", cfg.NetworkConfig.DefaultRequestTimeoutInSeconds, want)
+	}
+}
+
 func TestBifrostAccount_GetConfiguredProviders_ReturnsProvider(t *testing.T) {
 	acc := &bifrostAccount{provider: schemas.Anthropic, apiKey: "test-key"}
 	providers, err := acc.GetConfiguredProviders()
