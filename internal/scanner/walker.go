@@ -8,6 +8,17 @@ import (
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
+// skippedDirs lists well-known dependency and build-artifact directories that
+// are never useful to scan, regardless of .gitignore configuration.
+// Keys are directory base-names (info.Name()), matched at any depth.
+var skippedDirs = map[string]bool{
+	"vendor":       true, // Go
+	"node_modules": true, // JavaScript / TypeScript
+	"__pycache__":  true, // Python
+	"venv":         true, // Python virtual environments
+	"target":       true, // Rust
+}
+
 // Walk recursively walks repoRoot, calling fn for each non-ignored file.
 // Paths passed to fn are relative to repoRoot. Respects .gitignore patterns
 // and always skips .git/ and other hidden directories.
@@ -34,6 +45,11 @@ func Walk(repoRoot string, fn func(path string, info os.FileInfo) error) error {
 
 		// Skip hidden directories (but allow hidden files in root, like .gitignore itself).
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+			return filepath.SkipDir
+		}
+
+		// Skip well-known dependency and build-artifact directories.
+		if info.IsDir() && skippedDirs[info.Name()] {
 			return filepath.SkipDir
 		}
 
