@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,18 +243,42 @@ func TestAnalyze_fullPipeline_withCachedAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// LLM responses: synthesize + map (both need to return valid JSON).
-	synthesizeResp := `{"description":"A test product.","features":["feature-one"]}`
-	mapResp := `[{"feature":"feature-one","files":["main.go"],"symbols":["Run"]}]`
-
-	callCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// The server inspects the request body to route to the correct response, because
+	// MapFeaturesToCode and MapFeaturesToDocs run concurrently and may arrive in any order.
+	//
+	// Routing rules (based on distinctive prompt keywords):
+	//   - "analyzing documentation for a software product" → SynthesizeProduct
+	//   - "Documentation page URL:"                        → MapFeaturesToDocs
+	//   - "Code symbols (format:"                          → MapFeaturesToCode
+	//   - default                                          → ExtractFeaturesFromCode
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		resp := synthesizeResp
-		if callCount > 0 {
-			resp = mapResp
+
+		var reqBody struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
 		}
-		callCount++
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &reqBody)
+		var prompt string
+		for _, m := range reqBody.Messages {
+			prompt += m.Content
+		}
+
+		var resp string
+		switch {
+		case strings.Contains(prompt, "analyzing documentation for a software product"):
+			resp = `{"description":"A test product.","features":["feature-one"]}`
+		case strings.Contains(prompt, "Documentation page URL:"):
+			resp = `["feature-one"]`
+		case strings.Contains(prompt, "Code symbols (format:"):
+			resp = `[{"feature":"feature-one","files":["main.go"],"symbols":["Run"]}]`
+		default:
+			// ExtractFeaturesFromCode and any unknown call
+			resp = `["feature-one"]`
+		}
+
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
 				{"message": map[string]any{"content": resp}},

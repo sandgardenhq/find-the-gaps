@@ -195,6 +195,32 @@ func newAnalyzeCmd() *cobra.Command {
 				tokenCounter = analyzer.NewTiktokenCounter()
 			}
 
+			// Extract the canonical feature list from CODE. These are the features
+			// the codebase actually implements — used as the source of truth for gap analysis.
+			codeFeaturesPath := filepath.Join(projectDir, "codefeatures.json")
+			var codeFeatures []string
+			codeFeaturesCached := !noCache && func() bool {
+				if cached, ok := loadCodeFeaturesCache(codeFeaturesPath, scan); ok {
+					log.Infof("using cached code features (%d features)", len(cached))
+					codeFeatures = cached
+					return true
+				}
+				return false
+			}()
+
+			if !codeFeaturesCached {
+				log.Infof("extracting features from code...")
+				codeFeatures, err = analyzer.ExtractFeaturesFromCode(ctx, llmClient, scan)
+				if err != nil {
+					return fmt.Errorf("extract code features: %w", err)
+				}
+				log.Debugf("extracted features: %v", codeFeatures)
+				log.Infof("extracted %d features from code", len(codeFeatures))
+				if err := saveCodeFeaturesCache(codeFeaturesPath, scan, codeFeatures); err != nil {
+					return fmt.Errorf("save code features cache: %w", err)
+				}
+			}
+
 			featureMapCachePath := filepath.Join(projectDir, "featuremap.json")
 			docsFeatureMapCachePath := filepath.Join(projectDir, "docsfeaturemap.json")
 
@@ -202,7 +228,7 @@ func newAnalyzeCmd() *cobra.Command {
 			var docsFeatureMap analyzer.DocsFeatureMap
 
 			codeMapCached := !noCache && func() bool {
-				if cached, ok := loadFeatureMapCache(featureMapCachePath, productSummary.Features); ok {
+				if cached, ok := loadFeatureMapCache(featureMapCachePath, codeFeatures); ok {
 					log.Infof("using cached feature map (%d features)", len(cached))
 					featureMap = cached
 					return true
@@ -211,7 +237,7 @@ func newAnalyzeCmd() *cobra.Command {
 			}()
 
 			docsMapCached := !noCache && func() bool {
-				if cached, ok := loadDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features); ok {
+				if cached, ok := loadDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatures); ok {
 					log.Infof("using cached docs feature map (%d features)", len(cached))
 					docsFeatureMap = cached
 					return true
@@ -220,23 +246,23 @@ func newAnalyzeCmd() *cobra.Command {
 			}()
 
 			if !codeMapCached || !docsMapCached {
-				log.Infof("mapping %d features across code and docs in parallel...", len(productSummary.Features))
+				log.Infof("mapping %d features across code and docs in parallel...", len(codeFeatures))
 				// Only wire batch callbacks for the maps that are actually being computed;
 				// passing a non-nil callback for a cached map would overwrite the cache file.
 				var codeBatchFn analyzer.MapProgressFunc
 				if !codeMapCached {
 					codeBatchFn = func(partial analyzer.FeatureMap) error {
-						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
+						return saveFeatureMapCache(featureMapCachePath, codeFeatures, partial)
 					}
 				}
 				var docsBatchFn analyzer.DocsMapProgressFunc
 				if !docsMapCached {
 					docsBatchFn = func(partial analyzer.DocsFeatureMap) error {
-						return saveDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features, partial)
+						return saveDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatures, partial)
 					}
 				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
-					ctx, llmClient, tokenCounter, productSummary.Features,
+					ctx, llmClient, tokenCounter, codeFeatures,
 					scan, pages, workers, analyzer.DocsMapperPageBudget,
 					noSymbols,
 					codeBatchFn,
@@ -247,13 +273,13 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 				if !codeMapCached {
 					featureMap = freshCodeMap
-					if err := saveFeatureMapCache(featureMapCachePath, productSummary.Features, featureMap); err != nil {
+					if err := saveFeatureMapCache(featureMapCachePath, codeFeatures, featureMap); err != nil {
 						return fmt.Errorf("save feature map cache: %w", err)
 					}
 				}
 				if !docsMapCached {
 					docsFeatureMap = freshDocsMap
-					if err := saveDocsFeatureMapCache(docsFeatureMapCachePath, productSummary.Features, docsFeatureMap); err != nil {
+					if err := saveDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatures, docsFeatureMap); err != nil {
 						return fmt.Errorf("save docs feature map cache: %w", err)
 					}
 				}
@@ -264,7 +290,15 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			if err := reporter.WriteGaps(projectDir, featureMap, productSummary.Features); err != nil {
+			// Build the list of code features that have at least one documentation page.
+			docCoveredFeatures := make([]string, 0, len(docsFeatureMap))
+			for _, entry := range docsFeatureMap {
+				if len(entry.Pages) > 0 {
+					docCoveredFeatures = append(docCoveredFeatures, entry.Feature)
+				}
+			}
+
+			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 
