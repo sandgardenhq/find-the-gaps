@@ -136,7 +136,11 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 			continue
 		}
 
-		log.Infof("  batch %d/%d: %d symbol groups", i+1, len(queue), len(batch))
+		batchKind := "symbol groups"
+		if filesOnly {
+			batchKind = "files"
+		}
+		log.Infof("  batch %d/%d: %d %s", i+1, len(queue), len(batch), batchKind)
 
 		raw, err := client.Complete(ctx, promptText)
 		if err != nil {
