@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -76,6 +77,18 @@ func TestLoadFeatureMapCache_FeatureOrderInsensitive(t *testing.T) {
 	_, ok := loadFeatureMapCache(path, []string{"search", "auth"})
 	if !ok {
 		t.Fatal("expected cache hit for same features in different order")
+	}
+}
+
+func TestLoadFeatureMapCache_CorruptFile_ReturnsFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "featuremap.json")
+	if err := os.WriteFile(path, []byte("not json {{{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, ok := loadFeatureMapCache(path, []string{"auth"})
+	if ok {
+		t.Fatal("expected false for corrupt JSON")
 	}
 }
 

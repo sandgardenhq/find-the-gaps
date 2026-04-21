@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -43,6 +44,15 @@ func TestDocsFeatureMapCache_StaleOnFeatureChange(t *testing.T) {
 
 func TestDocsFeatureMapCache_MissingFile(t *testing.T) {
 	_, ok := loadDocsFeatureMapCache("/tmp/does-not-exist-ftg.json", []string{"auth"})
+	assert.False(t, ok)
+}
+
+func TestDocsFeatureMapCache_CorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "docsfeaturemap.json")
+	require.NoError(t, os.WriteFile(path, []byte("not json {{{"), 0o644))
+
+	_, ok := loadDocsFeatureMapCache(path, []string{"auth"})
 	assert.False(t, ok)
 }
 

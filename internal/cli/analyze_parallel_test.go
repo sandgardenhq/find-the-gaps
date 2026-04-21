@@ -39,6 +39,43 @@ func TestRunBothMapsInParallel(t *testing.T) {
 	assert.Equal(t, "auth", docsMap[0].Feature)
 }
 
+func TestRunBothMaps_CodeMapError(t *testing.T) {
+	_, _, err := runBothMaps(
+		context.Background(),
+		&stubLLMClient{
+			codeResp: `not json`, // forces MapFeaturesToCode to fail
+			docsResp: `[]`,
+		},
+		analyzer.NewTiktokenCounter(),
+		[]string{"auth"},
+		stubScan(),
+		map[string]string{
+			"https://example.com/auth": writeTempFile(t, "content"),
+		},
+		1, 10_000, nil, nil,
+	)
+	require.Error(t, err)
+}
+
+func TestRunBothMaps_DocsMapError(t *testing.T) {
+	_, _, err := runBothMaps(
+		context.Background(),
+		&stubLLMClient{
+			codeResp: `[{"feature":"auth","files":[],"symbols":[]}]`,
+			docsResp: `not json`, // forces MapFeaturesToDocs page call to fail
+		},
+		analyzer.NewTiktokenCounter(),
+		[]string{"auth"},
+		stubScan(),
+		map[string]string{
+			"https://example.com/auth": writeTempFile(t, "content"),
+		},
+		1, 10_000, nil, nil,
+	)
+	// docs page errors are logged and skipped, not propagated — result is empty pages
+	require.NoError(t, err)
+}
+
 // --- stubs ---
 
 type stubLLMClient struct {
