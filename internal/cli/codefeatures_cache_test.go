@@ -52,6 +52,11 @@ func TestCodeFeaturesCache_HitWhenFilesUnchanged(t *testing.T) {
 	if len(got) != len(features) {
 		t.Errorf("got %d features, want %d", len(got), len(features))
 	}
+	for i, want := range features {
+		if got[i] != want {
+			t.Errorf("features[%d]: got %q, want %q", i, got[i], want)
+		}
+	}
 }
 
 func TestCodeFeaturesCache_FileOrderIndependent(t *testing.T) {
