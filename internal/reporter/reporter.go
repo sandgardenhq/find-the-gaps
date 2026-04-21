@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -30,11 +31,8 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 		}
 		// Find doc pages that mention this feature
 		for _, p := range pages {
-			for _, f := range p.Features {
-				if f == entry.Feature {
-					fmt.Fprintf(&sb, "- **Documented on:** %s\n", p.URL)
-					break
-				}
+			if slices.Contains(p.Features, entry.Feature) {
+				fmt.Fprintf(&sb, "- **Documented on:** %s\n", p.URL)
 			}
 		}
 		sb.WriteString("\n")
