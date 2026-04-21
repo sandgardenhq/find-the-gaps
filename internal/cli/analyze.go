@@ -36,6 +36,7 @@ func runBothMaps(
 	pages map[string]string,
 	workers int,
 	docsTokenBudget int,
+	filesOnly bool,
 	onCodeBatch analyzer.MapProgressFunc,
 	onDocsPage analyzer.DocsMapProgressFunc,
 ) (analyzer.FeatureMap, analyzer.DocsFeatureMap, error) {
@@ -43,7 +44,7 @@ func runBothMaps(
 	docsCh := make(chan docsMapsResult, 1)
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, false, onCodeBatch)
+		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, filesOnly, onCodeBatch)
 		codeCh <- bothMapsResult{fm, err}
 	}()
 
@@ -71,6 +72,7 @@ func newAnalyzeCmd() *cobra.Command {
 		cacheDir    string
 		workers     int
 		noCache     bool
+		noSymbols   bool
 		llmProvider string
 		llmModel    string
 		llmBaseURL  string
@@ -222,6 +224,7 @@ func newAnalyzeCmd() *cobra.Command {
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
 					ctx, llmClient, tokenCounter, productSummary.Features,
 					scan, pages, workers, analyzer.DocsMapperPageBudget,
+					noSymbols,
 					func(partial analyzer.FeatureMap) error {
 						return saveFeatureMapCache(featureMapCachePath, productSummary.Features, partial)
 					},
@@ -251,8 +254,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			// TODO(task3): replace false with noSymbols once --no-symbols flag is wired.
-			if err := reporter.WriteGaps(projectDir, scan, featureMap, productSummary.Features, false); err != nil {
+			if err := reporter.WriteGaps(projectDir, scan, featureMap, productSummary.Features, noSymbols); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 
@@ -275,6 +277,7 @@ func newAnalyzeCmd() *cobra.Command {
 		"model name (default varies by provider; e.g. llama3 for ollama)")
 	cmd.Flags().StringVar(&llmBaseURL, "llm-base-url", "",
 		"base URL for local providers (required for openai-compatible; default: provider-specific)")
+	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
 
 	return cmd
 }

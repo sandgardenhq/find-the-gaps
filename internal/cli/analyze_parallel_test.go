@@ -29,6 +29,7 @@ func TestRunBothMapsInParallel(t *testing.T) {
 		},
 		2,      // workers
 		10_000, // docsTokenBudget
+		false,  // filesOnly
 		nil,    // onCodeBatch
 		nil,    // onDocsPage
 	)
@@ -52,7 +53,7 @@ func TestRunBothMaps_CodeMapError(t *testing.T) {
 		map[string]string{
 			"https://example.com/auth": writeTempFile(t, "content"),
 		},
-		1, 10_000, nil, nil,
+		1, 10_000, false, nil, nil,
 	)
 	require.Error(t, err)
 }
@@ -70,10 +71,46 @@ func TestRunBothMaps_DocsMapError(t *testing.T) {
 		map[string]string{
 			"https://example.com/auth": writeTempFile(t, "content"),
 		},
-		1, 10_000, nil, nil,
+		1, 10_000, false, nil, nil,
 	)
 	// docs page errors are logged and skipped, not propagated — result is empty pages
 	require.NoError(t, err)
+}
+
+func TestRunBothMaps_FilesOnly_PassedThrough(t *testing.T) {
+	client := &stubLLMClient{
+		codeResp: `[{"feature":"auth","files":["auth.go"]}]`,
+		docsResp: `["auth"]`,
+	}
+	codeMap, _, err := runBothMaps(
+		context.Background(),
+		client,
+		analyzer.NewTiktokenCounter(),
+		[]string{"auth"},
+		stubScan(),
+		map[string]string{
+			"https://example.com/auth": writeTempFile(t, "auth content"),
+		},
+		2,
+		10_000,
+		true,  // filesOnly
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, codeMap, 1)
+	assert.Empty(t, codeMap[0].Symbols, "filesOnly mode must produce empty Symbols")
+}
+
+func TestAnalyzeCmd_NoSymbolsFlag_Registered(t *testing.T) {
+	cmd := newAnalyzeCmd()
+	flag := cmd.Flags().Lookup("no-symbols")
+	if flag == nil {
+		t.Fatal("--no-symbols flag not registered on analyze command")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("--no-symbols default should be false, got %q", flag.DefValue)
+	}
 }
 
 // --- stubs ---
@@ -84,7 +121,7 @@ type stubLLMClient struct {
 }
 
 func (s *stubLLMClient) Complete(_ context.Context, prompt string) (string, error) {
-	if strings.Contains(prompt, "Code symbols") {
+	if strings.Contains(prompt, "Code symbols") || strings.Contains(prompt, "Code files") {
 		return s.codeResp, nil
 	}
 	return s.docsResp, nil
