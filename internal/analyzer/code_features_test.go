@@ -105,13 +105,9 @@ func TestExtractFeaturesFromCode_NilResponse_NormalizedToEmpty(t *testing.T) {
 	}
 }
 
-func TestExtractFeaturesFromCode_DeduplicatesAcrossBatches(t *testing.T) {
-	// Two batches both include "authentication" — result must be deduplicated.
-	// One batch, one response — just verify no duplicates in a single-batch case.
-	c := &fakeClient{responses: []string{
-		`["authentication","file upload"]`,
-		`["authentication","search"]`,
-	}}
+func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
+	// LLM returns a response with a duplicate — result must deduplicate.
+	c := &fakeClient{responses: []string{`["authentication","authentication","file upload"]`}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
@@ -120,6 +116,9 @@ func TestExtractFeaturesFromCode_DeduplicatesAcrossBatches(t *testing.T) {
 	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("got %d features, want 2 (duplicates must be removed)", len(got))
 	}
 	seen := make(map[string]int)
 	for _, f := range got {

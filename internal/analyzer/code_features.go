@@ -32,7 +32,20 @@ func ExtractFeaturesFromCode(ctx context.Context, client LLMClient, scan *scanne
 		return []string{}, nil
 	}
 
-	batches := batchSymLines(symLines, 0, MapperTokenBudget)
+	// Approximate token cost of the fixed prompt preamble so batchSymLines
+	// leaves room for the preamble plus the symbol lines.
+	preamblePrompt := `You are analyzing a codebase to identify the product features it implements.
+
+Code files and their exported symbols (format: "file/path: Symbol1, Symbol2"):
+
+
+Based on the exported symbols and file structure, return a JSON array of product features this codebase implements.
+Each feature should be a short noun phrase (max 8 words) describing a user-facing capability.
+Deduplicate and sort alphabetically.
+
+Respond with only the JSON array. No markdown code fences. No prose.`
+	preambleTokens := countTokens(preamblePrompt)
+	batches := batchSymLines(symLines, preambleTokens, MapperTokenBudget)
 	featSet := make(map[string]struct{})
 
 	for i, batch := range batches {
