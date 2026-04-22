@@ -1,5 +1,16 @@
 # Progress
 
+## Task 6 (drift-detection plan): Add Stale Documentation section to WriteGaps - COMPLETE
+- Started: 2026-04-22
+- Tests written first (RED): TestWriteGaps_StaleDocumentation_RendersFindings, TestWriteGaps_StaleDocumentation_NoneFound
+- RED confirmed: compile failure (too many arguments to WriteGaps)
+- GREEN: WriteGaps signature updated with drift []analyzer.DriftFinding parameter; Stale Documentation section renders per feature with issues; all 5 existing call sites updated
+- Tests: all packages passing
+- Coverage: internal/reporter 100% ✅; total 93.0% ✅; internal/cli 89.4% (pre-existing drag, unchanged from Task 5)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-22
+
 ## Task 5 (drift-detection plan): Wire DetectDrift into analyze.go - COMPLETE
 - Started: 2026-04-22
 - Tests written first (RED): added CompleteWithTools to stubLLMClient in analyze_parallel_test.go; added drift routing case to fake server in analyze_test.go; added error-path tests for OpenAICompatibleClient.CompleteWithTools (server error, bad JSON, empty choices)
