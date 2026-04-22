@@ -357,6 +357,54 @@ func TestDetectDrift_ProseWithGoSliceNotation_ParsedSuccessfully(t *testing.T) {
 	assert.Empty(t, findings, "empty JSON array after prose should produce no findings")
 }
 
+func TestDetectDrift_ReleaseNotePageOnly_Skipped(t *testing.T) {
+	// A feature whose only doc pages are release-note/changelog URLs should be
+	// skipped entirely — the LLM should never be called.
+	client := &driftStubClient{} // zero responses; any call would panic on empty slice
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{
+			"https://docs.example.com/release-notes",
+			"https://docs.example.com/changelog",
+		}},
+	}
+	pageReader := func(url string) (string, error) { return "# Changelog", nil }
+
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, findings)
+	assert.Equal(t, 0, client.calls, "LLM must not be called when all pages are release notes")
+}
+
+func TestDetectDrift_MixedPages_ReleaseNotesFiltered(t *testing.T) {
+	// When a feature has both regular and release-note pages, only regular pages
+	// are sent to the LLM.
+	var capturedMessages []analyzer.ChatMessage
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			{Role: "assistant", Content: "[]"},
+		},
+	}
+	_ = capturedMessages
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{
+			"https://docs.example.com/auth",          // real doc page — keep
+			"https://docs.example.com/release-notes", // changelog — filter out
+		}},
+	}
+	pageReader := func(url string) (string, error) { return "# Auth", nil }
+
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	require.NoError(t, err)
+	// LLM was called once (with the filtered page list, not the release-note URL).
+	assert.Equal(t, 1, client.calls)
+}
+
 func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
 	// LLM keeps requesting tool calls; loop should terminate with an error.
 	toolCallResponse := analyzer.ChatMessage{

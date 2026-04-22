@@ -49,6 +49,10 @@ func DetectDrift(
 		if !ok || len(pages) == 0 {
 			continue
 		}
+		pages = filterDriftPages(pages)
+		if len(pages) == 0 {
+			continue
+		}
 
 		log.Infof("  checking drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
 		issues, err := detectDriftForFeature(ctx, client, tools, entry, pages, pageReader, repoRoot)
@@ -230,6 +234,41 @@ func driftTools() []Tool {
 			},
 		},
 	}
+}
+
+// releaseNotePatterns are URL path segments that identify changelog/release-note
+// pages. These pages narrate changes over time and are not feature documentation,
+// so drift detection skips them.
+var releaseNotePatterns = []string{
+	"release-note",
+	"release_note",
+	"changelog",
+	"change-log",
+	"change_log",
+	"what-s-new",
+	"whats-new",
+	"what_s_new",
+	"whats_new",
+}
+
+// filterDriftPages returns only the pages whose URLs do not look like release
+// note or changelog pages.
+func filterDriftPages(pages []string) []string {
+	var out []string
+	for _, p := range pages {
+		lower := strings.ToLower(p)
+		skip := false
+		for _, pat := range releaseNotePatterns {
+			if strings.Contains(lower, pat) {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // extractJSONArray scans s from right to left, looking for the rightmost '['
