@@ -1,5 +1,13 @@
 package analyzer
 
+// CodeFeature is a product feature identified from the codebase.
+type CodeFeature struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Layer       string `json:"layer"`
+	UserFacing  bool   `json:"user_facing"`
+}
+
 // PageAnalysis is the LLM-extracted summary and feature list for one documentation page.
 type PageAnalysis struct {
 	URL      string
