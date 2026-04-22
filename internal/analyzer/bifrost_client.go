@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	bifrost "github.com/maximhq/bifrost/core"
@@ -72,6 +73,107 @@ func NewBifrostClientWithProvider(providerName, apiKey, model string) (*BifrostC
 		return nil, fmt.Errorf("bifrost init: %w", err)
 	}
 	return &BifrostClient{client: client, provider: provider, model: model}, nil
+}
+
+// CompleteWithTools sends a multi-turn conversation with tool definitions and
+// returns the LLM's next message (which may contain tool call requests or a
+// final text response).
+func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error) {
+	// Convert our ChatMessage slice to Bifrost schema messages.
+	bifrostMsgs := make([]schemas.ChatMessage, 0, len(messages))
+	for _, m := range messages {
+		bm := schemas.ChatMessage{}
+		switch m.Role {
+		case "user":
+			bm.Role = schemas.ChatMessageRoleUser
+			bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+		case "assistant":
+			bm.Role = schemas.ChatMessageRoleAssistant
+			if len(m.ToolCalls) > 0 {
+				calls := make([]schemas.ChatAssistantMessageToolCall, len(m.ToolCalls))
+				for i, tc := range m.ToolCalls {
+					id := tc.ID
+					name := tc.Name
+					calls[i] = schemas.ChatAssistantMessageToolCall{
+						ID: &id,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &name,
+							Arguments: tc.Arguments,
+						},
+					}
+				}
+				bm.ChatAssistantMessage = &schemas.ChatAssistantMessage{ToolCalls: calls}
+			} else {
+				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			}
+		case "tool":
+			bm.Role = schemas.ChatMessageRoleTool
+			id := m.ToolCallID
+			bm.ChatToolMessage = &schemas.ChatToolMessage{ToolCallID: &id}
+			bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+		}
+		bifrostMsgs = append(bifrostMsgs, bm)
+	}
+
+	// Convert our Tool slice to Bifrost ChatTool slice.
+	bifrostTools := make([]schemas.ChatTool, len(tools))
+	for i, t := range tools {
+		paramsJSON, _ := json.Marshal(t.Parameters)
+		var params schemas.ToolFunctionParameters
+		_ = json.Unmarshal(paramsJSON, &params)
+		desc := t.Description
+		bifrostTools[i] = schemas.ChatTool{
+			Type: schemas.ChatToolTypeFunction,
+			Function: &schemas.ChatToolFunction{
+				Name:        t.Name,
+				Description: &desc,
+				Parameters:  &params,
+			},
+		}
+	}
+
+	bifrostCtx := schemas.NewBifrostContext(ctx, schemas.NoDeadline)
+	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
+		Provider: c.provider,
+		Model:    c.model,
+		Input:    bifrostMsgs,
+		Params:   &schemas.ChatParameters{Tools: bifrostTools},
+	})
+	if bifrostErr != nil {
+		if bifrostErr.Error != nil {
+			return ChatMessage{}, fmt.Errorf("bifrost tool completion: %s", bifrostErr.Error.Message)
+		}
+		return ChatMessage{}, fmt.Errorf("bifrost tool completion: unknown error")
+	}
+	if len(resp.Choices) == 0 {
+		return ChatMessage{}, fmt.Errorf("bifrost tool completion: no choices returned")
+	}
+
+	choice := resp.Choices[0]
+	result := ChatMessage{Role: "assistant"}
+
+	// Check for tool calls via the embedded ChatAssistantMessage on the response message.
+	if choice.Message != nil && choice.Message.ChatAssistantMessage != nil &&
+		len(choice.Message.ToolCalls) > 0 {
+		tcs := choice.Message.ToolCalls
+		calls := make([]ToolCall, len(tcs))
+		for i, tc := range tcs {
+			id := ""
+			if tc.ID != nil {
+				id = *tc.ID
+			}
+			name := ""
+			if tc.Function.Name != nil {
+				name = *tc.Function.Name
+			}
+			calls[i] = ToolCall{ID: id, Name: name, Arguments: tc.Function.Arguments}
+		}
+		result.ToolCalls = calls
+	} else if choice.Message != nil && choice.Message.Content != nil && choice.Message.Content.ContentStr != nil {
+		result.Content = *choice.Message.Content.ContentStr
+	}
+
+	return result, nil
 }
 
 // Complete sends a user prompt and returns the first completion text.
