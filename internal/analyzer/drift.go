@@ -232,14 +232,22 @@ func driftTools() []Tool {
 	}
 }
 
-// extractJSONArray finds the outermost [...] in s and returns it.
-// If no array brackets are found, it returns the trimmed input unchanged so
-// the caller's json.Unmarshal still produces a useful error.
+// extractJSONArray scans s from right to left, looking for the rightmost '['
+// that begins a syntactically valid JSON array (through the end of the string).
+// This handles LLM responses that include prose before or after the array, or
+// that contain Go slice-type notation (e.g. "[]string") in the prose.
+// If no valid array is found, the trimmed input is returned unchanged so the
+// caller's json.Unmarshal still produces a useful error.
 func extractJSONArray(s string) string {
-	start := strings.Index(s, "[")
-	end := strings.LastIndex(s, "]")
-	if start == -1 || end == -1 || end < start {
-		return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] != '[' {
+			continue
+		}
+		var probe []json.RawMessage
+		if json.Unmarshal([]byte(s[i:]), &probe) == nil {
+			return s[i:]
+		}
 	}
-	return s[start : end+1]
+	return s
 }

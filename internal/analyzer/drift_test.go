@@ -335,6 +335,28 @@ func TestDetectDrift_ProseBeforeJSON_ParsedSuccessfully(t *testing.T) {
 	assert.Contains(t, findings[0].Issues[0].Issue, "Email requirement")
 }
 
+func TestDetectDrift_ProseWithGoSliceNotation_ParsedSuccessfully(t *testing.T) {
+	// LLM prose contains Go []string type notation before the final empty JSON array.
+	// The extractor must not mistake []string for the array and must find the real [].
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			{
+				Role:    "assistant",
+				Content: "The struct has an OrderingRules []string field and ToneStylePreferences string field not mentioned in docs.\n\n[]",
+			},
+		},
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
+	pageReader := func(url string) (string, error) { return "# Auth", nil }
+
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, findings, "empty JSON array after prose should produce no findings")
+}
+
 func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
 	// LLM keeps requesting tool calls; loop should terminate with an error.
 	toolCallResponse := analyzer.ChatMessage{
