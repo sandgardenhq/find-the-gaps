@@ -38,3 +38,28 @@ func TestCodeFeature_UserFacingFalse_JSONRoundtrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &got))
 	assert.Equal(t, f, got)
 }
+
+func TestDriftFinding_JSONRoundtrip(t *testing.T) {
+	f := analyzer.DriftFinding{
+		Feature: "CLI command routing",
+		Issues: []analyzer.DriftIssue{
+			{Page: "https://docs.example.com/cli", Issue: "The --repo flag is not mentioned."},
+		},
+	}
+	data, err := json.Marshal(f)
+	require.NoError(t, err)
+	var got analyzer.DriftFinding
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, f, got)
+}
+
+func TestToolCall_Fields(t *testing.T) {
+	tc := analyzer.ToolCall{ID: "call_1", Name: "read_file", Arguments: `{"path":"foo.go"}`}
+	assert.Equal(t, "call_1", tc.ID)
+	assert.Equal(t, "read_file", tc.Name)
+}
+
+func TestChatMessage_Fields(t *testing.T) {
+	msg := analyzer.ChatMessage{Role: "user", Content: "hello"}
+	assert.Equal(t, "user", msg.Role)
+}

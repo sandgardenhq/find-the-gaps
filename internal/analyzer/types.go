@@ -39,3 +39,37 @@ type DocsFeatureEntry struct {
 
 // DocsFeatureMap is the complete feature-to-docs mapping for a project.
 type DocsFeatureMap []DocsFeatureEntry
+
+// ChatMessage is one turn in a tool-use conversation.
+type ChatMessage struct {
+	Role       string     // "user", "assistant", "tool"
+	Content    string
+	ToolCalls  []ToolCall // set when Role=="assistant" and LLM requests tools
+	ToolCallID string     // set when Role=="tool" (response to a tool call)
+}
+
+// Tool defines a callable function the LLM may invoke during drift detection.
+type Tool struct {
+	Name        string
+	Description string
+	Parameters  map[string]any // JSON Schema object
+}
+
+// ToolCall is one tool invocation requested by the LLM.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string // raw JSON
+}
+
+// DriftIssue is one specific inaccuracy found between a feature's code and its documentation.
+type DriftIssue struct {
+	Page  string `json:"page"`  // URL of the doc page ("" if cross-page)
+	Issue string `json:"issue"` // inaccuracy described in documentation language
+}
+
+// DriftFinding groups all drift issues found for one feature.
+type DriftFinding struct {
+	Feature string
+	Issues  []DriftIssue
+}
