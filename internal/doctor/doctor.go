@@ -17,7 +17,8 @@ type Tool struct {
 	Name        string // display name, e.g. "ripgrep"
 	Binary      string // executable name on PATH, e.g. "rg"
 	VersionArg  string // argument that prints the version, e.g. "--version"
-	InstallHint string // shell command to install the tool
+	InstallHint string // human-readable install fallback shown when automated install is unavailable
+	InstallCmds map[string][]string // GOOS → {cmd, arg1, ...} for automated install
 }
 
 // RequiredTools is the fixed list of external dependencies find-the-gaps needs.
@@ -27,12 +28,20 @@ var RequiredTools = []Tool{
 		Binary:      "rg",
 		VersionArg:  "--version",
 		InstallHint: "brew install ripgrep",
+		InstallCmds: map[string][]string{
+			"darwin": {"brew", "install", "ripgrep"},
+		},
 	},
 	{
 		Name:        "mdfetch",
 		Binary:      "mdfetch",
 		VersionArg:  "--version",
-		InstallHint: "brew install sandgardenhq/tap/mdfetch",
+		InstallHint: "npm install -g @sandgarden/mdfetch",
+		InstallCmds: map[string][]string{
+			"darwin":  {"npm", "install", "-g", "@sandgarden/mdfetch"},
+			"linux":   {"npm", "install", "-g", "@sandgarden/mdfetch"},
+			"windows": {"npm", "install", "-g", "@sandgarden/mdfetch"},
+		},
 	},
 }
 

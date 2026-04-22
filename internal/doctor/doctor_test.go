@@ -49,8 +49,8 @@ func TestRun_MdfetchMissing_ReturnsOne(t *testing.T) {
 	if !strings.Contains(stderr.String(), "mdfetch") {
 		t.Errorf("stderr should mention mdfetch, got %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "brew install") {
-		t.Errorf("stderr should give a brew install hint, got %q", stderr.String())
+	if !strings.Contains(stderr.String(), "mdfetch") {
+		t.Errorf("stderr should give an mdfetch install hint, got %q", stderr.String())
 	}
 }
 
