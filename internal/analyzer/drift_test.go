@@ -312,6 +312,29 @@ func TestDetectDrift_InvalidJSONResponse_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid JSON drift response")
 }
 
+func TestDetectDrift_ProseBeforeJSON_ParsedSuccessfully(t *testing.T) {
+	// LLM returns prose before the JSON array (common despite the prompt instruction).
+	// DetectDrift must extract the array and parse it successfully.
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			{
+				Role:    "assistant",
+				Content: `Here are the issues I found:\n\n[{"page":"https://docs.example.com/auth","issue":"Email requirement not documented."}]`,
+			},
+		},
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
+	pageReader := func(url string) (string, error) { return "# Auth", nil }
+
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Contains(t, findings[0].Issues[0].Issue, "Email requirement")
+}
+
 func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
 	// LLM keeps requesting tool calls; loop should terminate with an error.
 	toolCallResponse := analyzer.ChatMessage{

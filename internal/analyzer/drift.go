@@ -127,9 +127,12 @@ Respond with only the JSON array. No markdown code fences. No prose.`,
 		messages = append(messages, resp)
 
 		if len(resp.ToolCalls) == 0 {
-			// Final response — parse JSON.
+			// Final response — extract and parse the JSON array.
+			// The LLM may include prose before or after the array despite the prompt
+			// instruction; find the outermost [...] and parse only that.
+			raw := extractJSONArray(resp.Content)
 			var issues []DriftIssue
-			if err := json.Unmarshal([]byte(strings.TrimSpace(resp.Content)), &issues); err != nil {
+			if err := json.Unmarshal([]byte(raw), &issues); err != nil {
 				return nil, fmt.Errorf("invalid JSON drift response: %w (raw: %q)", err, resp.Content)
 			}
 			return issues, nil
@@ -227,4 +230,16 @@ func driftTools() []Tool {
 			},
 		},
 	}
+}
+
+// extractJSONArray finds the outermost [...] in s and returns it.
+// If no array brackets are found, it returns the trimmed input unchanged so
+// the caller's json.Unmarshal still produces a useful error.
+func extractJSONArray(s string) string {
+	start := strings.Index(s, "[")
+	end := strings.LastIndex(s, "]")
+	if start == -1 || end == -1 || end < start {
+		return strings.TrimSpace(s)
+	}
+	return s[start : end+1]
 }
