@@ -9,7 +9,8 @@ import (
 )
 
 func TestLoadFeatureMapCache_FileNotExist_ReturnsFalse(t *testing.T) {
-	_, ok := loadFeatureMapCache(filepath.Join(t.TempDir(), "featuremap.json"), []string{"f"})
+	features := []analyzer.CodeFeature{{Name: "f", Description: "Does F.", Layer: "cli", UserFacing: true}}
+	_, ok := loadFeatureMapCache(filepath.Join(t.TempDir(), "featuremap.json"), features)
 	if ok {
 		t.Fatal("expected false for non-existent file")
 	}
@@ -18,11 +19,13 @@ func TestLoadFeatureMapCache_FileNotExist_ReturnsFalse(t *testing.T) {
 func TestLoadFeatureMapCache_FeaturesMismatch_ReturnsFalse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "featuremap.json")
-	fm := analyzer.FeatureMap{{Feature: "auth", Files: []string{"a.go"}, Symbols: []string{"Login"}}}
-	if err := saveFeatureMapCache(path, []string{"auth"}, fm); err != nil {
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
+	fm := analyzer.FeatureMap{{Feature: authFeature, Files: []string{"a.go"}, Symbols: []string{"Login"}}}
+	if err := saveFeatureMapCache(path, []analyzer.CodeFeature{authFeature}, fm); err != nil {
 		t.Fatal(err)
 	}
-	_, ok := loadFeatureMapCache(path, []string{"other"})
+	otherFeature := analyzer.CodeFeature{Name: "other", Description: "Other.", Layer: "cli", UserFacing: false}
+	_, ok := loadFeatureMapCache(path, []analyzer.CodeFeature{otherFeature})
 	if ok {
 		t.Fatal("expected false when features do not match")
 	}
@@ -31,10 +34,12 @@ func TestLoadFeatureMapCache_FeaturesMismatch_ReturnsFalse(t *testing.T) {
 func TestLoadFeatureMapCache_Match_ReturnsMap(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "featuremap.json")
-	features := []string{"auth", "search"}
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
+	searchFeature := analyzer.CodeFeature{Name: "search", Description: "Search.", Layer: "cli", UserFacing: true}
+	features := []analyzer.CodeFeature{authFeature, searchFeature}
 	fm := analyzer.FeatureMap{
-		{Feature: "auth", Files: []string{"a.go"}, Symbols: []string{"Login"}},
-		{Feature: "search", Files: []string{"s.go"}, Symbols: []string{"Search"}},
+		{Feature: authFeature, Files: []string{"a.go"}, Symbols: []string{"Login"}},
+		{Feature: searchFeature, Files: []string{"s.go"}, Symbols: []string{"Search"}},
 	}
 	if err := saveFeatureMapCache(path, features, fm); err != nil {
 		t.Fatal(err)
@@ -46,35 +51,48 @@ func TestLoadFeatureMapCache_Match_ReturnsMap(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(got))
 	}
-	if got[0].Feature != "auth" {
-		t.Errorf("got[0].Feature = %q, want %q", got[0].Feature, "auth")
+	if got[0].Feature.Name != "auth" {
+		t.Errorf("got[0].Feature.Name = %q, want %q", got[0].Feature.Name, "auth")
 	}
 }
 
 func TestSaveFeatureMapCache_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "featuremap.json")
-	fm := analyzer.FeatureMap{{Feature: "f", Files: []string{"a.go"}, Symbols: []string{"A"}}}
-	if err := saveFeatureMapCache(path, []string{"f"}, fm); err != nil {
+	feat := analyzer.CodeFeature{Name: "f", Description: "Does F.", Layer: "cli", UserFacing: true}
+	fm := analyzer.FeatureMap{{Feature: feat, Files: []string{"a.go"}, Symbols: []string{"A"}}}
+	if err := saveFeatureMapCache(path, []analyzer.CodeFeature{feat}, fm); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := loadFeatureMapCache(path, []string{"f"})
+	got, ok := loadFeatureMapCache(path, []analyzer.CodeFeature{feat})
 	if !ok {
 		t.Fatal("expected cache hit after save")
 	}
-	if len(got) != 1 || got[0].Feature != "f" {
+	if len(got) != 1 || got[0].Feature.Name != "f" {
 		t.Errorf("unexpected result: %v", got)
+	}
+	// Assert all CodeFeature fields round-trip.
+	if got[0].Feature.Description != "Does F." {
+		t.Errorf("Feature.Description = %q, want %q", got[0].Feature.Description, "Does F.")
+	}
+	if got[0].Feature.Layer != "cli" {
+		t.Errorf("Feature.Layer = %q, want %q", got[0].Feature.Layer, "cli")
+	}
+	if !got[0].Feature.UserFacing {
+		t.Error("Feature.UserFacing = false, want true")
 	}
 }
 
 func TestLoadFeatureMapCache_FeatureOrderInsensitive(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "featuremap.json")
-	fm := analyzer.FeatureMap{{Feature: "auth", Files: []string{"a.go"}, Symbols: nil}}
-	if err := saveFeatureMapCache(path, []string{"auth", "search"}, fm); err != nil {
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
+	searchFeature := analyzer.CodeFeature{Name: "search", Description: "Search.", Layer: "cli", UserFacing: true}
+	fm := analyzer.FeatureMap{{Feature: authFeature, Files: []string{"a.go"}, Symbols: nil}}
+	if err := saveFeatureMapCache(path, []analyzer.CodeFeature{authFeature, searchFeature}, fm); err != nil {
 		t.Fatal(err)
 	}
-	_, ok := loadFeatureMapCache(path, []string{"search", "auth"})
+	_, ok := loadFeatureMapCache(path, []analyzer.CodeFeature{searchFeature, authFeature})
 	if !ok {
 		t.Fatal("expected cache hit for same features in different order")
 	}
@@ -86,7 +104,8 @@ func TestLoadFeatureMapCache_CorruptFile_ReturnsFalse(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not json {{{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, ok := loadFeatureMapCache(path, []string{"auth"})
+	feat := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
+	_, ok := loadFeatureMapCache(path, []analyzer.CodeFeature{feat})
 	if ok {
 		t.Fatal("expected false for corrupt JSON")
 	}
@@ -95,11 +114,12 @@ func TestLoadFeatureMapCache_CorruptFile_ReturnsFalse(t *testing.T) {
 func TestLoadFeatureMapCache_NilSlicesNormalized(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "featuremap.json")
-	fm := analyzer.FeatureMap{{Feature: "f", Files: nil, Symbols: nil}}
-	if err := saveFeatureMapCache(path, []string{"f"}, fm); err != nil {
+	feat := analyzer.CodeFeature{Name: "f", Description: "Does F.", Layer: "cli", UserFacing: true}
+	fm := analyzer.FeatureMap{{Feature: feat, Files: nil, Symbols: nil}}
+	if err := saveFeatureMapCache(path, []analyzer.CodeFeature{feat}, fm); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := loadFeatureMapCache(path, []string{"f"})
+	got, ok := loadFeatureMapCache(path, []analyzer.CodeFeature{feat})
 	if !ok {
 		t.Fatal("expected cache hit")
 	}
@@ -115,7 +135,8 @@ func TestLoadFeatureMapCache_NilSlicesNormalized(t *testing.T) {
 // error branch (not os.ErrNotExist) in loadFeatureMapCache by pointing at a directory.
 func TestLoadFeatureMapCache_ReadError_ReturnsFalse(t *testing.T) {
 	dir := t.TempDir()
-	_, ok := loadFeatureMapCache(dir, []string{"auth"})
+	feat := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
+	_, ok := loadFeatureMapCache(dir, []analyzer.CodeFeature{feat})
 	if ok {
 		t.Error("expected cache miss when path is a directory (read error)")
 	}
@@ -127,11 +148,12 @@ func TestLoadFeatureMapCache_ReadError_ReturnsFalse(t *testing.T) {
 func TestLoadFeatureMapCache_NilSlicesInRawJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "featuremap.json")
-	raw := `{"features":["f"],"entries":[{"feature":"f","files":null,"symbols":null}]}`
+	raw := `{"features":[{"name":"f","description":"Does F.","layer":"cli","user_facing":true}],"entries":[{"feature":{"name":"f","description":"Does F.","layer":"cli","user_facing":true},"files":null,"symbols":null}]}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := loadFeatureMapCache(path, []string{"f"})
+	feat := analyzer.CodeFeature{Name: "f", Description: "Does F.", Layer: "cli", UserFacing: true}
+	got, ok := loadFeatureMapCache(path, []analyzer.CodeFeature{feat})
 	if !ok {
 		t.Fatal("expected cache hit")
 	}

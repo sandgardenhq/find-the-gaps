@@ -31,7 +31,7 @@ func runBothMaps(
 	ctx context.Context,
 	client analyzer.LLMClient,
 	counter analyzer.TokenCounter,
-	features []string,
+	features []analyzer.CodeFeature,
 	scan *scanner.ProjectScan,
 	pages map[string]string,
 	workers int,
@@ -43,13 +43,19 @@ func runBothMaps(
 	codeCh := make(chan bothMapsResult, 1)
 	docsCh := make(chan docsMapsResult, 1)
 
+	// MapFeaturesToDocs still accepts []string feature names.
+	featureNames := make([]string, len(features))
+	for i, f := range features {
+		featureNames[i] = f.Name
+	}
+
 	go func() {
 		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, filesOnly, onCodeBatch)
 		codeCh <- bothMapsResult{fm, err}
 	}()
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToDocs(ctx, client, features, pages, workers, docsTokenBudget, onDocsPage)
+		fm, err := analyzer.MapFeaturesToDocs(ctx, client, featureNames, pages, workers, docsTokenBudget, onDocsPage)
 		docsCh <- docsMapsResult{fm, err}
 	}()
 
@@ -198,7 +204,7 @@ func newAnalyzeCmd() *cobra.Command {
 			// Extract the canonical feature list from CODE. These are the features
 			// the codebase actually implements — used as the source of truth for gap analysis.
 			codeFeaturesPath := filepath.Join(projectDir, "codefeatures.json")
-			var codeFeatures []string
+			var codeFeatures []analyzer.CodeFeature
 			codeFeaturesCached := !noCache && func() bool {
 				if cached, ok := loadCodeFeaturesCache(codeFeaturesPath, scan); ok {
 					log.Infof("using cached code features (%d features)", len(cached))
@@ -224,6 +230,12 @@ func newAnalyzeCmd() *cobra.Command {
 			featureMapCachePath := filepath.Join(projectDir, "featuremap.json")
 			docsFeatureMapCachePath := filepath.Join(projectDir, "docsfeaturemap.json")
 
+			// codeFeatureNames extracts plain name strings for APIs that still accept []string.
+			codeFeatureNames := make([]string, len(codeFeatures))
+			for i, f := range codeFeatures {
+				codeFeatureNames[i] = f.Name
+			}
+
 			var featureMap analyzer.FeatureMap
 			var docsFeatureMap analyzer.DocsFeatureMap
 
@@ -237,7 +249,7 @@ func newAnalyzeCmd() *cobra.Command {
 			}()
 
 			docsMapCached := !noCache && func() bool {
-				if cached, ok := loadDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatures); ok {
+				if cached, ok := loadDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatureNames); ok {
 					log.Infof("using cached docs feature map (%d features)", len(cached))
 					docsFeatureMap = cached
 					return true
@@ -258,7 +270,7 @@ func newAnalyzeCmd() *cobra.Command {
 				var docsBatchFn analyzer.DocsMapProgressFunc
 				if !docsMapCached {
 					docsBatchFn = func(partial analyzer.DocsFeatureMap) error {
-						return saveDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatures, partial)
+						return saveDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatureNames, partial)
 					}
 				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
@@ -279,7 +291,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 				if !docsMapCached {
 					docsFeatureMap = freshDocsMap
-					if err := saveDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatures, docsFeatureMap); err != nil {
+					if err := saveDocsFeatureMapCache(docsFeatureMapCachePath, codeFeatureNames, docsFeatureMap); err != nil {
 						return fmt.Errorf("save docs feature map cache: %w", err)
 					}
 				}

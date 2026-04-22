@@ -11,20 +11,20 @@ import (
 )
 
 type featureMapCacheFile struct {
-	Features []string               `json:"features"`
+	Features []analyzer.CodeFeature `json:"features"`
 	Entries  []featureMapCacheEntry `json:"entries"`
 }
 
 type featureMapCacheEntry struct {
-	Feature string   `json:"feature"`
-	Files   []string `json:"files"`
-	Symbols []string `json:"symbols"`
+	Feature analyzer.CodeFeature `json:"feature"`
+	Files   []string             `json:"files"`
+	Symbols []string             `json:"symbols"`
 }
 
 // loadFeatureMapCache reads a cached FeatureMap from path.
 // Returns false if the file does not exist, cannot be parsed, or wantFeatures
-// does not match the features the cache was built from (order-insensitive).
-func loadFeatureMapCache(path string, wantFeatures []string) (analyzer.FeatureMap, bool) {
+// does not match the features the cache was built from (order-insensitive, by name).
+func loadFeatureMapCache(path string, wantFeatures []analyzer.CodeFeature) (analyzer.FeatureMap, bool) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false
@@ -36,7 +36,7 @@ func loadFeatureMapCache(path string, wantFeatures []string) (analyzer.FeatureMa
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, false
 	}
-	if !featureSetsEqual(cache.Features, wantFeatures) {
+	if !featureSetsEqual(codeFeatureNames(cache.Features), codeFeatureNames(wantFeatures)) {
 		return nil, false
 	}
 	fm := make(analyzer.FeatureMap, 0, len(cache.Entries))
@@ -60,7 +60,7 @@ func loadFeatureMapCache(path string, wantFeatures []string) (analyzer.FeatureMa
 
 // saveFeatureMapCache writes fm to path as JSON, recording features so that
 // a future load can detect stale caches when the feature set changes.
-func saveFeatureMapCache(path string, features []string, fm analyzer.FeatureMap) error {
+func saveFeatureMapCache(path string, features []analyzer.CodeFeature, fm analyzer.FeatureMap) error {
 	entries := make([]featureMapCacheEntry, len(fm))
 	for i, e := range fm {
 		files := e.Files
@@ -79,6 +79,15 @@ func saveFeatureMapCache(path string, features []string, fm analyzer.FeatureMap)
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// codeFeatureNames extracts the Name field from a slice of CodeFeature.
+func codeFeatureNames(features []analyzer.CodeFeature) []string {
+	names := make([]string, len(features))
+	for i, f := range features {
+		names[i] = f.Name
+	}
+	return names
 }
 
 // featureSetsEqual reports whether a and b contain the same strings, regardless of order.

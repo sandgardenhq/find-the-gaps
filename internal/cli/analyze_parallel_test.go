@@ -16,6 +16,7 @@ import (
 )
 
 func TestRunBothMapsInParallel(t *testing.T) {
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	codeMap, docsMap, err := runBothMaps(
 		context.Background(),
 		&stubLLMClient{
@@ -23,7 +24,7 @@ func TestRunBothMapsInParallel(t *testing.T) {
 			docsResp: `["auth"]`,
 		},
 		analyzer.NewTiktokenCounter(),
-		[]string{"auth"},
+		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
 			"https://example.com/auth": writeTempFile(t, "auth content"),
@@ -36,12 +37,13 @@ func TestRunBothMapsInParallel(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, codeMap, 1)
-	assert.Equal(t, "auth", codeMap[0].Feature)
+	assert.Equal(t, "auth", codeMap[0].Feature.Name)
 	require.Len(t, docsMap, 1)
 	assert.Equal(t, "auth", docsMap[0].Feature)
 }
 
 func TestRunBothMaps_CodeMapError(t *testing.T) {
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	_, _, err := runBothMaps(
 		context.Background(),
 		&stubLLMClient{
@@ -49,7 +51,7 @@ func TestRunBothMaps_CodeMapError(t *testing.T) {
 			docsResp: `[]`,
 		},
 		analyzer.NewTiktokenCounter(),
-		[]string{"auth"},
+		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
 			"https://example.com/auth": writeTempFile(t, "content"),
@@ -60,6 +62,7 @@ func TestRunBothMaps_CodeMapError(t *testing.T) {
 }
 
 func TestRunBothMaps_DocsMapError(t *testing.T) {
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	_, _, err := runBothMaps(
 		context.Background(),
 		&stubLLMClient{
@@ -67,7 +70,7 @@ func TestRunBothMaps_DocsMapError(t *testing.T) {
 			docsResp: `not json`, // forces MapFeaturesToDocs page call to fail
 		},
 		analyzer.NewTiktokenCounter(),
-		[]string{"auth"},
+		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
 			"https://example.com/auth": writeTempFile(t, "content"),
@@ -89,6 +92,7 @@ func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
 		return callbackErr
 	}
 
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	_, _, err := runBothMaps(
 		context.Background(),
 		&stubLLMClient{
@@ -96,7 +100,7 @@ func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
 			docsResp: `["auth"]`,
 		},
 		analyzer.NewTiktokenCounter(),
-		[]string{"auth"},
+		[]analyzer.CodeFeature{authFeature},
 		// Empty scan so MapFeaturesToCode returns immediately (no LLM call, no error).
 		&scanner.ProjectScan{Files: []scanner.ScannedFile{}},
 		map[string]string{
@@ -112,6 +116,7 @@ func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
 }
 
 func TestRunBothMaps_FilesOnly_PassedThrough(t *testing.T) {
+	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	client := &stubLLMClient{
 		codeResp: `[{"feature":"auth","files":["auth.go"]}]`,
 		docsResp: `["auth"]`,
@@ -120,14 +125,14 @@ func TestRunBothMaps_FilesOnly_PassedThrough(t *testing.T) {
 		context.Background(),
 		client,
 		analyzer.NewTiktokenCounter(),
-		[]string{"auth"},
+		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
 			"https://example.com/auth": writeTempFile(t, "auth content"),
 		},
 		2,
 		10_000,
-		true,  // filesOnly
+		true, // filesOnly
 		nil,
 		nil,
 	)

@@ -6,18 +6,19 @@ import (
 	"os"
 	"sort"
 
+	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 )
 
 type codeFeaturesCacheFile struct {
-	Files    []string `json:"files"`
-	Features []string `json:"features"`
+	Files    []string                `json:"files"`
+	Features []analyzer.CodeFeature  `json:"features"`
 }
 
 // loadCodeFeaturesCache reads a cached code-features list from path.
 // Returns false if the file does not exist, cannot be parsed, or the
 // scanned file list has changed since the cache was built.
-func loadCodeFeaturesCache(path string, scan *scanner.ProjectScan) ([]string, bool) {
+func loadCodeFeaturesCache(path string, scan *scanner.ProjectScan) ([]analyzer.CodeFeature, bool) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false
@@ -35,13 +36,13 @@ func loadCodeFeaturesCache(path string, scan *scanner.ProjectScan) ([]string, bo
 		return nil, false
 	}
 	if cache.Features == nil {
-		return []string{}, true
+		return []analyzer.CodeFeature{}, true
 	}
 	return cache.Features, true
 }
 
 // saveCodeFeaturesCache writes features to path, keyed to the scan's file list.
-func saveCodeFeaturesCache(path string, scan *scanner.ProjectScan, features []string) error {
+func saveCodeFeaturesCache(path string, scan *scanner.ProjectScan, features []analyzer.CodeFeature) error {
 	cache := codeFeaturesCacheFile{
 		Files:    scanFilePaths(scan),
 		Features: features,

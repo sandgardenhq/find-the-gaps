@@ -276,7 +276,7 @@ func TestAnalyze_fullPipeline_withCachedAnalysis(t *testing.T) {
 			resp = `[{"feature":"feature-one","files":["main.go"],"symbols":["Run"]}]`
 		default:
 			// ExtractFeaturesFromCode and any unknown call
-			resp = `["feature-one"]`
+			resp = `[{"name":"feature-one","description":"Does feature one.","layer":"cli","user_facing":true}]`
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{

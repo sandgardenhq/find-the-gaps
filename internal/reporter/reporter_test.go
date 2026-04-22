@@ -18,8 +18,8 @@ func TestWriteMapping_CreatesFile(t *testing.T) {
 		Features:    []string{"gap analysis", "doctor command"},
 	}
 	mapping := analyzer.FeatureMap{
-		{Feature: "gap analysis", Files: []string{"internal/analyzer/analyzer.go"}, Symbols: []string{"AnalyzePage"}},
-		{Feature: "doctor command", Files: []string{"internal/cli/doctor.go"}, Symbols: []string{}},
+		{Feature: analyzer.CodeFeature{Name: "gap analysis", Description: "Finds gaps.", Layer: "analysis engine", UserFacing: true}, Files: []string{"internal/analyzer/analyzer.go"}, Symbols: []string{"AnalyzePage"}},
+		{Feature: analyzer.CodeFeature{Name: "doctor command", Description: "Checks deps.", Layer: "cli", UserFacing: true}, Files: []string{"internal/cli/doctor.go"}, Symbols: []string{}},
 	}
 	pages := []analyzer.PageAnalysis{
 		{URL: "https://docs.example.com/gap", Summary: "Covers gap analysis.", Features: []string{"gap analysis"}},
@@ -48,7 +48,7 @@ func TestWriteMapping_CreatesFile(t *testing.T) {
 func TestWriteGaps_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
-		{Feature: "auth", Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
 	if err := reporter.WriteGaps(dir, mapping, []string{"search"}); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestWriteMapping_EmptyMapping_Succeeds(t *testing.T) {
 func TestWriteGaps_NoneFound(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
-		{Feature: "gap analysis", Files: []string{"internal/foo/bar.go"}},
+		{Feature: analyzer.CodeFeature{Name: "gap analysis", Description: "Finds gaps.", Layer: "analysis engine", UserFacing: true}, Files: []string{"internal/foo/bar.go"}},
 	}
 	allFeatures := []string{"gap analysis"} // documented AND implemented → no gaps
 
@@ -101,7 +101,7 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 func TestWriteGaps_UndocumentedCode(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
-		{Feature: "auth", Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
 	// "auth" exists in code but is absent from docs
 	if err := reporter.WriteGaps(dir, mapping, []string{}); err != nil {
@@ -125,7 +125,7 @@ func TestWriteGaps_UndocumentedCode(t *testing.T) {
 func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
-		{Feature: "auth", Files: []string{}}, // no files — not "implemented"
+		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{}}, // no files — not "implemented"
 	}
 	if err := reporter.WriteGaps(dir, mapping, []string{}); err != nil {
 		t.Fatal(err)

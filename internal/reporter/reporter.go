@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -21,7 +20,7 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 
 	sb.WriteString("## Features\n\n")
 	for _, entry := range mapping {
-		fmt.Fprintf(&sb, "### %s\n", entry.Feature)
+		fmt.Fprintf(&sb, "### %s\n", entry.Feature.Name)
 		if len(entry.Files) > 0 {
 			fmt.Fprintf(&sb, "- **Implemented in:** %s\n", strings.Join(entry.Files, ", "))
 		}
@@ -30,8 +29,11 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 		}
 		// Find doc pages that mention this feature
 		for _, p := range pages {
-			if slices.Contains(p.Features, entry.Feature) {
-				fmt.Fprintf(&sb, "- **Documented on:** %s\n", p.URL)
+			for _, f := range p.Features {
+				if f == entry.Feature.Name {
+					fmt.Fprintf(&sb, "- **Documented on:** %s\n", p.URL)
+					break
+				}
 			}
 		}
 		sb.WriteString("\n")
@@ -47,7 +49,7 @@ func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string)
 	codeFeatures := make(map[string]bool)
 	for _, entry := range mapping {
 		if len(entry.Files) > 0 {
-			codeFeatures[entry.Feature] = true
+			codeFeatures[entry.Feature.Name] = true
 		}
 	}
 	docFeatures := make(map[string]bool)
@@ -62,8 +64,8 @@ func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string)
 	sb.WriteString("## Undocumented Code\n\n")
 	found := false
 	for _, entry := range mapping {
-		if len(entry.Files) > 0 && !docFeatures[entry.Feature] {
-			fmt.Fprintf(&sb, "- \"%s\" has code implementation but no documentation page\n", entry.Feature)
+		if len(entry.Files) > 0 && !docFeatures[entry.Feature.Name] {
+			fmt.Fprintf(&sb, "- \"%s\" has code implementation but no documentation page\n", entry.Feature.Name)
 			found = true
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 )
 
@@ -27,7 +28,10 @@ func TestCodeFeaturesCache_MissWhenFilesChanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codefeatures.json")
 	scan := makeScan("a.go", "b.go")
-	if err := saveCodeFeaturesCache(path, scan, []string{"feature-a"}); err != nil {
+	features := []analyzer.CodeFeature{
+		{Name: "feature-a", Description: "Does A.", Layer: "cli", UserFacing: true},
+	}
+	if err := saveCodeFeaturesCache(path, scan, features); err != nil {
 		t.Fatal(err)
 	}
 	// Load with a different file list.
@@ -41,7 +45,10 @@ func TestCodeFeaturesCache_HitWhenFilesUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codefeatures.json")
 	scan := makeScan("a.go", "b.go")
-	features := []string{"feature-a", "feature-b"}
+	features := []analyzer.CodeFeature{
+		{Name: "feature one", Description: "Does X.", Layer: "cli", UserFacing: true},
+		{Name: "feature two", Description: "Does Y.", Layer: "analysis engine", UserFacing: false},
+	}
 	if err := saveCodeFeaturesCache(path, scan, features); err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +59,24 @@ func TestCodeFeaturesCache_HitWhenFilesUnchanged(t *testing.T) {
 	if len(got) != len(features) {
 		t.Errorf("got %d features, want %d", len(got), len(features))
 	}
-	for i, want := range features {
-		if got[i] != want {
-			t.Errorf("features[%d]: got %q, want %q", i, got[i], want)
-		}
+	// Assert all fields round-trip correctly.
+	if got[0].Name != "feature one" {
+		t.Errorf("got[0].Name = %q, want %q", got[0].Name, "feature one")
+	}
+	if got[0].Description != "Does X." {
+		t.Errorf("got[0].Description = %q, want %q", got[0].Description, "Does X.")
+	}
+	if got[0].Layer != "cli" {
+		t.Errorf("got[0].Layer = %q, want %q", got[0].Layer, "cli")
+	}
+	if !got[0].UserFacing {
+		t.Error("got[0].UserFacing = false, want true")
+	}
+	if got[1].Name != "feature two" {
+		t.Errorf("got[1].Name = %q, want %q", got[1].Name, "feature two")
+	}
+	if got[1].UserFacing {
+		t.Error("got[1].UserFacing = true, want false")
 	}
 }
 
@@ -65,7 +86,10 @@ func TestCodeFeaturesCache_FileOrderIndependent(t *testing.T) {
 	path := filepath.Join(dir, "codefeatures.json")
 	scanAB := makeScan("a.go", "b.go")
 	scanBA := makeScan("b.go", "a.go")
-	if err := saveCodeFeaturesCache(path, scanAB, []string{"feat"}); err != nil {
+	features := []analyzer.CodeFeature{
+		{Name: "feat", Description: "Does F.", Layer: "cli", UserFacing: true},
+	}
+	if err := saveCodeFeaturesCache(path, scanAB, features); err != nil {
 		t.Fatal(err)
 	}
 	_, ok := loadCodeFeaturesCache(path, scanBA)
@@ -107,7 +131,10 @@ func TestCodeFeaturesCache_CorruptFile_ReturnsMiss(t *testing.T) {
 func TestCodeFeaturesCache_SaveError_ReturnsError(t *testing.T) {
 	// Writing to a path inside a non-existent directory must fail.
 	path := filepath.Join(t.TempDir(), "nonexistent", "codefeatures.json")
-	err := saveCodeFeaturesCache(path, makeScan("a.go"), []string{"feat"})
+	features := []analyzer.CodeFeature{
+		{Name: "feat", Description: "Does F.", Layer: "cli", UserFacing: true},
+	}
+	err := saveCodeFeaturesCache(path, makeScan("a.go"), features)
 	if err == nil {
 		t.Error("expected error when parent directory does not exist")
 	}
