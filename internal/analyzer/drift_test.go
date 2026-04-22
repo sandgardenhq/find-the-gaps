@@ -56,7 +56,7 @@ func TestDetectDrift_NoDocumentedFeatures_ReturnsEmpty(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{} // no pages mapped — auth is undocumented, not a drift candidate
 	pageReader := func(url string) (string, error) { return "", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, "/repo")
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, "/repo", nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 }
@@ -82,7 +82,7 @@ func TestDetectDrift_DocumentedFeature_ReturnsIssues(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth\nLogin with username.", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, "/repo")
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, "/repo", nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "auth", findings[0].Feature)
@@ -103,7 +103,7 @@ func TestDetectDrift_LLMReturnsEmptyArray_FeatureDropped(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Search docs", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, "/repo")
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, "/repo", nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings, "features with no issues should be dropped")
 }
@@ -136,7 +136,7 @@ func TestDetectDrift_ToolCall_ExecutedAndContinued(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth page", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Contains(t, findings[0].Issues[0].Issue, "JWT token")
@@ -161,7 +161,7 @@ func TestDetectDrift_ReadFile_OutsideRepo_ReturnsError(t *testing.T) {
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
 	// Must not error — path rejection is communicated back to the LLM as a tool result.
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	assert.NoError(t, err)
 }
 
@@ -185,7 +185,7 @@ func TestDetectDrift_ReadPage_ToolCall_ExecutedAndContinued(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth\nContent about auth.", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Contains(t, findings[0].Issues[0].Issue, "rate limiting")
@@ -208,7 +208,7 @@ func TestDetectDrift_UnknownTool_GracefulContinuation(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 }
@@ -230,7 +230,7 @@ func TestDetectDrift_ReadFile_BadJSON_ReturnsError(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	assert.NoError(t, err)
 }
 
@@ -251,7 +251,7 @@ func TestDetectDrift_ReadPage_BadJSON_ReturnsError(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	assert.NoError(t, err)
 }
 
@@ -272,7 +272,7 @@ func TestDetectDrift_ReadPage_PageReaderError_ReturnedToLLM(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "", fmt.Errorf("page not cached") }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	assert.NoError(t, err, "pageReader errors should be communicated to the LLM, not propagated as DetectDrift errors")
 	// Verify the tool result contained the error message (check second call received a "tool" message with error text).
 	if client.calls < 2 {
@@ -289,7 +289,7 @@ func TestDetectDrift_CompleteWithTools_Error_Propagated(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bifrost unavailable")
 }
@@ -307,7 +307,7 @@ func TestDetectDrift_InvalidJSONResponse_ReturnsError(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid JSON drift response")
 }
@@ -329,7 +329,7 @@ func TestDetectDrift_ProseBeforeJSON_ParsedSuccessfully(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Contains(t, findings[0].Issues[0].Issue, "Email requirement")
@@ -352,7 +352,7 @@ func TestDetectDrift_ProseWithGoSliceNotation_ParsedSuccessfully(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings, "empty JSON array after prose should produce no findings")
 }
@@ -372,7 +372,7 @@ func TestDetectDrift_ReleaseNotePageOnly_Skipped(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Changelog", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 	assert.Equal(t, 0, client.calls, "LLM must not be called when all pages are release notes")
@@ -399,7 +399,7 @@ func TestDetectDrift_MixedPages_ReleaseNotesFiltered(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	// LLM was called once (with the filtered page list, not the release-note URL).
 	assert.Equal(t, 1, client.calls)
@@ -424,7 +424,7 @@ func TestDetectDrift_ChangelogByContent_SkippedByLLM(t *testing.T) {
 		return "## 2.0.0\n\n- Added new login flow\n\n## 1.9.0\n\n- Fixed bug", nil
 	}
 
-	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 	assert.Equal(t, 0, client.calls, "CompleteWithTools must not be called for changelog pages")
@@ -449,9 +449,68 @@ func TestDetectDrift_ContentClassifierError_FailsOpen(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.NoError(t, err, "classifier error must not propagate")
 	assert.Equal(t, 1, client.calls, "page must be included in drift detection when classifier errors")
+}
+
+func TestDetectDrift_OnFinding_CalledPerFeatureWithFindings(t *testing.T) {
+	// The callback must be called once per feature that produces findings,
+	// and receive the accumulated slice up to that point.
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			{Role: "assistant", Content: `[{"page":"","issue":"issue for auth"}]`},
+			{Role: "assistant", Content: `[{"page":"","issue":"issue for search"}]`},
+		},
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/search"}},
+	}
+	pageReader := func(url string) (string, error) { return "# Docs", nil }
+
+	var snapshots [][]analyzer.DriftFinding
+	onFinding := func(accumulated []analyzer.DriftFinding) error {
+		cp := make([]analyzer.DriftFinding, len(accumulated))
+		copy(cp, accumulated)
+		snapshots = append(snapshots, cp)
+		return nil
+	}
+
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), onFinding)
+	require.NoError(t, err)
+	assert.Len(t, findings, 2)
+	assert.Len(t, snapshots, 2, "callback must be called once per feature with findings")
+	assert.Len(t, snapshots[0], 1, "first callback gets 1 accumulated finding")
+	assert.Len(t, snapshots[1], 2, "second callback gets 2 accumulated findings")
+}
+
+func TestDetectDrift_OnFinding_ErrorPropagated(t *testing.T) {
+	// An error returned from the callback must abort DetectDrift.
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			{Role: "assistant", Content: `[{"page":"","issue":"something wrong"}]`},
+		},
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(url string) (string, error) { return "# Docs", nil }
+
+	onFinding := func(_ []analyzer.DriftFinding) error {
+		return fmt.Errorf("disk full")
+	}
+
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), onFinding)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
 }
 
 func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
@@ -469,7 +528,7 @@ func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeded")
 }
