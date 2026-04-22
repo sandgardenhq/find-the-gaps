@@ -31,6 +31,8 @@ func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
 	assert.True(t, got[0].UserFacing)
 	assert.Equal(t, "feature two", got[1].Name)
 	assert.False(t, got[1].UserFacing)
+	assert.Equal(t, "Does Y.", got[1].Description)
+	assert.Equal(t, "analysis engine", got[1].Layer)
 }
 
 func TestExtractFeaturesFromCode_EmptyScan_ReturnsEmpty(t *testing.T) {
