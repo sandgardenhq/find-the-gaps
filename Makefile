@@ -1,6 +1,6 @@
 # Find the Gaps — developer shortcuts.
 
-BIN := find-the-gaps
+BIN := ftg
 PKG := ./cmd/find-the-gaps
 COVERAGE := coverage.out
 

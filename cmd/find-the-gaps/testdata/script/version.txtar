@@ -1,4 +1,4 @@
 # find-the-gaps --version prints a non-empty version string on stdout.
-exec find-the-gaps --version
-stdout 'find-the-gaps'
+exec ftg --version
+stdout 'ftg'
 ! stderr .

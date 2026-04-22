@@ -3,7 +3,7 @@
 chmod 755 bin/rg
 chmod 755 bin/mdfetch
 env PATH=$WORK/bin:$PATH
-exec find-the-gaps doctor
+exec ftg doctor
 stdout 'ripgrep 99\.9\.9'
 stdout 'mdfetch 42\.0\.0'
 ! stderr .

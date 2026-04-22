@@ -1,4 +1,4 @@
 # analyze accepts LLM provider flags without error (no --docs-url, so no LLM call).
 mkdir repo
-exec find-the-gaps analyze --repo repo --cache-dir $WORK/cache --llm-provider ollama --llm-model llama3
+exec ftg analyze --repo repo --cache-dir $WORK/cache --llm-provider ollama --llm-model llama3
 stdout 'scanned 0 files'

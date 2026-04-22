@@ -1,5 +1,5 @@
 # find-the-gaps --help exits zero and mentions the tool's purpose.
-exec find-the-gaps --help
-stdout 'find-the-gaps'
+exec ftg --help
+stdout 'ftg'
 stdout 'documentation'
 ! stderr .

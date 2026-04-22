@@ -26,9 +26,9 @@ func NewRootCmd() *cobra.Command {
 	var verbose bool
 
 	cmd := &cobra.Command{
-		Use:   "find-the-gaps",
+		Use:   "ftg",
 		Short: "Find outdated or missing documentation in a codebase.",
-		Long: "find-the-gaps analyzes a codebase alongside its documentation site to " +
+		Long: "ftg analyzes a codebase alongside its documentation site to " +
 			"identify outdated or missing documentation.",
 		Version:       version,
 		SilenceUsage:  true,

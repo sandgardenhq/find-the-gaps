@@ -13,8 +13,8 @@ import (
 func TestNewRootCmd_Structure(t *testing.T) {
 	root := NewRootCmd()
 
-	if root.Use != "find-the-gaps" {
-		t.Errorf("Use = %q, want %q", root.Use, "find-the-gaps")
+	if root.Use != "ftg" {
+		t.Errorf("Use = %q, want %q", root.Use, "ftg")
 	}
 	if root.Short == "" {
 		t.Error("Short description is empty")
@@ -111,7 +111,7 @@ func TestExitCodeError_Error(t *testing.T) {
 func TestExecute_ReturnsInt(t *testing.T) {
 	saved := append([]string{}, os.Args...)
 	defer func() { os.Args = saved }()
-	os.Args = []string{"find-the-gaps", "--help"}
+	os.Args = []string{"ftg", "--help"}
 	if code := Execute(); code != 0 {
 		t.Errorf("Execute() = %d, want 0", code)
 	}

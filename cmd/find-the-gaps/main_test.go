@@ -8,7 +8,7 @@ import (
 
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
-		"find-the-gaps": main,
+		"ftg": main,
 	})
 }
 

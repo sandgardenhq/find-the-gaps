@@ -14,32 +14,97 @@ Find the Gaps closes that gap.
 
 ## What this installs
 
-Installing via Homebrew pulls in two runtime dependencies:
+Find the Gaps shells out to two runtime dependencies that must be on your `$PATH`:
 
 - [`ripgrep`](https://github.com/BurntSushi/ripgrep) — fast codebase searching
 - `mdfetch` — downloads a documentation site as markdown
 
-If you install via `go install`, you are responsible for installing both tools yourself. Run `find-the-gaps doctor` at any time to check that both are available and see their detected versions.
+Run `ftg doctor` at any time to check that both are available and see their detected versions.
 
 ## Install
-
-```sh
-brew install <tap>/find-the-gaps
-```
-
-Or with Go:
 
 ```sh
 go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest
 ```
 
-## Usage
+Or build from source:
 
 ```sh
-find-the-gaps analyze --repo ./path/to/repo --docs-url https://your-docs-site
+git clone https://github.com/sandgardenhq/find-the-gaps.git
+cd find-the-gaps
+make build   # produces ./ftg
 ```
 
-See `find-the-gaps --help` for full usage.
+## Usage
+
+```
+ftg analyzes a codebase alongside its documentation site to identify outdated or missing documentation.
+
+Usage:
+  ftg [command]
+
+Available Commands:
+  analyze     Analyze a codebase against its documentation site for gaps.
+  completion  Generate the autocompletion script for the specified shell
+  doctor      Check that required external tools (ripgrep, mdfetch) are installed.
+  help        Help about any command
+
+Flags:
+  -h, --help      help for ftg
+  -v, --verbose   show debug logs
+      --version   version for ftg
+
+Use "ftg [command] --help" for more information about a command.
+```
+
+### analyze
+
+```
+Analyze a codebase against its documentation site for gaps.
+
+Usage:
+  ftg analyze [flags]
+
+Flags:
+      --cache-dir string      base directory for all cached results (default ".find-the-gaps")
+      --docs-url string       URL of the documentation site to analyze
+  -h, --help                  help for analyze
+      --llm-base-url string   base URL for local providers (required for openai-compatible; default: provider-specific)
+      --llm-model string      model name (default varies by provider; e.g. llama3 for ollama)
+      --llm-provider string   LLM provider: anthropic | openai | ollama | lmstudio | openai-compatible (default "anthropic")
+      --no-cache              force full re-scan, ignoring any cached results
+      --no-symbols            map features to files only, skipping symbol-level analysis
+      --repo string           path to the repository to analyze (default ".")
+      --workers int           number of parallel mdfetch workers (default 5)
+
+Global Flags:
+  -v, --verbose   show debug logs
+```
+
+### doctor
+
+```
+Check that required external tools (ripgrep, mdfetch) are installed.
+
+Usage:
+  ftg doctor [flags]
+
+Flags:
+  -h, --help   help for doctor
+
+Global Flags:
+  -v, --verbose   show debug logs
+```
+
+## Output
+
+`ftg analyze` writes two reports to `.find-the-gaps/<project>/`:
+
+- **`gaps.md`** — documentation issues in three sections:
+  - *Undocumented Code* — features implemented in code but absent from docs
+  - *Unmapped Features* — features mentioned in docs with no matching code
+  - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
+- **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
 ## Development
 
