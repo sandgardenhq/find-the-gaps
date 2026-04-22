@@ -304,6 +304,9 @@ func newAnalyzeCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("LLM client does not support tool use (required for drift detection); use --llm-provider anthropic or openai")
 			}
+			if llmProvider != "anthropic" && llmProvider != "openai" {
+				log.Warnf("drift detection tool use is not fully supported for provider %q; results may be lower quality", llmProvider)
+			}
 			pageReader := func(url string) (string, error) {
 				path, ok := idx.FilePath(url)
 				if !ok {

@@ -1,5 +1,21 @@
 # Progress
 
+## Task 5 (drift-detection plan): Wire DetectDrift into analyze.go - COMPLETE
+- Started: 2026-04-22
+- Tests written first (RED): added CompleteWithTools to stubLLMClient in analyze_parallel_test.go; added drift routing case to fake server in analyze_test.go; added error-path tests for OpenAICompatibleClient.CompleteWithTools (server error, bad JSON, empty choices)
+- RED confirmed: compile failure when stubs didn't implement ToolLLMClient
+- GREEN: analyze.go wires drift detection after mapping pass; OpenAICompatibleClient now implements ToolLLMClient; type assertion in analyze.go with degraded-mode warning for non-Bifrost providers
+- Tests: all packages passing
+- Coverage:
+  - internal/analyzer: 94.4% ✅
+  - internal/cli: 89.4% — pre-existing drag (was 88.6% before this branch); newAnalyzeCmd 80% and saveCodeFeaturesCache 80% both require full LLM+docs pipeline; all new drift detection code paths ARE covered
+  - internal/reporter: 100% ✅
+  - total: 93.0% ✅
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-22
+- Notes: Post-review additions — added warning log for non-anthropic/openai providers; added 3 error-path tests for OpenAICompatibleClient.CompleteWithTools bringing it from 69.2% to ~100%
+
 ## Task 4 (drift-detection plan): Create drift.go with DetectDrift + agent loop - COMPLETE
 - Started: 2026-04-22
 - Tests written first (RED): 12 tests in drift_test.go (driftStubClient, driftStubClientWithErr stubs; renamed from stubToolClient to avoid conflict with client_test.go)

@@ -96,6 +96,47 @@ func TestOpenAICompatibleClient_CompleteWithTools_ReturnsAssistantMessage(t *tes
 	}
 }
 
+func TestOpenAICompatibleClient_CompleteWithTools_ServerError_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+	_, err := client.CompleteWithTools(context.Background(), []analyzer.ChatMessage{{Role: "user", Content: "hi"}}, nil)
+	if err == nil {
+		t.Error("expected error for 500 response, got nil")
+	}
+}
+
+func TestOpenAICompatibleClient_CompleteWithTools_BadJSON_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("not-json"))
+	}))
+	defer srv.Close()
+
+	client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+	_, err := client.CompleteWithTools(context.Background(), []analyzer.ChatMessage{{Role: "user", Content: "hi"}}, nil)
+	if err == nil {
+		t.Error("expected error for malformed JSON, got nil")
+	}
+}
+
+func TestOpenAICompatibleClient_CompleteWithTools_EmptyChoices_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{}})
+	}))
+	defer srv.Close()
+
+	client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+	_, err := client.CompleteWithTools(context.Background(), []analyzer.ChatMessage{{Role: "user", Content: "hi"}}, nil)
+	if err == nil {
+		t.Error("expected error for empty choices, got nil")
+	}
+}
+
 func TestOpenAICompatibleClient_WithAPIKey_SendsAuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
