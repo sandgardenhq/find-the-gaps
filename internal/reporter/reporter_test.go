@@ -190,6 +190,56 @@ func TestWriteMapping_RichFields_Documented(t *testing.T) {
 	}
 }
 
+// TestWriteMapping_EmptyDescriptionAndLayer verifies that the conditional
+// guards in WriteMapping do not emit a blockquote or Layer line when those
+// fields are empty strings.
+func TestWriteMapping_EmptyDescriptionAndLayer(t *testing.T) {
+	dir := t.TempDir()
+
+	summary := analyzer.ProductSummary{
+		Description: "A CLI tool.",
+		Features:    []string{"minimal feature"},
+	}
+	mapping := analyzer.FeatureMap{
+		{
+			Feature: analyzer.CodeFeature{
+				Name:        "minimal feature",
+				Description: "",
+				Layer:       "",
+				UserFacing:  false,
+			},
+			Files:   []string{"internal/foo/bar.go"},
+			Symbols: []string{},
+		},
+	}
+
+	if err := reporter.WriteMapping(dir, summary, mapping, []analyzer.PageAnalysis{}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "mapping.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "### minimal feature") {
+		t.Errorf("mapping.md must include feature heading '### minimal feature', got:\n%s", content)
+	}
+	if !strings.Contains(content, "**User-facing:** no") {
+		t.Errorf("mapping.md must include '**User-facing:** no' for UserFacing=false, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Documentation status:** undocumented") {
+		t.Errorf("mapping.md must include '**Documentation status:** undocumented' when no pages match, got:\n%s", content)
+	}
+	if strings.Contains(content, "> ") {
+		t.Errorf("mapping.md must NOT contain '> ' blockquote when Description is empty, got:\n%s", content)
+	}
+	if strings.Contains(content, "**Layer:**") {
+		t.Errorf("mapping.md must NOT contain '**Layer:**' when Layer is empty, got:\n%s", content)
+	}
+}
+
 // TestWriteMapping_RichFields_Undocumented asserts that a feature with no
 // matching PageAnalysis is rendered with Documentation status: undocumented
 // and Documented on: _(none)_.
