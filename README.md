@@ -17,7 +17,7 @@ Find the Gaps closes that gap.
 Find the Gaps shells out to two runtime dependencies that must be on your `$PATH`:
 
 - [`ripgrep`](https://github.com/BurntSushi/ripgrep) — fast codebase searching
-- `mdfetch` — downloads a documentation site as markdown
+- [`mdfetch`](https://www.npmjs.com/package/@sandgarden/mdfetch) — downloads a documentation site as markdown
 
 Run `ftg doctor` at any time to check that both are available and see their detected versions.
 
