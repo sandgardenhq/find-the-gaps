@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/stretchr/testify/assert"
 )
 
 // fakeCounter returns a fixed token count for every input, regardless of content.
@@ -57,6 +58,9 @@ func TestMapFeaturesToCode_ReturnsMappings(t *testing.T) {
 	if got[0].Feature.Name != "gap analysis" {
 		t.Errorf("Feature[0].Name: got %q", got[0].Feature.Name)
 	}
+	assert.Equal(t, "Identifies doc gaps.", got[0].Feature.Description)
+	assert.Equal(t, "analysis engine", got[0].Feature.Layer)
+	assert.Equal(t, false, got[0].Feature.UserFacing)
 	if len(got[0].Files) == 0 {
 		t.Error("Files must not be empty for gap analysis")
 	}

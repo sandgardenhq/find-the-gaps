@@ -188,17 +188,13 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 func accToFeatureMap(acc map[string]*accEntry, features []CodeFeature) FeatureMap {
 	out := make(FeatureMap, 0, len(features))
 	for _, feat := range features {
-		entry, ok := acc[feat.Name]
-		if !ok {
-			out = append(out, FeatureEntry{Feature: feat, Files: []string{}, Symbols: []string{}})
-			continue
-		}
-		files := make([]string, 0, len(entry.files))
-		for f := range entry.files {
+		e := acc[feat.Name] // always present — acc is pre-seeded from features
+		files := make([]string, 0, len(e.files))
+		for f := range e.files {
 			files = append(files, f)
 		}
-		symbols := make([]string, 0, len(entry.symbols))
-		for s := range entry.symbols {
+		symbols := make([]string, 0, len(e.symbols))
+		for s := range e.symbols {
 			symbols = append(symbols, s)
 		}
 		out = append(out, FeatureEntry{
