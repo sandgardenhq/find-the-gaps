@@ -1,5 +1,18 @@
 # Progress
 
+## Task 4 (drift-detection plan): Create drift.go with DetectDrift + agent loop - COMPLETE
+- Started: 2026-04-22
+- Tests written first (RED): 12 tests in drift_test.go (driftStubClient, driftStubClientWithErr stubs; renamed from stubToolClient to avoid conflict with client_test.go)
+- RED confirmed: "undefined: analyzer.DetectDrift" compile error
+- GREEN: drift.go with DetectDrift, detectDriftForFeature, executeTool, executeReadFile, executeReadPage, driftTools
+- Post-review fix: added TestDetectDrift_ReadPage_PageReaderError_ReturnedToLLM to push executeReadPage from 85.7% → 100%
+- Tests: 13 passing, 0 failing
+- Coverage: internal/analyzer 93.5%; drift.go: DetectDrift 94.7%, detectDriftForFeature 100%, executeReadPage 100% ✅
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-22
+- Notes: // PROMPT: comment on the line immediately above systemPrompt := fmt.Sprintf(...) as required
+
 ## Task 3 (drift-detection plan): Implement CompleteWithTools on BifrostClient - COMPLETE
 - Started: 2026-04-22
 - Tests written first (RED): TestBifrostClient_CompleteWithTools_ReturnsFinalContent, TestBifrostClient_CompleteWithTools_ReturnsToolCalls (bifrost_client_test.go). Plan's test code referenced non-existent SDK types; tests written against real Bifrost v1.5.2 schema types.

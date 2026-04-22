@@ -255,6 +255,31 @@ func TestDetectDrift_ReadPage_BadJSON_ReturnsError(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestDetectDrift_ReadPage_PageReaderError_ReturnedToLLM(t *testing.T) {
+	// pageReader returns an error; tool result should convey this to the LLM, not fail DetectDrift.
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			{
+				Role:      "assistant",
+				ToolCalls: []analyzer.ToolCall{{ID: "call_6", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
+			},
+			{Role: "assistant", Content: "[]"},
+		},
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
+	pageReader := func(url string) (string, error) { return "", fmt.Errorf("page not cached") }
+
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	assert.NoError(t, err, "pageReader errors should be communicated to the LLM, not propagated as DetectDrift errors")
+	// Verify the tool result contained the error message (check second call received a "tool" message with error text).
+	if client.calls < 2 {
+		t.Errorf("expected at least 2 LLM calls (tool request + tool result continuation), got %d", client.calls)
+	}
+}
+
 func TestDetectDrift_CompleteWithTools_Error_Propagated(t *testing.T) {
 	// CompleteWithTools returns an error; DetectDrift should propagate it.
 	client := &driftStubClientWithErr{err: fmt.Errorf("bifrost unavailable")}
