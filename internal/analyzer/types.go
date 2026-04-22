@@ -23,7 +23,7 @@ type ProductSummary struct {
 
 // FeatureEntry maps one product feature to the code files and symbols that implement it.
 type FeatureEntry struct {
-	Feature string
+	Feature CodeFeature
 	Files   []string
 	Symbols []string
 }

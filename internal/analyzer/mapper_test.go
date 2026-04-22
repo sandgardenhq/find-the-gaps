@@ -43,7 +43,10 @@ func TestMapFeaturesToCode_ReturnsMappings(t *testing.T) {
 		},
 	}
 
-	features := []string{"gap analysis", "doctor command"}
+	features := []analyzer.CodeFeature{
+		{Name: "gap analysis", Description: "Identifies doc gaps.", Layer: "analysis engine", UserFacing: false},
+		{Name: "doctor command", Description: "Checks external deps.", Layer: "cli", UserFacing: true},
+	}
 	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), features, scan, analyzer.MapperTokenBudget, false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -51,8 +54,8 @@ func TestMapFeaturesToCode_ReturnsMappings(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(got))
 	}
-	if got[0].Feature != "gap analysis" {
-		t.Errorf("Feature[0]: got %q", got[0].Feature)
+	if got[0].Feature.Name != "gap analysis" {
+		t.Errorf("Feature[0].Name: got %q", got[0].Feature.Name)
 	}
 	if len(got[0].Files) == 0 {
 		t.Error("Files must not be empty for gap analysis")
@@ -61,7 +64,7 @@ func TestMapFeaturesToCode_ReturnsMappings(t *testing.T) {
 
 func TestMapFeaturesToCode_EmptyFeatures_ReturnsEmpty(t *testing.T) {
 	c := &fakeClient{responses: []string{`[]`}}
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []string{}, &scanner.ProjectScan{}, analyzer.MapperTokenBudget, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []analyzer.CodeFeature{}, &scanner.ProjectScan{}, analyzer.MapperTokenBudget, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +79,7 @@ func TestMapFeaturesToCode_EmptyFeatures_ReturnsEmpty(t *testing.T) {
 
 func TestMapFeaturesToCode_ClientError_Propagates(t *testing.T) {
 	c := &fakeClient{forcedErr: errors.New("llm down")}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []string{"f1"}, &scanner.ProjectScan{
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []analyzer.CodeFeature{{Name: "f1"}}, &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "Foo"}}},
 		},
@@ -88,7 +91,7 @@ func TestMapFeaturesToCode_ClientError_Propagates(t *testing.T) {
 
 func TestMapFeaturesToCode_InvalidJSON_ReturnsError(t *testing.T) {
 	c := &fakeClient{responses: []string{"not json"}}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []string{"f1"}, &scanner.ProjectScan{
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []analyzer.CodeFeature{{Name: "f1"}}, &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "Foo"}}},
 		},
@@ -102,7 +105,7 @@ func TestMapFeaturesToCode_NilFilesAndSymbols_NormalizedToEmpty(t *testing.T) {
 	c := &fakeClient{responses: []string{
 		`[{"feature":"f","files":null,"symbols":null}]`,
 	}}
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []string{"f"}, &scanner.ProjectScan{
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []analyzer.CodeFeature{{Name: "f"}}, &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "Foo"}}},
 		},
@@ -137,7 +140,7 @@ func TestMapFeaturesToCode_MultipleBatches_MergesResults(t *testing.T) {
 		},
 	}
 
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"auth"}, scan, 1, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "auth"}}, scan, 1, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +174,7 @@ func TestMapFeaturesToCode_CounterOverBudget_SplitsBatch(t *testing.T) {
 		},
 	}
 
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"auth"}, scan, 80_000, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "auth"}}, scan, 80_000, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +194,7 @@ func TestMapFeaturesToCode_FilesWithNoSymbols_Skipped(t *testing.T) {
 			{Path: "empty.go", Symbols: nil},
 		},
 	}
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []string{"auth"}, scan, 80_000, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, analyzer.NewTiktokenCounter(), []analyzer.CodeFeature{{Name: "auth"}}, scan, 80_000, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +227,7 @@ func TestMapFeaturesToCode_AllFilesProcessed_NoneSkipped(t *testing.T) {
 		files[i] = scanner.ScannedFile{Path: name, Symbols: []scanner.Symbol{{Name: "Sym"}}}
 	}
 	scan := &scanner.ProjectScan{Files: files}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 1, false, nil)
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 1, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +250,7 @@ func TestMapFeaturesToCode_TinyBudget_AllFilesStillCovered(t *testing.T) {
 		},
 	}
 	counter := &fakeCounter{n: 0} // always fits
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 0, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 0, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +272,7 @@ func TestMapFeaturesToCode_MixedScan_SymbollessFilesSkippedInCoverageCheck(t *te
 			{Path: "b.go", Symbols: nil},                            // no symbols — skipped in coverage check
 		},
 	}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000, false, nil)
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 80_000, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +292,7 @@ func TestMapFeaturesToCode_CounterError_Propagates(t *testing.T) {
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
 		},
 	}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, &errorCounter{}, []string{"f"}, scan, 80_000, false, nil)
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, &errorCounter{}, []analyzer.CodeFeature{{Name: "f"}}, scan, 80_000, false, nil)
 	if err == nil {
 		t.Fatal("expected counter error, got nil")
 	}
@@ -309,7 +312,7 @@ func TestMapFeaturesToCode_PathWithColonSpace_Works(t *testing.T) {
 			{Path: "a: b.go", Symbols: []scanner.Symbol{{Name: "Sym"}}},
 		},
 	}
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 80_000, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,15 +333,15 @@ func TestMapFeaturesToCode_UnknownFeatureInResponse_Ignored(t *testing.T) {
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
 		},
 	}
-	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 80_000, false, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 80_000, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("expected 1 feature entry, got %d", len(got))
 	}
-	if got[0].Feature != "f" {
-		t.Errorf("expected feature 'f', got %q", got[0].Feature)
+	if got[0].Feature.Name != "f" {
+		t.Errorf("expected feature name 'f', got %q", got[0].Feature.Name)
 	}
 }
 
@@ -360,7 +363,7 @@ func TestMapFeaturesToCode_LogsBatchProgress(t *testing.T) {
 		},
 	}
 
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, &fakeCounter{n: 0}, []string{"f"}, scan, 80_000, false, nil)
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, &fakeCounter{n: 0}, []analyzer.CodeFeature{{Name: "f"}}, scan, 80_000, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +386,7 @@ func TestMapFeaturesToCode_OnBatchCalled_PerLLMCall(t *testing.T) {
 		},
 	}
 
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 1, false,
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 1, false,
 		func(partial analyzer.FeatureMap) error {
 			callCount++
 			return nil
@@ -410,7 +413,7 @@ func TestMapFeaturesToCode_OnBatchError_Aborts(t *testing.T) {
 	}
 
 	callCount := 0
-	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []string{"f"}, scan, 1, false,
+	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 1, false,
 		func(partial analyzer.FeatureMap) error {
 			callCount++
 			return errors.New("disk full")
@@ -430,7 +433,7 @@ func TestMapFeaturesToCode_FilesOnly_PromptOmitsSymbolNames(t *testing.T) {
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Login", Kind: scanner.KindFunc}}},
 		},
 	}
-	_, err := analyzer.MapFeaturesToCode(context.Background(), client, &fakeCounter{n: 0}, []string{"auth"}, scan, 80_000, true, nil)
+	_, err := analyzer.MapFeaturesToCode(context.Background(), client, &fakeCounter{n: 0}, []analyzer.CodeFeature{{Name: "auth"}}, scan, 80_000, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +457,7 @@ func TestMapFeaturesToCode_FilesOnly_SymbolsAlwaysEmpty(t *testing.T) {
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Login", Kind: scanner.KindFunc}}},
 		},
 	}
-	got, err := analyzer.MapFeaturesToCode(context.Background(), client, &fakeCounter{n: 0}, []string{"auth"}, scan, 80_000, true, nil)
+	got, err := analyzer.MapFeaturesToCode(context.Background(), client, &fakeCounter{n: 0}, []analyzer.CodeFeature{{Name: "auth"}}, scan, 80_000, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

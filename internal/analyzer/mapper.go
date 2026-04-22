@@ -35,9 +35,15 @@ type accEntry struct {
 // When filesOnly is true, the LLM prompt contains only file paths (no symbol names) and
 // symbols are not accumulated even if the LLM response includes them.
 // onBatch, if non-nil, is called with the accumulated results after each LLM call.
-func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []string, scan *scanner.ProjectScan, tokenBudget int, filesOnly bool, onBatch MapProgressFunc) (FeatureMap, error) {
+func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []CodeFeature, scan *scanner.ProjectScan, tokenBudget int, filesOnly bool, onBatch MapProgressFunc) (FeatureMap, error) {
 	if len(features) == 0 {
 		return FeatureMap{}, nil
+	}
+
+	// Extract feature names for use in prompts and accumulator keying.
+	featureNames := make([]string, len(features))
+	for i, f := range features {
+		featureNames[i] = f.Name
 	}
 
 	// Build the code index sent to the LLM.
@@ -62,7 +68,7 @@ func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCount
 		return FeatureMap{}, nil
 	}
 
-	featuresJSON, _ := json.Marshal(features)
+	featuresJSON, _ := json.Marshal(featureNames)
 	featuresTokens := countTokens(string(featuresJSON))
 
 	// Initial batches using tiktoken estimates.
@@ -71,7 +77,7 @@ func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCount
 	// Accumulate results keyed by feature name.
 	acc := make(map[string]*accEntry, len(features))
 	for _, feat := range features {
-		acc[feat] = &accEntry{
+		acc[feat.Name] = &accEntry{
 			files:   make(map[string]struct{}),
 			symbols: make(map[string]struct{}),
 		}
@@ -179,10 +185,14 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 	return accToFeatureMap(acc, features), nil
 }
 
-func accToFeatureMap(acc map[string]*accEntry, features []string) FeatureMap {
+func accToFeatureMap(acc map[string]*accEntry, features []CodeFeature) FeatureMap {
 	out := make(FeatureMap, 0, len(features))
 	for _, feat := range features {
-		entry := acc[feat]
+		entry, ok := acc[feat.Name]
+		if !ok {
+			out = append(out, FeatureEntry{Feature: feat, Files: []string{}, Symbols: []string{}})
+			continue
+		}
 		files := make([]string, 0, len(entry.files))
 		for f := range entry.files {
 			files = append(files, f)

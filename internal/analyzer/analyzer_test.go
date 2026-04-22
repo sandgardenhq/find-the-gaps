@@ -32,10 +32,17 @@ func TestTypes_ProductSummary(t *testing.T) {
 
 func TestTypes_FeatureMap(t *testing.T) {
 	fm := analyzer.FeatureMap{
-		{Feature: "gap analysis", Files: []string{"internal/analyzer/analyzer.go"}, Symbols: []string{"AnalyzePage"}},
+		{
+			Feature: analyzer.CodeFeature{Name: "gap analysis", Description: "Identifies doc gaps.", Layer: "analysis engine", UserFacing: false},
+			Files:   []string{"internal/analyzer/analyzer.go"},
+			Symbols: []string{"AnalyzePage"},
+		},
 	}
 	if len(fm) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(fm))
+	}
+	if fm[0].Feature.Name != "gap analysis" {
+		t.Errorf("expected feature name 'gap analysis', got %q", fm[0].Feature.Name)
 	}
 }
 
