@@ -13,6 +13,11 @@ import (
 
 const driftMaxRounds = 20
 
+// DriftProgressFunc is called after each feature's findings are appended to the
+// accumulated slice. It receives the full accumulated slice so far. Return a
+// non-nil error to abort detection early.
+type DriftProgressFunc func(accumulated []DriftFinding) error
+
 // DetectDrift compares each documented feature's code against its doc pages
 // and returns a list of specific inaccuracies expressed as documentation feedback.
 //
@@ -22,6 +27,8 @@ const driftMaxRounds = 20
 //
 // pageReader reads the cached content of a doc page by URL. repoRoot is the
 // absolute path to the repository root, used to constrain read_file access.
+// onFinding is called after each feature with findings is processed; pass nil
+// to skip incremental callbacks.
 func DetectDrift(
 	ctx context.Context,
 	client ToolLLMClient,
@@ -29,6 +36,7 @@ func DetectDrift(
 	docsMap DocsFeatureMap,
 	pageReader func(url string) (string, error),
 	repoRoot string,
+	onFinding DriftProgressFunc,
 ) ([]DriftFinding, error) {
 	// Index docsMap by feature name for fast lookup.
 	docPages := make(map[string][]string, len(docsMap))
@@ -65,6 +73,11 @@ func DetectDrift(
 		}
 		if len(issues) > 0 {
 			findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
+			if onFinding != nil {
+				if err := onFinding(findings); err != nil {
+					return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
+				}
+			}
 		}
 	}
 

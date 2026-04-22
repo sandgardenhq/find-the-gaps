@@ -315,14 +315,6 @@ func newAnalyzeCmd() *cobra.Command {
 				data, err := os.ReadFile(path)
 				return string(data), err
 			}
-			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath)
-			if err != nil {
-				return fmt.Errorf("detect drift: %w", err)
-			}
-			log.Debugf("drift detection complete: %d findings", len(driftFindings))
-			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
-				return fmt.Errorf("write mapping: %w", err)
-			}
 			// Build the list of code features that have at least one documentation page.
 			docCoveredFeatures := make([]string, 0, len(docsFeatureMap))
 			for _, entry := range docsFeatureMap {
@@ -330,7 +322,17 @@ func newAnalyzeCmd() *cobra.Command {
 					docCoveredFeatures = append(docCoveredFeatures, entry.Feature)
 				}
 			}
-
+			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
+				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
+			}
+			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
+			if err != nil {
+				return fmt.Errorf("detect drift: %w", err)
+			}
+			log.Debugf("drift detection complete: %d findings", len(driftFindings))
+			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
+				return fmt.Errorf("write mapping: %w", err)
+			}
 			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
