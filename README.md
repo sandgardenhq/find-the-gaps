@@ -35,6 +35,12 @@ cd find-the-gaps
 make build   # produces ./ftg
 ```
 
+Then install the required external tools:
+
+```sh
+ftg install-deps
+```
+
 ## Usage
 
 ```
@@ -44,10 +50,11 @@ Usage:
   ftg [command]
 
 Available Commands:
-  analyze     Analyze a codebase against its documentation site for gaps.
-  completion  Generate the autocompletion script for the specified shell
-  doctor      Check that required external tools (ripgrep, mdfetch) are installed.
-  help        Help about any command
+  analyze      Analyze a codebase against its documentation site for gaps.
+  completion   Generate the autocompletion script for the specified shell
+  doctor       Check that required external tools (ripgrep, mdfetch) are installed.
+  help         Help about any command
+  install-deps Install required external tools (ripgrep, mdfetch).
 
 Flags:
   -h, --help      help for ftg
@@ -91,6 +98,21 @@ Usage:
 
 Flags:
   -h, --help   help for doctor
+
+Global Flags:
+  -v, --verbose   show debug logs
+```
+
+### install-deps
+
+```
+Install ripgrep and mdfetch if they are not already on $PATH. Already-present tools are skipped.
+
+Usage:
+  ftg install-deps [flags]
+
+Flags:
+  -h, --help   help for install-deps
 
 Global Flags:
   -v, --verbose   show debug logs
