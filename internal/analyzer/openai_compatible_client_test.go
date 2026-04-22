@@ -66,6 +66,36 @@ func TestOpenAICompatibleClient_ImplementsLLMClient(t *testing.T) {
 	var _ analyzer.LLMClient = analyzer.NewOpenAICompatibleClient("http://localhost", "model", "")
 }
 
+func TestOpenAICompatibleClient_ImplementsToolLLMClient(t *testing.T) {
+	var _ analyzer.ToolLLMClient = analyzer.NewOpenAICompatibleClient("http://localhost", "model", "")
+}
+
+func TestOpenAICompatibleClient_CompleteWithTools_ReturnsAssistantMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"role": "assistant", "content": "hello"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := analyzer.NewOpenAICompatibleClient(srv.URL, "test-model", "")
+	msg, err := client.CompleteWithTools(context.Background(), []analyzer.ChatMessage{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Role != "assistant" {
+		t.Errorf("expected role 'assistant', got %q", msg.Role)
+	}
+	if msg.Content != "hello" {
+		t.Errorf("expected content 'hello', got %q", msg.Content)
+	}
+}
+
 func TestOpenAICompatibleClient_WithAPIKey_SendsAuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

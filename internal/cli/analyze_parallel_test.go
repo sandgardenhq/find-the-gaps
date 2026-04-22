@@ -166,6 +166,10 @@ func (s *stubLLMClient) Complete(_ context.Context, prompt string) (string, erro
 	return s.docsResp, nil
 }
 
+func (s *stubLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool) (analyzer.ChatMessage, error) {
+	return analyzer.ChatMessage{Role: "assistant", Content: "[]"}, nil
+}
+
 func stubScan() *scanner.ProjectScan {
 	return &scanner.ProjectScan{
 		RepoPath:  "/fake",

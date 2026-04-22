@@ -274,6 +274,9 @@ func TestAnalyze_fullPipeline_withCachedAnalysis(t *testing.T) {
 			resp = `["feature-one"]`
 		case strings.Contains(prompt, "Code symbols (format:"):
 			resp = `[{"feature":"feature-one","files":["main.go"],"symbols":["Run"]}]`
+		case strings.Contains(prompt, "reviewing documentation accuracy"):
+			// DetectDrift call — return empty findings array.
+			resp = `[]`
 		default:
 			// ExtractFeaturesFromCode and any unknown call
 			resp = `[{"name":"feature-one","description":"Does feature one.","layer":"cli","user_facing":true}]`

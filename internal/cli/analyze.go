@@ -299,6 +299,26 @@ func newAnalyzeCmd() *cobra.Command {
 
 			log.Debug("feature mapping complete", "code", len(featureMap), "docs", len(docsFeatureMap))
 
+			log.Infof("detecting documentation drift...")
+			toolClient, ok := llmClient.(analyzer.ToolLLMClient)
+			if !ok {
+				return fmt.Errorf("LLM client does not support tool use (required for drift detection); use --llm-provider anthropic or openai")
+			}
+			pageReader := func(url string) (string, error) {
+				path, ok := idx.FilePath(url)
+				if !ok {
+					return "", fmt.Errorf("page not in cache: %s", url)
+				}
+				data, err := os.ReadFile(path)
+				return string(data), err
+			}
+			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath)
+			if err != nil {
+				return fmt.Errorf("detect drift: %w", err)
+			}
+			log.Debugf("drift detection complete: %d findings", len(driftFindings))
+			_ = driftFindings // TODO(drift): replace nil with driftFindings after Task 6
+
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
@@ -310,6 +330,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			// TODO(drift): replace nil with driftFindings after Task 6 updates WriteGaps signature.
 			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
