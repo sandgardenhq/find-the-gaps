@@ -405,6 +405,55 @@ func TestDetectDrift_MixedPages_ReleaseNotesFiltered(t *testing.T) {
 	assert.Equal(t, 1, client.calls)
 }
 
+func TestDetectDrift_ChangelogByContent_SkippedByLLM(t *testing.T) {
+	// A page with a non-obvious URL (e.g. "whatsnew.htm") but changelog content
+	// should be classified and skipped; CompleteWithTools must never be called.
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			return "yes", nil // classifier: this is a changelog page
+		},
+		// no responses: CompleteWithTools must not be called
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/whatsnew.htm"}},
+	}
+	pageReader := func(url string) (string, error) {
+		return "## 2.0.0\n\n- Added new login flow\n\n## 1.9.0\n\n- Fixed bug", nil
+	}
+
+	findings, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, findings)
+	assert.Equal(t, 0, client.calls, "CompleteWithTools must not be called for changelog pages")
+}
+
+func TestDetectDrift_ContentClassifierError_FailsOpen(t *testing.T) {
+	// When the content classifier itself errors, the page must be included in
+	// drift detection (fail open) so legitimate drift is not silently skipped.
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			return "", fmt.Errorf("classifier unavailable")
+		},
+		responses: []analyzer.ChatMessage{
+			{Role: "assistant", Content: "[]"},
+		},
+	}
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(url string) (string, error) { return "# Auth", nil }
+
+	_, err := analyzer.DetectDrift(context.Background(), client, featureMap, docsMap, pageReader, t.TempDir())
+	require.NoError(t, err, "classifier error must not propagate")
+	assert.Equal(t, 1, client.calls, "page must be included in drift detection when classifier errors")
+}
+
 func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
 	// LLM keeps requesting tool calls; loop should terminate with an error.
 	toolCallResponse := analyzer.ChatMessage{

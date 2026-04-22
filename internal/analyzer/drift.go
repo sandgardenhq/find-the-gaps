@@ -53,6 +53,10 @@ func DetectDrift(
 		if len(pages) == 0 {
 			continue
 		}
+		pages = classifyDriftPages(ctx, client, pages, pageReader)
+		if len(pages) == 0 {
+			continue
+		}
 
 		log.Infof("  checking drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
 		issues, err := detectDriftForFeature(ctx, client, tools, entry, pages, pageReader, repoRoot)
@@ -269,6 +273,49 @@ func filterDriftPages(pages []string) []string {
 		}
 	}
 	return out
+}
+
+// classifyDriftPages filters pages by reading their content and asking the LLM
+// to decide whether each page is release notes or feature documentation. Pages
+// where the content cannot be read or the LLM errors are included (fail open).
+func classifyDriftPages(ctx context.Context, client LLMClient, pages []string, pageReader func(string) (string, error)) []string {
+	var out []string
+	for _, page := range pages {
+		content, err := pageReader(page)
+		if err != nil {
+			// Can't read the page for classification; include it so the drift
+			// agent can report the read failure via its own tool call.
+			out = append(out, page)
+			continue
+		}
+		if !isReleaseNotePage(ctx, client, page, content) {
+			out = append(out, page)
+		}
+	}
+	return out
+}
+
+// isReleaseNotePage asks the LLM to classify whether the given page content is
+// a release notes or changelog page rather than feature documentation. Returns
+// false on error so that unclassifiable pages are included in drift detection.
+func isReleaseNotePage(ctx context.Context, client LLMClient, url, content string) bool {
+	const previewLen = 1000
+	preview := content
+	if len(preview) > previewLen {
+		preview = preview[:previewLen]
+	}
+	// PROMPT: Classifies whether a documentation page contains release notes, a changelog, or version history rather than current feature documentation.
+	prompt := fmt.Sprintf(`Does this page contain release notes, a changelog, or version history? Answer only "yes" or "no".
+
+URL: %s
+
+Content preview:
+%s`, url, preview)
+	resp, err := client.Complete(ctx, prompt)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(resp), "yes")
 }
 
 // extractJSONArray scans s from right to left, looking for the rightmost '['
