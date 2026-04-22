@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const driftMaxRounds = 10
+const driftMaxRounds = 20
 
 // DetectDrift compares each documented feature's code against its doc pages
 // and returns a list of specific inaccuracies expressed as documentation feedback.
