@@ -1,5 +1,27 @@
 # Progress
 
+## Task 2 (drift-detection plan): Add ToolLLMClient interface - COMPLETE
+- Started: 2026-04-22
+- Tests written first (RED): TestToolLLMClient_InterfaceSatisfied, TestToolLLMClient_EmbedsLLMClient (client_test.go)
+- RED confirmed: "undefined: analyzer.ToolLLMClient" compile error
+- GREEN: Added ToolLLMClient interface to client.go embedding LLMClient and adding CompleteWithTools method
+- Tests: all packages green (80+ tests)
+- Coverage: internal/analyzer: 94.2% ✅
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-22
+
+## Task 1 (drift-detection plan): Add DriftFinding, DriftIssue, ChatMessage, Tool, ToolCall types - COMPLETE
+- Started: 2026-04-22
+- Tests written first (RED): TestDriftFinding_JSONRoundtrip, TestToolCall_Fields, TestChatMessage_Fields (types_test.go)
+- RED confirmed: 5x "undefined" compile errors (DriftFinding, DriftIssue, ToolCall, ChatMessage undefined)
+- GREEN: Added ChatMessage, Tool, ToolCall, DriftIssue, DriftFinding to types.go
+- Tests: 80 passing, 0 failing; all packages green
+- Coverage: internal/analyzer: 94.2% ✅
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-22
+
 ## Task 6 (docs-feature-mapping plan): Full test suite, coverage gate, final commit — COMPLETE
 - Started: 2026-04-21
 - Tests written/verified:
