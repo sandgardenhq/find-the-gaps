@@ -135,7 +135,7 @@ func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string,
 			fmt.Fprintf(&sb, "### %s\n\n", finding.Feature)
 			for _, issue := range finding.Issues {
 				if issue.Page != "" {
-					fmt.Fprintf(&sb, "- **Page:** %s\n  %s\n\n", issue.Page, issue.Issue)
+					fmt.Fprintf(&sb, "- %s — %s\n\n", issue.Page, issue.Issue)
 				} else {
 					fmt.Fprintf(&sb, "- %s\n\n", issue.Issue)
 				}
