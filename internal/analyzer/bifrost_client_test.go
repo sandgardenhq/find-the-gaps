@@ -119,6 +119,7 @@ func TestBifrostClient_ImplementsLLMClient(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	var _ LLMClient = client
+	var _ ToolLLMClient = client
 }
 
 func makeChoice(content *schemas.ChatMessageContent) schemas.BifrostResponseChoice {

@@ -1,5 +1,18 @@
 # Progress
 
+## Task 3 (drift-detection plan): Implement CompleteWithTools on BifrostClient - COMPLETE
+- Started: 2026-04-22
+- Tests written first (RED): TestBifrostClient_CompleteWithTools_ReturnsFinalContent, TestBifrostClient_CompleteWithTools_ReturnsToolCalls (bifrost_client_test.go). Plan's test code referenced non-existent SDK types; tests written against real Bifrost v1.5.2 schema types.
+- RED confirmed: "undefined: CompleteWithTools" compile error
+- GREEN: CompleteWithTools added to BifrostClient, converting ChatMessage/Tool slices to Bifrost schema types and mapping response back
+- SDK divergence from plan: tools passed via `Params: &schemas.ChatParameters{Tools: ...}`, NOT as a top-level field on BifrostChatRequest (that field does not exist in v1.5.2)
+- Tests: 7 new tests + all existing passing; package total 94.7%
+- Coverage: CompleteWithTools 98.1% ✅
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues; fixed one QF1008 embedded-field selector warning)
+- Completed: 2026-04-22
+- Notes: Post-review fix — added `var _ ToolLLMClient = client` compile-time guard to TestBifrostClient_ImplementsLLMClient
+
 ## Task 2 (drift-detection plan): Add ToolLLMClient interface - COMPLETE
 - Started: 2026-04-22
 - Tests written first (RED): TestToolLLMClient_InterfaceSatisfied, TestToolLLMClient_EmbedsLLMClient (client_test.go)
