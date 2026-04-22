@@ -86,10 +86,25 @@ func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string,
 	sb.WriteString("# Gaps Found\n\n")
 
 	// Undocumented code: features implemented in code but missing from docs.
+	// Split into user-facing and not user-facing subsections.
 	sb.WriteString("## Undocumented Code\n\n")
+
+	sb.WriteString("### User-facing\n\n")
 	found := false
 	for _, entry := range mapping {
-		if len(entry.Files) > 0 && !docFeatures[entry.Feature.Name] {
+		if len(entry.Files) > 0 && !docFeatures[entry.Feature.Name] && entry.Feature.UserFacing {
+			fmt.Fprintf(&sb, "- \"%s\" has code implementation but no documentation page\n", entry.Feature.Name)
+			found = true
+		}
+	}
+	if !found {
+		sb.WriteString("_None found._\n")
+	}
+
+	sb.WriteString("\n### Not user-facing\n\n")
+	found = false
+	for _, entry := range mapping {
+		if len(entry.Files) > 0 && !docFeatures[entry.Feature.Name] && !entry.Feature.UserFacing {
 			fmt.Fprintf(&sb, "- \"%s\" has code implementation but no documentation page\n", entry.Feature.Name)
 			found = true
 		}
