@@ -136,3 +136,110 @@ func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 		t.Error("features with no mapped files must not appear in Undocumented Code")
 	}
 }
+
+// TestWriteMapping_RichFields_Documented asserts that description blockquote,
+// Layer, User-facing, and Documentation status fields appear in mapping.md when
+// a matching PageAnalysis covers the feature.
+func TestWriteMapping_RichFields_Documented(t *testing.T) {
+	dir := t.TempDir()
+
+	summary := analyzer.ProductSummary{
+		Description: "A CLI tool.",
+		Features:    []string{"CLI command routing"},
+	}
+	mapping := analyzer.FeatureMap{
+		{
+			Feature: analyzer.CodeFeature{
+				Name:        "CLI command routing",
+				Description: "Provides top-level command structure.",
+				Layer:       "cli",
+				UserFacing:  true,
+			},
+			Files:   []string{"cmd/find-the-gaps/main.go"},
+			Symbols: []string{"NewRootCmd"},
+		},
+	}
+	pages := []analyzer.PageAnalysis{
+		{URL: "https://docs.example.com/cli", Features: []string{"CLI command routing"}},
+	}
+
+	if err := reporter.WriteMapping(dir, summary, mapping, pages); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "mapping.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "> Provides top-level command structure.") {
+		t.Errorf("mapping.md must render description as blockquote, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Layer:** cli") {
+		t.Errorf("mapping.md must render Layer field, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**User-facing:** yes") {
+		t.Errorf("mapping.md must render User-facing: yes for UserFacing=true, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Documentation status:** documented") {
+		t.Errorf("mapping.md must render Documentation status: documented when page covers feature, got:\n%s", content)
+	}
+	if !strings.Contains(content, "https://docs.example.com/cli") {
+		t.Errorf("mapping.md must include the doc page URL, got:\n%s", content)
+	}
+}
+
+// TestWriteMapping_RichFields_Undocumented asserts that a feature with no
+// matching PageAnalysis is rendered with Documentation status: undocumented
+// and Documented on: _(none)_.
+func TestWriteMapping_RichFields_Undocumented(t *testing.T) {
+	dir := t.TempDir()
+
+	summary := analyzer.ProductSummary{
+		Description: "A CLI tool.",
+		Features:    []string{"token batching"},
+	}
+	mapping := analyzer.FeatureMap{
+		{
+			Feature: analyzer.CodeFeature{
+				Name:        "token batching",
+				Description: "Splits symbol indexes into token-budget-sized chunks.",
+				Layer:       "analysis engine",
+				UserFacing:  false,
+			},
+			Files:   []string{"internal/analyzer/mapper.go"},
+			Symbols: []string{"batchSymbols"},
+		},
+	}
+	// No page covers "token batching"
+	pages := []analyzer.PageAnalysis{
+		{URL: "https://docs.example.com/cli", Features: []string{"CLI command routing"}},
+	}
+
+	if err := reporter.WriteMapping(dir, summary, mapping, pages); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "mapping.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "> Splits symbol indexes into token-budget-sized chunks.") {
+		t.Errorf("mapping.md must render description as blockquote, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Layer:** analysis engine") {
+		t.Errorf("mapping.md must render Layer field, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**User-facing:** no") {
+		t.Errorf("mapping.md must render User-facing: no for UserFacing=false, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Documentation status:** undocumented") {
+		t.Errorf("mapping.md must render Documentation status: undocumented when no page covers feature, got:\n%s", content)
+	}
+	if !strings.Contains(content, "_(none)_") {
+		t.Errorf("mapping.md must render '_(none)_' for Documented on when no pages match, got:\n%s", content)
+	}
+}

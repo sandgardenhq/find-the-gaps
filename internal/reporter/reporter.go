@@ -20,21 +20,45 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 
 	sb.WriteString("## Features\n\n")
 	for _, entry := range mapping {
-		fmt.Fprintf(&sb, "### %s\n", entry.Feature.Name)
+		fmt.Fprintf(&sb, "### %s\n\n", entry.Feature.Name)
+
+		if entry.Feature.Description != "" {
+			fmt.Fprintf(&sb, "> %s\n\n", entry.Feature.Description)
+		}
+
+		userFacingStr := "no"
+		if entry.Feature.UserFacing {
+			userFacingStr = "yes"
+		}
+
+		// Compute doc status and collect matching page URLs.
+		docStatus := "undocumented"
+		var docPages []string
+		for _, p := range pages {
+			for _, f := range p.Features {
+				if f == entry.Feature.Name {
+					docStatus = "documented"
+					docPages = append(docPages, p.URL)
+					break
+				}
+			}
+		}
+
+		if entry.Feature.Layer != "" {
+			fmt.Fprintf(&sb, "- **Layer:** %s\n", entry.Feature.Layer)
+		}
+		fmt.Fprintf(&sb, "- **User-facing:** %s\n", userFacingStr)
+		fmt.Fprintf(&sb, "- **Documentation status:** %s\n", docStatus)
 		if len(entry.Files) > 0 {
 			fmt.Fprintf(&sb, "- **Implemented in:** %s\n", strings.Join(entry.Files, ", "))
 		}
 		if len(entry.Symbols) > 0 {
 			fmt.Fprintf(&sb, "- **Symbols:** %s\n", strings.Join(entry.Symbols, ", "))
 		}
-		// Find doc pages that mention this feature
-		for _, p := range pages {
-			for _, f := range p.Features {
-				if f == entry.Feature.Name {
-					fmt.Fprintf(&sb, "- **Documented on:** %s\n", p.URL)
-					break
-				}
-			}
+		if len(docPages) > 0 {
+			fmt.Fprintf(&sb, "- **Documented on:** %s\n", strings.Join(docPages, ", "))
+		} else {
+			fmt.Fprintf(&sb, "- **Documented on:** _(none)_\n")
 		}
 		sb.WriteString("\n")
 	}
