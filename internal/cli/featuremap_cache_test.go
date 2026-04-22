@@ -54,6 +54,15 @@ func TestLoadFeatureMapCache_Match_ReturnsMap(t *testing.T) {
 	if got[0].Feature.Name != "auth" {
 		t.Errorf("got[0].Feature.Name = %q, want %q", got[0].Feature.Name, "auth")
 	}
+	if got[0].Feature.Description != "Auth." {
+		t.Errorf("got[0].Feature.Description = %q, want %q", got[0].Feature.Description, "Auth.")
+	}
+	if got[0].Feature.Layer != "cli" {
+		t.Errorf("got[0].Feature.Layer = %q, want %q", got[0].Feature.Layer, "cli")
+	}
+	if !got[0].Feature.UserFacing {
+		t.Error("got[0].Feature.UserFacing = false, want true")
+	}
 }
 
 func TestSaveFeatureMapCache_RoundTrip(t *testing.T) {
