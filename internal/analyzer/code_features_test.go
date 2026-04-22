@@ -8,10 +8,12 @@ import (
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
-	c := &fakeClient{responses: []string{`["authentication","file upload","user management"]`}}
+	c := &fakeClient{responses: []string{`[{"name":"feature one","description":"Does X.","layer":"cli","user_facing":true},{"name":"feature two","description":"Does Y.","layer":"analysis engine","user_facing":false}]`}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "internal/auth/auth.go", Symbols: []scanner.Symbol{{Name: "Authenticate"}}},
@@ -22,9 +24,13 @@ func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) == 0 {
-		t.Error("expected features, got empty slice")
-	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "feature one", got[0].Name)
+	assert.Equal(t, "Does X.", got[0].Description)
+	assert.Equal(t, "cli", got[0].Layer)
+	assert.True(t, got[0].UserFacing)
+	assert.Equal(t, "feature two", got[1].Name)
+	assert.False(t, got[1].UserFacing)
 }
 
 func TestExtractFeaturesFromCode_EmptyScan_ReturnsEmpty(t *testing.T) {
@@ -106,8 +112,8 @@ func TestExtractFeaturesFromCode_NilResponse_NormalizedToEmpty(t *testing.T) {
 }
 
 func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
-	// LLM returns a response with a duplicate — result must deduplicate.
-	c := &fakeClient{responses: []string{`["authentication","authentication","file upload"]`}}
+	// LLM returns a response with a duplicate name — result must deduplicate.
+	c := &fakeClient{responses: []string{`[{"name":"authentication","description":"Auth.","layer":"cli","user_facing":true},{"name":"authentication","description":"Auth again.","layer":"cli","user_facing":true},{"name":"file upload","description":"Upload.","layer":"cli","user_facing":true}]`}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
@@ -122,7 +128,7 @@ func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
 	}
 	seen := make(map[string]int)
 	for _, f := range got {
-		seen[f]++
+		seen[f.Name]++
 	}
 	for feat, count := range seen {
 		if count > 1 {
@@ -133,7 +139,7 @@ func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
 
 func TestExtractFeaturesFromCode_PromptContainsSymbols(t *testing.T) {
 	// Verify the prompt sent to the LLM includes the file path and symbol name.
-	c := &fakeClient{responses: []string{`["some feature"]`}}
+	c := &fakeClient{responses: []string{`[{"name":"some feature","description":"Does something.","layer":"cli","user_facing":true}]`}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "internal/auth/handler.go", Symbols: []scanner.Symbol{{Name: "HandleLogin"}}},
