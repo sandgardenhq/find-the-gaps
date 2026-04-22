@@ -317,8 +317,6 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("detect drift: %w", err)
 			}
 			log.Debugf("drift detection complete: %d findings", len(driftFindings))
-			_ = driftFindings // TODO(drift): replace nil with driftFindings after Task 6
-
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
@@ -330,8 +328,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			// TODO(drift): replace nil with driftFindings after Task 6 updates WriteGaps signature.
-			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures); err != nil {
+			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 

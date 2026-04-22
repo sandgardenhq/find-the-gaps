@@ -69,7 +69,8 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 // WriteGaps writes gaps.md to dir.
 // Undocumented Code: features with a code implementation but no documentation page.
 // Unmapped Features: features mentioned in docs with no code match.
-func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string) error {
+// Stale Documentation: inaccuracies found in pages that DO cover a feature.
+func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string, drift []analyzer.DriftFinding) error {
 	codeFeatures := make(map[string]bool)
 	for _, entry := range mapping {
 		if len(entry.Files) > 0 {
@@ -108,6 +109,23 @@ func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string)
 	}
 	if !found {
 		sb.WriteString("_None found._\n")
+	}
+
+	// Stale documentation: inaccuracies found in pages that DO cover a feature.
+	sb.WriteString("\n## Stale Documentation\n\n")
+	if len(drift) == 0 {
+		sb.WriteString("_None found._\n")
+	} else {
+		for _, finding := range drift {
+			fmt.Fprintf(&sb, "### %s\n\n", finding.Feature)
+			for _, issue := range finding.Issues {
+				if issue.Page != "" {
+					fmt.Fprintf(&sb, "- **Page:** %s\n  %s\n\n", issue.Page, issue.Issue)
+				} else {
+					fmt.Fprintf(&sb, "- %s\n\n", issue.Issue)
+				}
+			}
+		}
 	}
 
 	return os.WriteFile(filepath.Join(dir, "gaps.md"), []byte(sb.String()), 0o644)

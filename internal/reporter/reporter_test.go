@@ -50,7 +50,7 @@ func TestWriteGaps_CreatesFile(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{"search"}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{"search"}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -83,7 +83,7 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	}
 	allFeatures := []string{"gap analysis"} // documented AND implemented → no gaps
 
-	if err := reporter.WriteGaps(dir, mapping, allFeatures); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, allFeatures, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +104,7 @@ func TestWriteGaps_UndocumentedCode(t *testing.T) {
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
 	// "auth" exists in code but is absent from docs
-	if err := reporter.WriteGaps(dir, mapping, []string{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -127,7 +127,7 @@ func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{}}, // no files — not "implemented"
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -237,6 +237,59 @@ func TestWriteMapping_EmptyDescriptionAndLayer(t *testing.T) {
 	}
 	if strings.Contains(content, "**Layer:**") {
 		t.Errorf("mapping.md must NOT contain '**Layer:**' when Layer is empty, got:\n%s", content)
+	}
+}
+
+func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth", UserFacing: true}, Files: []string{"auth.go"}},
+	}
+	drift := []analyzer.DriftFinding{
+		{
+			Feature: "auth",
+			Issues: []analyzer.DriftIssue{
+				{Page: "https://docs.example.com/auth", Issue: "The email field requirement is not documented."},
+				{Page: "", Issue: "The error response format differs from what is described."},
+			},
+		},
+	}
+	if err := reporter.WriteGaps(dir, mapping, []string{"auth"}, drift); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "## Stale Documentation") {
+		t.Errorf("gaps.md must contain '## Stale Documentation' section, got:\n%s", content)
+	}
+	if !strings.Contains(content, "### auth") {
+		t.Errorf("gaps.md must contain '### auth' under Stale Documentation, got:\n%s", content)
+	}
+	if !strings.Contains(content, "email field requirement") {
+		t.Errorf("gaps.md must contain the drift issue text, got:\n%s", content)
+	}
+	if !strings.Contains(content, "https://docs.example.com/auth") {
+		t.Errorf("gaps.md must cite the page URL for issues with a page, got:\n%s", content)
+	}
+}
+
+func TestWriteGaps_StaleDocumentation_NoneFound(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{}
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	content := string(data)
+	if !strings.Contains(content, "## Stale Documentation") {
+		t.Errorf("section must always be present, got:\n%s", content)
+	}
+	if !strings.Contains(content, "_None found._") {
+		t.Errorf("must show _None found._ when no drift, got:\n%s", content)
 	}
 }
 
