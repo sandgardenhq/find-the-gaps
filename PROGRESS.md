@@ -1,5 +1,18 @@
 # Progress
 
+## Task 7 (fix-feature-doc-status plan): WriteMapping consumes DocsFeatureMap - COMPLETE
+- Started: 2026-04-23
+- Bug: mapping.md marked every feature "undocumented" because WriteMapping compared canonical CodeFeature.Name strings against PageAnalysis.Features (raw per-page LLM output from an unrelated pass). The two name universes almost never collide verbatim.
+- RED: rewrote existing WriteMapping tests to pass analyzer.DocsFeatureMap instead of []analyzer.PageAnalysis; added TestWriteMapping_DocStatusUsesCanonicalMap as a lock-in test that proves doc status is driven by canonical-keyed DocsFeatureMap only.
+- RED confirmed: compile failure (IncompatibleAssign: DocsFeatureMap vs []PageAnalysis) in 6 call sites.
+- GREEN: changed WriteMapping signature to `(dir, summary, mapping, docsMap analyzer.DocsFeatureMap)`; builds pagesByFeature map up front; doc status/pages come straight from the canonical map. Updated the single call site in internal/cli/analyze.go.
+- Tests: all packages passing (`go test ./...`).
+- Coverage: internal/reporter 97.4% (WriteMapping 100%).
+- Build: ✅ Successful
+- Linting: ✅ Clean on touched packages (internal/reporter, internal/cli).
+- Completed: 2026-04-23
+- Notes: Plan in .plans/FIX_FEATURE_DOC_STATUS.md. Step 4 (normalization of LLM-returned feature names in MapFeaturesToDocs) deferred — it was gated on evidence from a real verification run showing empty docsfeaturemap.json pages; run the VERIFICATION_PLAN scenarios before pulling that trigger.
+
 ## Task 6 (drift-detection plan): Add Stale Documentation section to WriteGaps - COMPLETE
 - Started: 2026-04-22
 - Tests written first (RED): TestWriteGaps_StaleDocumentation_RendersFindings, TestWriteGaps_StaleDocumentation_NoneFound
