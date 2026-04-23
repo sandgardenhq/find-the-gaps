@@ -189,7 +189,7 @@ func newAnalyzeCmd() *cobra.Command {
 					Features:    idx.AllFeatures,
 				}
 			} else {
-				productSummary, err = analyzer.SynthesizeProduct(ctx, llmClient, analyses)
+				productSummary, err = analyzer.SynthesizeProduct(ctx, tiering, analyses)
 				if err != nil {
 					return fmt.Errorf("synthesize: %w", err)
 				}
