@@ -91,7 +91,27 @@ Before any scenario runs:
 
 ---
 
-### Scenario 5: `find-the-gaps doctor`
+### Scenario 5: Detect Missing Screenshots
+
+**Context**: Known-good fixture + docs site, but a page describes a UI moment with no nearby image.
+
+**Steps**:
+1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>`.
+2. Inspect `gaps.md`.
+3. Re-run with `--skip-screenshot-check`.
+4. Re-inspect `gaps.md`.
+
+**Success Criteria**:
+- [ ] First run's `gaps.md` contains a `## Missing Screenshots` section.
+- [ ] At least one gap is listed for the known UI passage, with all four fields populated: passage, should-show, alt text, insertion hint.
+- [ ] Second run's `gaps.md` contains NO `## Missing Screenshots` section.
+- [ ] Exit code behavior matches the findings count (consistent with existing drift exit semantics).
+
+**If Blocked**: If the section renders on the skip run, the flag is not wired correctly. Stop and ask.
+
+---
+
+### Scenario 6: `find-the-gaps doctor`
 
 **Context**: Verify the tool reports external-dependency status accurately.
 
@@ -110,7 +130,7 @@ Before any scenario runs:
 
 ---
 
-### Scenario 6: First-Run Banner
+### Scenario 7: First-Run Banner
 
 **Context**: Verify the first-run notification about external dependencies works.
 
@@ -132,7 +152,7 @@ Before any scenario runs:
 
 ---
 
-### Scenario 7: Homebrew Install
+### Scenario 8: Homebrew Install
 
 **Context**: Verify the published Homebrew formula installs cleanly with all dependencies.
 
@@ -154,7 +174,7 @@ Before any scenario runs:
 
 ---
 
-### Scenario 8: End-to-End on a Real Docs Site
+### Scenario 9: End-to-End on a Real Docs Site
 
 **Context**: Run the full analyze pipeline against a real public docs site and its upstream repo.
 
