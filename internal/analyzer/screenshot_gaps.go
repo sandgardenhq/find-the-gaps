@@ -15,8 +15,8 @@ type imageRef struct {
 
 var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var htmlImgRe = regexp.MustCompile(`(?i)<img\s+([^>]+?)>`)
-var htmlAttrSrcRe = regexp.MustCompile(`(?i)\bsrc\s*=\s*"([^"]*)"`)
-var htmlAttrAltRe = regexp.MustCompile(`(?i)\balt\s*=\s*"([^"]*)"`)
+var htmlAttrSrcRe = regexp.MustCompile(`(?i)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+var htmlAttrAltRe = regexp.MustCompile(`(?i)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 
 // extractImages returns all image references in the markdown, annotated with their
 // containing section heading and paragraph index. Paragraphs are separated by blank lines.
@@ -49,9 +49,15 @@ func extractImages(md string) []imageRef {
 			alt := ""
 			if mm := htmlAttrSrcRe.FindStringSubmatch(attrs); mm != nil {
 				src = mm[1]
+				if src == "" {
+					src = mm[2]
+				}
 			}
 			if mm := htmlAttrAltRe.FindStringSubmatch(attrs); mm != nil {
 				alt = mm[1]
+				if alt == "" {
+					alt = mm[2]
+				}
 			}
 			refs = append(refs, imageRef{
 				AltText:        alt,
