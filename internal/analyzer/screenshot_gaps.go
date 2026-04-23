@@ -1,11 +1,14 @@
 package analyzer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/charmbracelet/log"
 )
 
 // imageRef is one image occurrence on a docs page.
@@ -159,4 +162,59 @@ func parseScreenshotResponse(raw string) ([]screenshotResponseItem, error) {
 		return nil, fmt.Errorf("invalid screenshot-gap JSON: %w (raw: %q)", err, raw)
 	}
 	return items, nil
+}
+
+// DocPage is one fetched documentation page.
+type DocPage struct {
+	URL     string
+	Path    string
+	Content string
+}
+
+// ScreenshotProgressFunc is called after each page completes. done/total express
+// progress counts. currentPage is the URL of the page just processed.
+type ScreenshotProgressFunc func(done, total int, currentPage string)
+
+// DetectScreenshotGaps iterates pages sequentially, issues one LLM call per page,
+// and returns all findings. Per-page parse failures are logged and skipped
+// (fail-open); context / network errors are returned immediately.
+func DetectScreenshotGaps(
+	ctx context.Context,
+	client LLMClient,
+	pages []DocPage,
+	progress ScreenshotProgressFunc,
+) ([]ScreenshotGap, error) {
+	var gaps []ScreenshotGap
+	total := len(pages)
+	for i, page := range pages {
+		refs := extractImages(page.Content)
+		coverage := buildCoverageMap(refs)
+		prompt := buildScreenshotPrompt(page.URL, page.Content, coverage)
+		raw, err := client.Complete(ctx, prompt)
+		if err != nil {
+			return nil, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+		}
+		items, err := parseScreenshotResponse(raw)
+		if err != nil {
+			log.Warnf("screenshot-gaps: skipping %s: %v", page.URL, err)
+			if progress != nil {
+				progress(i+1, total, page.URL)
+			}
+			continue
+		}
+		for _, it := range items {
+			gaps = append(gaps, ScreenshotGap{
+				PageURL:       page.URL,
+				PagePath:      page.Path,
+				QuotedPassage: it.QuotedPassage,
+				ShouldShow:    it.ShouldShow,
+				SuggestedAlt:  it.SuggestedAlt,
+				InsertionHint: it.InsertionHint,
+			})
+		}
+		if progress != nil {
+			progress(i+1, total, page.URL)
+		}
+	}
+	return gaps, nil
 }

@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,5 +112,97 @@ func TestParseScreenshotResponse_WithPreamble(t *testing.T) {
 
 func TestParseScreenshotResponse_Malformed(t *testing.T) {
 	_, err := parseScreenshotResponse("not json")
+	require.Error(t, err)
+}
+
+// fakeLLMClient collects calls and returns canned responses per call index.
+type fakeLLMClient struct {
+	responses []string
+	errs      []error
+	prompts   []string
+}
+
+func (f *fakeLLMClient) Complete(_ context.Context, prompt string) (string, error) {
+	i := len(f.prompts)
+	f.prompts = append(f.prompts, prompt)
+	if i < len(f.errs) && f.errs[i] != nil {
+		return "", f.errs[i]
+	}
+	if i < len(f.responses) {
+		return f.responses[i], nil
+	}
+	return "[]", nil
+}
+
+func TestDetectScreenshotGaps_NoPages(t *testing.T) {
+	client := &fakeLLMClient{}
+	gaps, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
+	require.NoError(t, err)
+	assert.Empty(t, gaps)
+	assert.Empty(t, client.prompts)
+}
+
+func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
+	client := &fakeLLMClient{
+		responses: []string{
+			`[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block"}]`,
+		},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n\nRun the command.\n"},
+	}
+	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+	require.Len(t, gaps, 1)
+	assert.Equal(t, "https://example.com/a", gaps[0].PageURL)
+	assert.Equal(t, "/tmp/a.md", gaps[0].PagePath)
+	assert.Equal(t, "Run the command.", gaps[0].QuotedPassage)
+}
+
+func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
+	client := &fakeLLMClient{
+		responses: []string{"not json", "[]"},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
+		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
+	}
+	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err) // parse errors log-and-continue
+	assert.Empty(t, gaps)
+	assert.Len(t, client.prompts, 2) // both pages were attempted
+}
+
+func TestDetectScreenshotGaps_Progress(t *testing.T) {
+	client := &fakeLLMClient{}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
+		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
+	}
+	var calls []struct {
+		done, total int
+		page        string
+	}
+	progress := func(done, total int, page string) {
+		calls = append(calls, struct {
+			done, total int
+			page        string
+		}{done, total, page})
+	}
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, progress)
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+	assert.Equal(t, 1, calls[0].done)
+	assert.Equal(t, 2, calls[0].total)
+	assert.Equal(t, "https://example.com/a", calls[0].page)
+	assert.Equal(t, 2, calls[1].done)
+}
+
+func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := &fakeLLMClient{errs: []error{context.Canceled}}
+	pages := []DocPage{{URL: "https://x", Path: "/x", Content: "# x\n"}}
+	_, err := DetectScreenshotGaps(ctx, client, pages, nil)
 	require.Error(t, err)
 }
