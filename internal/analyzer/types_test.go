@@ -63,3 +63,29 @@ func TestChatMessage_Fields(t *testing.T) {
 	msg := analyzer.ChatMessage{Role: "user", Content: "hello"}
 	assert.Equal(t, "user", msg.Role)
 }
+
+func TestScreenshotGap_ZeroValue(t *testing.T) {
+	var g analyzer.ScreenshotGap
+	assert.Equal(t, "", g.PageURL)
+	assert.Equal(t, "", g.PagePath)
+	assert.Equal(t, "", g.QuotedPassage)
+	assert.Equal(t, "", g.ShouldShow)
+	assert.Equal(t, "", g.SuggestedAlt)
+	assert.Equal(t, "", g.InsertionHint)
+}
+
+func TestScreenshotGap_JSONRoundTrip(t *testing.T) {
+	in := analyzer.ScreenshotGap{
+		PageURL:       "https://example.com/quickstart",
+		PagePath:      "/cache/quickstart.md",
+		QuotedPassage: "Click Save to continue.",
+		ShouldShow:    "The Save button highlighted in the settings panel.",
+		SuggestedAlt:  "Settings panel with Save button highlighted.",
+		InsertionHint: "after the paragraph ending '...to continue.'",
+	}
+	b, err := json.Marshal(in)
+	require.NoError(t, err)
+	var out analyzer.ScreenshotGap
+	require.NoError(t, json.Unmarshal(b, &out))
+	assert.Equal(t, in, out)
+}
