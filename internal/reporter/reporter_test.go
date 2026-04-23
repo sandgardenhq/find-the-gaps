@@ -21,11 +21,12 @@ func TestWriteMapping_CreatesFile(t *testing.T) {
 		{Feature: analyzer.CodeFeature{Name: "gap analysis", Description: "Finds gaps.", Layer: "analysis engine", UserFacing: true}, Files: []string{"internal/analyzer/analyzer.go"}, Symbols: []string{"AnalyzePage"}},
 		{Feature: analyzer.CodeFeature{Name: "doctor command", Description: "Checks deps.", Layer: "cli", UserFacing: true}, Files: []string{"internal/cli/doctor.go"}, Symbols: []string{}},
 	}
-	pages := []analyzer.PageAnalysis{
-		{URL: "https://docs.example.com/gap", Summary: "Covers gap analysis.", Features: []string{"gap analysis"}},
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "gap analysis", Pages: []string{"https://docs.example.com/gap"}},
+		{Feature: "doctor command", Pages: []string{}},
 	}
 
-	if err := reporter.WriteMapping(dir, summary, mapping, pages); err != nil {
+	if err := reporter.WriteMapping(dir, summary, mapping, docsMap); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,7 +68,7 @@ func TestWriteMapping_EmptyMapping_Succeeds(t *testing.T) {
 	err := reporter.WriteMapping(dir,
 		analyzer.ProductSummary{Description: "Product.", Features: []string{}},
 		analyzer.FeatureMap{},
-		[]analyzer.PageAnalysis{},
+		analyzer.DocsFeatureMap{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -159,11 +160,11 @@ func TestWriteMapping_RichFields_Documented(t *testing.T) {
 			Symbols: []string{"NewRootCmd"},
 		},
 	}
-	pages := []analyzer.PageAnalysis{
-		{URL: "https://docs.example.com/cli", Features: []string{"CLI command routing"}},
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "CLI command routing", Pages: []string{"https://docs.example.com/cli"}},
 	}
 
-	if err := reporter.WriteMapping(dir, summary, mapping, pages); err != nil {
+	if err := reporter.WriteMapping(dir, summary, mapping, docsMap); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,7 +214,7 @@ func TestWriteMapping_EmptyDescriptionAndLayer(t *testing.T) {
 		},
 	}
 
-	if err := reporter.WriteMapping(dir, summary, mapping, []analyzer.PageAnalysis{}); err != nil {
+	if err := reporter.WriteMapping(dir, summary, mapping, analyzer.DocsFeatureMap{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -316,11 +317,11 @@ func TestWriteMapping_RichFields_Undocumented(t *testing.T) {
 		},
 	}
 	// No page covers "token batching"
-	pages := []analyzer.PageAnalysis{
-		{URL: "https://docs.example.com/cli", Features: []string{"CLI command routing"}},
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "token batching", Pages: []string{}},
 	}
 
-	if err := reporter.WriteMapping(dir, summary, mapping, pages); err != nil {
+	if err := reporter.WriteMapping(dir, summary, mapping, docsMap); err != nil {
 		t.Fatal(err)
 	}
 
@@ -344,5 +345,47 @@ func TestWriteMapping_RichFields_Undocumented(t *testing.T) {
 	}
 	if !strings.Contains(content, "_(none)_") {
 		t.Errorf("mapping.md must render '_(none)_' for Documented on when no pages match, got:\n%s", content)
+	}
+}
+
+// TestWriteMapping_DocStatusUsesCanonicalMap locks in the contract that
+// documentation status is driven exclusively by DocsFeatureMap (canonical
+// feature names). The canonical feature name here is "gap analysis"; the
+// DocsFeatureMap entry uses that canonical name and points to a real page.
+// This must render as documented — even if a per-page extractor produced
+// completely different raw phrases (which is the original bug).
+func TestWriteMapping_DocStatusUsesCanonicalMap(t *testing.T) {
+	dir := t.TempDir()
+
+	summary := analyzer.ProductSummary{
+		Description: "A CLI tool.",
+		Features:    []string{"gap analysis"},
+	}
+	mapping := analyzer.FeatureMap{
+		{
+			Feature: analyzer.CodeFeature{Name: "gap analysis", UserFacing: true},
+			Files:   []string{"internal/analyzer/analyzer.go"},
+		},
+	}
+	// Canonical "gap analysis" → a real docs page.
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "gap analysis", Pages: []string{"https://docs.example.com/gaps"}},
+	}
+
+	if err := reporter.WriteMapping(dir, summary, mapping, docsMap); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "mapping.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "**Documentation status:** documented") {
+		t.Errorf("expected 'documented' when DocsFeatureMap has pages for the canonical feature, got:\n%s", content)
+	}
+	if !strings.Contains(content, "https://docs.example.com/gaps") {
+		t.Errorf("expected the mapped page URL to appear in mapping.md, got:\n%s", content)
 	}
 }

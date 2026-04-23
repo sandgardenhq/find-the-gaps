@@ -330,7 +330,7 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("detect drift: %w", err)
 			}
 			log.Debugf("drift detection complete: %d findings", len(driftFindings))
-			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, analyses); err != nil {
+			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
 			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {

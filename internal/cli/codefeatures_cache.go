@@ -11,8 +11,8 @@ import (
 )
 
 type codeFeaturesCacheFile struct {
-	Files    []string                `json:"files"`
-	Features []analyzer.CodeFeature  `json:"features"`
+	Files    []string               `json:"files"`
+	Features []analyzer.CodeFeature `json:"features"`
 }
 
 // loadCodeFeaturesCache reads a cached code-features list from path.

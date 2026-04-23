@@ -14,10 +14,10 @@ import (
 )
 
 type Tool struct {
-	Name        string // display name, e.g. "mdfetch"
-	Binary      string // executable name on PATH, e.g. "mdfetch"
-	VersionArg  string // argument that prints the version, e.g. "--version"
-	InstallHint string // human-readable install fallback shown when automated install is unavailable
+	Name        string              // display name, e.g. "mdfetch"
+	Binary      string              // executable name on PATH, e.g. "mdfetch"
+	VersionArg  string              // argument that prints the version, e.g. "--version"
+	InstallHint string              // human-readable install fallback shown when automated install is unavailable
 	InstallCmds map[string][]string // GOOS → {cmd, arg1, ...} for automated install
 }
 

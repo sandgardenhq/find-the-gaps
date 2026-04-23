@@ -10,7 +10,18 @@ import (
 )
 
 // WriteMapping writes mapping.md to dir.
-func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.FeatureMap, pages []analyzer.PageAnalysis) error {
+//
+// docsMap is the canonical feature → pages mapping produced by
+// analyzer.MapFeaturesToDocs. It is the single source of truth for
+// documentation status; per-page feature lists from AnalyzePage are NOT used
+// here because those names come from an independent LLM pass and rarely match
+// the canonical code feature names exactly.
+func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.FeatureMap, docsMap analyzer.DocsFeatureMap) error {
+	pagesByFeature := make(map[string][]string, len(docsMap))
+	for _, e := range docsMap {
+		pagesByFeature[e.Feature] = e.Pages
+	}
+
 	var sb strings.Builder
 
 	sb.WriteString("# Feature Map\n\n")
@@ -31,17 +42,10 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 			userFacingStr = "yes"
 		}
 
-		// Compute doc status and collect matching page URLs.
+		docPages := pagesByFeature[entry.Feature.Name]
 		docStatus := "undocumented"
-		var docPages []string
-		for _, p := range pages {
-			for _, f := range p.Features {
-				if f == entry.Feature.Name {
-					docStatus = "documented"
-					docPages = append(docPages, p.URL)
-					break
-				}
-			}
+		if len(docPages) > 0 {
+			docStatus = "documented"
 		}
 
 		if entry.Feature.Layer != "" {
