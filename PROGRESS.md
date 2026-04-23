@@ -662,3 +662,19 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Linting: ✅ Clean (0 issues) — staticcheck S1016 fixed by using type conversion ProductSummary(resp) instead of struct literal
 - Completed: 2026-04-20
 - Notes: RED confirmed with 5x "undefined: analyzer.SynthesizeProduct" compile errors. GREEN: synthesize.go with // PROMPT: comment immediately above the prompt string. synthesizeResponse type is unexported. nil features normalized to empty slice. Type conversion ProductSummary(resp) used instead of struct literal (fields match exactly).
+
+## Task: LLM Tiering - COMPLETE
+- Started: 2026-04-22
+- Tests: full repo green; analyzer package 133, cli package 74, cmd 6 testscripts pass
+- Coverage: analyzer 94.8%, cli 86.0%, cmd 100.0%, reporter 97.4%, doctor 98.4%, scanner 93.8%, spider 94.4% (go test -cover ./...)
+- Build: ✅ Successful (go build ./...)
+- Linting: ✅ Clean (golangci-lint run)
+- Completed: 2026-04-23
+- Notes:
+  - Plan: `.plans/LLM_TIERING_PLAN.md` (20 tasks + Task 9.1 follow-up)
+  - All 7 analyzer call sites route through `analyzer.LLMTiering`: AnalyzePage/SynthesizeProduct/MapFeaturesToDocs/isReleaseNotePage → Small(); ExtractFeaturesFromCode → Typical(); MapFeaturesToCode/DetectDrift agentic → Large() + LargeCounter()
+  - CLI flags `--llm-small/--llm-typical/--llm-large` replaced `--llm-provider/--llm-model/--llm-base-url` (breaking). Combined `provider/model` syntax; bare models default to anthropic.
+  - Fail-fast validation on unknown providers and non-tool-use large tier (enforced at `newLLMTiering` via `validateTierConfigs`)
+  - Integration tests: `analyze_tier_flags.txtar` (happy-path all three flags) and `analyze_tier_reject_ollama_large.txtar` (fail-fast)
+  - Restored `TestAnalyze_llmAnalyzeError_continuesWithWarning` against ollama-compatible httptest server via OLLAMA_BASE_URL (feasible post-tiering because AnalyzePage routes to Small)
+  - README: tier table + TOML form + env-var list + breaking-change callout; CHANGELOG: Unreleased entry with migration recipe
