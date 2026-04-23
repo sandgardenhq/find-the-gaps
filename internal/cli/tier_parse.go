@@ -13,12 +13,10 @@ func parseTierString(raw string) (provider, model string, err error) {
 	if s == "" {
 		return "", "", fmt.Errorf("empty tier value")
 	}
-	idx := strings.Index(s, "/")
-	if idx < 0 {
+	provider, model, ok := strings.Cut(s, "/")
+	if !ok {
 		return "anthropic", s, nil
 	}
-	provider = s[:idx]
-	model = s[idx+1:]
 	if provider == "" {
 		return "", "", fmt.Errorf("missing provider before '/' in %q", raw)
 	}
