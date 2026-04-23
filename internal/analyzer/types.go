@@ -42,7 +42,7 @@ type DocsFeatureMap []DocsFeatureEntry
 
 // ChatMessage is one turn in a tool-use conversation.
 type ChatMessage struct {
-	Role       string     // "user", "assistant", "tool"
+	Role       string // "user", "assistant", "tool"
 	Content    string
 	ToolCalls  []ToolCall // set when Role=="assistant" and LLM requests tools
 	ToolCallID string     // set when Role=="tool" (response to a tool call)

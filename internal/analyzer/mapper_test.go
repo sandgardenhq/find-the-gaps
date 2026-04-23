@@ -273,7 +273,7 @@ func TestMapFeaturesToCode_MixedScan_SymbollessFilesSkippedInCoverageCheck(t *te
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}}, // has symbols
-			{Path: "b.go", Symbols: nil},                            // no symbols — skipped in coverage check
+			{Path: "b.go", Symbols: nil},                           // no symbols — skipped in coverage check
 		},
 	}
 	_, err := analyzer.MapFeaturesToCode(context.Background(), c, counter, []analyzer.CodeFeature{{Name: "f"}}, scan, 80_000, false, nil)
