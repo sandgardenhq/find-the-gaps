@@ -323,7 +323,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
-				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
+				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated, nil)
 			}
 			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
 			if err != nil {
@@ -333,7 +333,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
+			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings, nil); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 
