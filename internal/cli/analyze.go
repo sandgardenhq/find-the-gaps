@@ -29,8 +29,7 @@ type docsMapsResult struct {
 // to their respective mappers for intermediate persistence; either may be nil.
 func runBothMaps(
 	ctx context.Context,
-	client analyzer.LLMClient,
-	counter analyzer.TokenCounter,
+	tiering analyzer.LLMTiering,
 	features []analyzer.CodeFeature,
 	scan *scanner.ProjectScan,
 	pages map[string]string,
@@ -43,14 +42,16 @@ func runBothMaps(
 	codeCh := make(chan bothMapsResult, 1)
 	docsCh := make(chan docsMapsResult, 1)
 
-	// MapFeaturesToDocs still accepts []string feature names.
+	// MapFeaturesToDocs still accepts a raw client and []string feature names.
+	// Task 12 will migrate it onto the tiering interface.
+	client := tiering.Large()
 	featureNames := make([]string, len(features))
 	for i, f := range features {
 		featureNames[i] = f.Name
 	}
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, filesOnly, onCodeBatch)
+		fm, err := analyzer.MapFeaturesToCode(ctx, tiering, features, scan, analyzer.MapperTokenBudget, filesOnly, onCodeBatch)
 		codeCh <- bothMapsResult{fm, err}
 	}()
 
@@ -199,6 +200,7 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			tokenCounter := tiering.LargeCounter()
+			_ = tokenCounter // Task 14 will drop this local; kept here to minimize this commit's diff.
 
 			// Extract the canonical feature list from CODE. These are the features
 			// the codebase actually implements — used as the source of truth for gap analysis.
@@ -273,7 +275,7 @@ func newAnalyzeCmd() *cobra.Command {
 					}
 				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
-					ctx, llmClient, tokenCounter, codeFeatures,
+					ctx, tiering, codeFeatures,
 					scan, pages, workers, analyzer.DocsMapperPageBudget,
 					noSymbols,
 					codeBatchFn,

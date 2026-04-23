@@ -35,7 +35,10 @@ type accEntry struct {
 // When filesOnly is true, the LLM prompt contains only file paths (no symbol names) and
 // symbols are not accumulated even if the LLM response includes them.
 // onBatch, if non-nil, is called with the accumulated results after each LLM call.
-func MapFeaturesToCode(ctx context.Context, client LLMClient, counter TokenCounter, features []CodeFeature, scan *scanner.ProjectScan, tokenBudget int, filesOnly bool, onBatch MapProgressFunc) (FeatureMap, error) {
+// Dispatches through the Large tier — feature-to-code mapping is the hardest mapper call.
+func MapFeaturesToCode(ctx context.Context, tiering LLMTiering, features []CodeFeature, scan *scanner.ProjectScan, tokenBudget int, filesOnly bool, onBatch MapProgressFunc) (FeatureMap, error) {
+	client := tiering.Large()
+	counter := tiering.LargeCounter()
 	if len(features) == 0 {
 		return FeatureMap{}, nil
 	}

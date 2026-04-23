@@ -19,11 +19,10 @@ func TestRunBothMapsInParallel(t *testing.T) {
 	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	codeMap, docsMap, err := runBothMaps(
 		context.Background(),
-		&stubLLMClient{
+		stubTieringOn(&stubLLMClient{
 			codeResp: `[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]`,
 			docsResp: `["auth"]`,
-		},
-		analyzer.NewTiktokenCounter(),
+		}),
 		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
@@ -46,11 +45,10 @@ func TestRunBothMaps_CodeMapError(t *testing.T) {
 	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	_, _, err := runBothMaps(
 		context.Background(),
-		&stubLLMClient{
+		stubTieringOn(&stubLLMClient{
 			codeResp: `not json`, // forces MapFeaturesToCode to fail
 			docsResp: `[]`,
-		},
-		analyzer.NewTiktokenCounter(),
+		}),
 		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
@@ -65,11 +63,10 @@ func TestRunBothMaps_DocsMapError(t *testing.T) {
 	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	_, _, err := runBothMaps(
 		context.Background(),
-		&stubLLMClient{
+		stubTieringOn(&stubLLMClient{
 			codeResp: `[{"feature":"auth","files":[],"symbols":[]}]`,
 			docsResp: `not json`, // forces MapFeaturesToDocs page call to fail
-		},
-		analyzer.NewTiktokenCounter(),
+		}),
 		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
@@ -95,11 +92,10 @@ func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
 	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	_, _, err := runBothMaps(
 		context.Background(),
-		&stubLLMClient{
+		stubTieringOn(&stubLLMClient{
 			codeResp: `[]`, // empty but valid JSON — code map succeeds immediately
 			docsResp: `["auth"]`,
-		},
-		analyzer.NewTiktokenCounter(),
+		}),
 		[]analyzer.CodeFeature{authFeature},
 		// Empty scan so MapFeaturesToCode returns immediately (no LLM call, no error).
 		&scanner.ProjectScan{Files: []scanner.ScannedFile{}},
@@ -123,8 +119,7 @@ func TestRunBothMaps_FilesOnly_PassedThrough(t *testing.T) {
 	}
 	codeMap, _, err := runBothMaps(
 		context.Background(),
-		client,
-		analyzer.NewTiktokenCounter(),
+		stubTieringOn(client),
 		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
 		map[string]string{
@@ -153,6 +148,24 @@ func TestAnalyzeCmd_NoSymbolsFlag_Registered(t *testing.T) {
 }
 
 // --- stubs ---
+
+// stubTiering wraps a single LLMClient into all three tiers so tests that
+// only care about one code path can reuse existing stubLLMClient fixtures.
+type stubTiering struct {
+	client  analyzer.LLMClient
+	counter analyzer.TokenCounter
+}
+
+func (s *stubTiering) Small() analyzer.LLMClient             { return s.client }
+func (s *stubTiering) Typical() analyzer.LLMClient           { return s.client }
+func (s *stubTiering) Large() analyzer.LLMClient             { return s.client }
+func (s *stubTiering) SmallCounter() analyzer.TokenCounter   { return s.counter }
+func (s *stubTiering) TypicalCounter() analyzer.TokenCounter { return s.counter }
+func (s *stubTiering) LargeCounter() analyzer.TokenCounter   { return s.counter }
+
+func stubTieringOn(client analyzer.LLMClient) *stubTiering {
+	return &stubTiering{client: client, counter: analyzer.NewTiktokenCounter()}
+}
 
 type stubLLMClient struct {
 	codeResp string
