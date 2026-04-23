@@ -73,15 +73,15 @@ func runBothMaps(
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		docsURL     string
-		repoPath    string
-		cacheDir    string
-		workers     int
-		noCache     bool
-		noSymbols   bool
-		llmProvider string
-		llmModel    string
-		llmBaseURL  string
+		docsURL    string
+		repoPath   string
+		cacheDir   string
+		workers    int
+		noCache    bool
+		noSymbols  bool
+		llmSmall   string
+		llmTypical string
+		llmLarge   string
 	)
 
 	cmd := &cobra.Command{
@@ -109,15 +109,20 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
-			cfg := &LLMConfig{
-				Provider: llmProvider,
-				Model:    llmModel,
-				BaseURL:  llmBaseURL,
+			if llmSmall == "" {
+				llmSmall = os.Getenv("FIND_THE_GAPS_LLM_SMALL")
 			}
-			llmClient, err := newLLMClient(cfg)
+			if llmTypical == "" {
+				llmTypical = os.Getenv("FIND_THE_GAPS_LLM_TYPICAL")
+			}
+			if llmLarge == "" {
+				llmLarge = os.Getenv("FIND_THE_GAPS_LLM_LARGE")
+			}
+			tiering, err := newLLMTiering(llmSmall, llmTypical, llmLarge)
 			if err != nil {
 				return fmt.Errorf("LLM client: %w", err)
 			}
+			llmClient := tiering.Large() // temp: Phase 4 will route each call site to its proper tier
 
 			log.Infof("crawling %s", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
@@ -193,13 +198,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			var tokenCounter analyzer.TokenCounter
-			switch cfg.Provider {
-			case "anthropic":
-				tokenCounter = analyzer.NewAnthropicCounter(os.Getenv("ANTHROPIC_API_KEY"), cfg.Model, os.Getenv("ANTHROPIC_BASE_URL"))
-			default:
-				tokenCounter = analyzer.NewTiktokenCounter()
-			}
+			tokenCounter := tiering.LargeCounter()
 
 			// Extract the canonical feature list from CODE. These are the features
 			// the codebase actually implements — used as the source of truth for gap analysis.
@@ -302,10 +301,7 @@ func newAnalyzeCmd() *cobra.Command {
 			log.Infof("detecting documentation drift...")
 			toolClient, ok := llmClient.(analyzer.ToolLLMClient)
 			if !ok {
-				return fmt.Errorf("LLM client does not support tool use (required for drift detection); use --llm-provider anthropic or openai")
-			}
-			if llmProvider != "anthropic" && llmProvider != "openai" {
-				log.Warnf("drift detection tool use is not fully supported for provider %q; results may be lower quality", llmProvider)
+				return fmt.Errorf("LLM client does not support tool use (required for drift detection); configure a tool-use-capable provider in --llm-large (anthropic or openai)")
 			}
 			pageReader := func(url string) (string, error) {
 				path, ok := idx.FilePath(url)
@@ -350,12 +346,12 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "force full re-scan, ignoring any cached results")
 	cmd.Flags().StringVar(&docsURL, "docs-url", "", "URL of the documentation site to analyze")
 	cmd.Flags().IntVar(&workers, "workers", 5, "number of parallel mdfetch workers")
-	cmd.Flags().StringVar(&llmProvider, "llm-provider", "anthropic",
-		"LLM provider: anthropic | openai | ollama | lmstudio | openai-compatible")
-	cmd.Flags().StringVar(&llmModel, "llm-model", "",
-		"model name (default varies by provider; e.g. llama3 for ollama)")
-	cmd.Flags().StringVar(&llmBaseURL, "llm-base-url", "",
-		"base URL for local providers (required for openai-compatible; default: provider-specific)")
+	cmd.Flags().StringVar(&llmSmall, "llm-small", "",
+		"small-tier model as \"provider/model\" (default: anthropic/claude-haiku-4-5)")
+	cmd.Flags().StringVar(&llmTypical, "llm-typical", "",
+		"typical-tier model as \"provider/model\" (default: anthropic/claude-sonnet-4-6)")
+	cmd.Flags().StringVar(&llmLarge, "llm-large", "",
+		"large-tier model as \"provider/model\" (default: anthropic/claude-opus-4-7)")
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
 
 	return cmd
