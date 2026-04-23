@@ -30,8 +30,7 @@ type docsMapsResult struct {
 // to their respective mappers for intermediate persistence; either may be nil.
 func runBothMaps(
 	ctx context.Context,
-	client analyzer.LLMClient,
-	counter analyzer.TokenCounter,
+	tiering analyzer.LLMTiering,
 	features []analyzer.CodeFeature,
 	scan *scanner.ProjectScan,
 	pages map[string]string,
@@ -44,19 +43,18 @@ func runBothMaps(
 	codeCh := make(chan bothMapsResult, 1)
 	docsCh := make(chan docsMapsResult, 1)
 
-	// MapFeaturesToDocs still accepts []string feature names.
 	featureNames := make([]string, len(features))
 	for i, f := range features {
 		featureNames[i] = f.Name
 	}
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToCode(ctx, client, counter, features, scan, analyzer.MapperTokenBudget, filesOnly, onCodeBatch)
+		fm, err := analyzer.MapFeaturesToCode(ctx, tiering, features, scan, analyzer.MapperTokenBudget, filesOnly, onCodeBatch)
 		codeCh <- bothMapsResult{fm, err}
 	}()
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToDocs(ctx, client, featureNames, pages, workers, docsTokenBudget, onDocsPage)
+		fm, err := analyzer.MapFeaturesToDocs(ctx, tiering, featureNames, pages, workers, docsTokenBudget, onDocsPage)
 		docsCh <- docsMapsResult{fm, err}
 	}()
 
@@ -80,9 +78,9 @@ func newAnalyzeCmd() *cobra.Command {
 		workers             int
 		noCache             bool
 		noSymbols           bool
-		llmProvider         string
-		llmModel            string
-		llmBaseURL          string
+		llmSmall            string
+		llmTypical          string
+		llmLarge            string
 		skipScreenshotCheck bool
 	)
 
@@ -111,12 +109,16 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
-			cfg := &LLMConfig{
-				Provider: llmProvider,
-				Model:    llmModel,
-				BaseURL:  llmBaseURL,
+			if llmSmall == "" {
+				llmSmall = os.Getenv("FIND_THE_GAPS_LLM_SMALL")
 			}
-			llmClient, err := newLLMClient(cfg)
+			if llmTypical == "" {
+				llmTypical = os.Getenv("FIND_THE_GAPS_LLM_TYPICAL")
+			}
+			if llmLarge == "" {
+				llmLarge = os.Getenv("FIND_THE_GAPS_LLM_LARGE")
+			}
+			tiering, err := newLLMTiering(llmSmall, llmTypical, llmLarge)
 			if err != nil {
 				return fmt.Errorf("LLM client: %w", err)
 			}
@@ -159,7 +161,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 				pageNum++
 				log.Infof("  [%d] %s", pageNum, url)
-				pa, analyzeErr := analyzer.AnalyzePage(ctx, llmClient, url, string(content))
+				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, url, string(content))
 				if analyzeErr != nil {
 					log.Warnf("skipping %s: %v", url, analyzeErr)
 					continue
@@ -186,21 +188,13 @@ func newAnalyzeCmd() *cobra.Command {
 					Features:    idx.AllFeatures,
 				}
 			} else {
-				productSummary, err = analyzer.SynthesizeProduct(ctx, llmClient, analyses)
+				productSummary, err = analyzer.SynthesizeProduct(ctx, tiering, analyses)
 				if err != nil {
 					return fmt.Errorf("synthesize: %w", err)
 				}
 				if err := idx.SetProductSummary(productSummary.Description, productSummary.Features); err != nil {
 					return fmt.Errorf("save product summary: %w", err)
 				}
-			}
-
-			var tokenCounter analyzer.TokenCounter
-			switch cfg.Provider {
-			case "anthropic":
-				tokenCounter = analyzer.NewAnthropicCounter(os.Getenv("ANTHROPIC_API_KEY"), cfg.Model, os.Getenv("ANTHROPIC_BASE_URL"))
-			default:
-				tokenCounter = analyzer.NewTiktokenCounter()
 			}
 
 			// Extract the canonical feature list from CODE. These are the features
@@ -218,7 +212,7 @@ func newAnalyzeCmd() *cobra.Command {
 
 			if !codeFeaturesCached {
 				log.Infof("extracting features from code...")
-				codeFeatures, err = analyzer.ExtractFeaturesFromCode(ctx, llmClient, scan)
+				codeFeatures, err = analyzer.ExtractFeaturesFromCode(ctx, tiering, scan)
 				if err != nil {
 					return fmt.Errorf("extract code features: %w", err)
 				}
@@ -276,7 +270,7 @@ func newAnalyzeCmd() *cobra.Command {
 					}
 				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
-					ctx, llmClient, tokenCounter, codeFeatures,
+					ctx, tiering, codeFeatures,
 					scan, pages, workers, analyzer.DocsMapperPageBudget,
 					noSymbols,
 					codeBatchFn,
@@ -302,13 +296,6 @@ func newAnalyzeCmd() *cobra.Command {
 			log.Debug("feature mapping complete", "code", len(featureMap), "docs", len(docsFeatureMap))
 
 			log.Infof("detecting documentation drift...")
-			toolClient, ok := llmClient.(analyzer.ToolLLMClient)
-			if !ok {
-				return fmt.Errorf("LLM client does not support tool use (required for drift detection); use --llm-provider anthropic or openai")
-			}
-			if llmProvider != "anthropic" && llmProvider != "openai" {
-				log.Warnf("drift detection tool use is not fully supported for provider %q; results may be lower quality", llmProvider)
-			}
 			pageReader := func(url string) (string, error) {
 				path, ok := idx.FilePath(url)
 				if !ok {
@@ -327,7 +314,7 @@ func newAnalyzeCmd() *cobra.Command {
 			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
 				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated, nil)
 			}
-			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
+			driftFindings, err := analyzer.DetectDrift(ctx, tiering, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
 			if err != nil {
 				return fmt.Errorf("detect drift: %w", err)
 			}
@@ -359,7 +346,7 @@ func newAnalyzeCmd() *cobra.Command {
 				progress := func(done, total int, page string) {
 					log.Infof("  [%d/%d] %s", done, total, page)
 				}
-				screenshotGaps, err = analyzer.DetectScreenshotGaps(ctx, llmClient, docPages, progress)
+				screenshotGaps, err = analyzer.DetectScreenshotGaps(ctx, tiering.Small(), docPages, progress)
 				if err != nil {
 					return fmt.Errorf("detect screenshots: %w", err)
 				}
@@ -386,12 +373,12 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "force full re-scan, ignoring any cached results")
 	cmd.Flags().StringVar(&docsURL, "docs-url", "", "URL of the documentation site to analyze")
 	cmd.Flags().IntVar(&workers, "workers", 5, "number of parallel mdfetch workers")
-	cmd.Flags().StringVar(&llmProvider, "llm-provider", "anthropic",
-		"LLM provider: anthropic | openai | ollama | lmstudio | openai-compatible")
-	cmd.Flags().StringVar(&llmModel, "llm-model", "",
-		"model name (default varies by provider; e.g. llama3 for ollama)")
-	cmd.Flags().StringVar(&llmBaseURL, "llm-base-url", "",
-		"base URL for local providers (required for openai-compatible; default: provider-specific)")
+	cmd.Flags().StringVar(&llmSmall, "llm-small", "",
+		"small-tier model as \"provider/model\" (default: anthropic/claude-haiku-4-5)")
+	cmd.Flags().StringVar(&llmTypical, "llm-typical", "",
+		"typical-tier model as \"provider/model\" (default: anthropic/claude-sonnet-4-6)")
+	cmd.Flags().StringVar(&llmLarge, "llm-large", "",
+		"large-tier model as \"provider/model\" (default: anthropic/claude-opus-4-7)")
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
 	cmd.Flags().BoolVar(&skipScreenshotCheck, "skip-screenshot-check", false,
 		"skip the missing-screenshot detection pass")

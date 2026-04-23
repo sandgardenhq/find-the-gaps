@@ -138,7 +138,7 @@ func TestMapFeaturesToDocs_AggregatesAcrossPages(t *testing.T) {
 	}}
 
 	fm, err := analyzer.MapFeaturesToDocs(
-		context.Background(), client,
+		context.Background(), &fakeTiering{small: client},
 		features, pages, 2, 10_000, nil,
 	)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestMapFeaturesToDocs_SkipsMissingFile(t *testing.T) {
 	client := &fakeClient{responses: []string{`["auth"]`}}
 
 	fm, err := analyzer.MapFeaturesToDocs(
-		context.Background(), client,
+		context.Background(), &fakeTiering{small: client},
 		features, pages, 1, 10_000, nil,
 	)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestMapFeaturesToDocs_SkipsMissingFile(t *testing.T) {
 
 func TestMapFeaturesToDocs_EmptyFeatures(t *testing.T) {
 	fm, err := analyzer.MapFeaturesToDocs(
-		context.Background(), nil,
+		context.Background(), &fakeTiering{},
 		[]string{}, map[string]string{"https://x.com": "/tmp/x.md"}, 1, 10_000, nil,
 	)
 	require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestMapFeaturesToDocs_EmptyFeatures(t *testing.T) {
 
 func TestMapFeaturesToDocs_EmptyPages(t *testing.T) {
 	fm, err := analyzer.MapFeaturesToDocs(
-		context.Background(), nil,
+		context.Background(), &fakeTiering{},
 		[]string{"auth"}, map[string]string{}, 1, 10_000, nil,
 	)
 	require.NoError(t, err)
@@ -213,7 +213,7 @@ func TestMapFeaturesToDocs_OnPageCalledAfterEachResult(t *testing.T) {
 	}
 
 	_, err := analyzer.MapFeaturesToDocs(
-		context.Background(), client,
+		context.Background(), &fakeTiering{small: client},
 		features, pages, 2, 10_000, onPage,
 	)
 	require.NoError(t, err)
@@ -230,13 +230,40 @@ func TestMapFeaturesToDocs_OnPageErrorAborts(t *testing.T) {
 	boom := errors.New("disk full")
 
 	_, err := analyzer.MapFeaturesToDocs(
-		context.Background(), client,
+		context.Background(), &fakeTiering{small: client},
 		features, map[string]string{"https://example.com/auth": p},
 		1, 10_000,
 		func(_ analyzer.DocsFeatureMap) error { return boom },
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk full")
+}
+
+func TestMapFeaturesToDocs_UsesSmallTier(t *testing.T) {
+	features := []string{"auth"}
+
+	dir := t.TempDir()
+	p := filepath.Join(dir, "auth.md")
+	require.NoError(t, os.WriteFile(p, []byte("auth content"), 0o644))
+	pages := map[string]string{"https://example.com/auth": p}
+
+	small := &fakeClient{responses: []string{`["auth"]`}}
+	typical := &fakeClient{responses: []string{`["auth"]`}}
+	large := &fakeClient{responses: []string{`["auth"]`}}
+	tiering := &fakeTiering{small: small, typical: typical, large: large}
+
+	_, err := analyzer.MapFeaturesToDocs(
+		context.Background(), tiering,
+		features, pages, 1, 10_000, nil,
+	)
+	require.NoError(t, err)
+
+	assert.GreaterOrEqual(t, len(small.receivedPrompts), 1,
+		"MapFeaturesToDocs must route through Small()")
+	assert.Equal(t, 0, len(typical.receivedPrompts),
+		"MapFeaturesToDocs must not call Typical()")
+	assert.Equal(t, 0, len(large.receivedPrompts),
+		"MapFeaturesToDocs must not call Large()")
 }
 
 // --- DocsFeatureMap roundtrip ---

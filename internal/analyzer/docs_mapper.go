@@ -94,7 +94,7 @@ type pageResult struct {
 // onPage, if non-nil, is called with the accumulated results after each page completes.
 func MapFeaturesToDocs(
 	ctx context.Context,
-	client LLMClient,
+	tiering LLMTiering,
 	features []string,
 	pages map[string]string,
 	workers int,
@@ -104,6 +104,8 @@ func MapFeaturesToDocs(
 	if len(features) == 0 || len(pages) == 0 {
 		return emptyDocsFeatureMap(features), nil
 	}
+
+	client := tiering.Small()
 
 	featuresJSON, _ := json.Marshal(features)
 	featureTokens := countTokens(string(featuresJSON))

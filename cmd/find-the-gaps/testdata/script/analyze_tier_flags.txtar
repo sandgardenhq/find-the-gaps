@@ -1,0 +1,7 @@
+# analyze accepts all three tier flags with their Anthropic defaults.
+# No --docs-url is set, so no LLM call happens — this exercises flag parsing
+# and cobra binding for the full tiering surface.
+env ANTHROPIC_API_KEY=stub
+mkdir repo
+exec ftg analyze --repo repo --cache-dir $WORK/cache --llm-small anthropic/claude-haiku-4-5 --llm-typical anthropic/claude-sonnet-4-6 --llm-large anthropic/claude-opus-4-7
+stdout 'scanned 0 files'

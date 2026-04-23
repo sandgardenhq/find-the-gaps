@@ -14,7 +14,8 @@ type synthesizeResponse struct {
 
 // SynthesizeProduct combines all per-page analyses into a product summary and
 // a deduplicated feature list.
-func SynthesizeProduct(ctx context.Context, client LLMClient, pages []PageAnalysis) (ProductSummary, error) {
+func SynthesizeProduct(ctx context.Context, tiering LLMTiering, pages []PageAnalysis) (ProductSummary, error) {
+	client := tiering.Small()
 	var sb strings.Builder
 	for _, p := range pages {
 		fmt.Fprintf(&sb, "URL: %s\nSummary: %s\nFeatures: %s\n\n",
