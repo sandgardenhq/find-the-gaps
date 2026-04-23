@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractImages_MarkdownSyntax(t *testing.T) {
@@ -82,4 +83,33 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
 	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
 	assert.Contains(t, got, "No existing images")
+}
+
+func TestParseScreenshotResponse_Valid(t *testing.T) {
+	raw := `[{"quoted_passage":"Click Save.","should_show":"Save button highlighted.","suggested_alt":"Save button","insertion_hint":"after the sentence 'Click Save.'"}]`
+	got, err := parseScreenshotResponse(raw)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Click Save.", got[0].QuotedPassage)
+	assert.Equal(t, "Save button highlighted.", got[0].ShouldShow)
+	assert.Equal(t, "Save button", got[0].SuggestedAlt)
+	assert.Equal(t, "after the sentence 'Click Save.'", got[0].InsertionHint)
+}
+
+func TestParseScreenshotResponse_EmptyArray(t *testing.T) {
+	got, err := parseScreenshotResponse("[]")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestParseScreenshotResponse_WithPreamble(t *testing.T) {
+	raw := "Here is the JSON: []"
+	got, err := parseScreenshotResponse(raw)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestParseScreenshotResponse_Malformed(t *testing.T) {
+	_, err := parseScreenshotResponse("not json")
+	require.Error(t, err)
 }

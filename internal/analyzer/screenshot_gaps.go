@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -138,4 +139,24 @@ For each remaining gap, return an object with these fields:
 
 Return a JSON array of these objects. Return [] if nothing needs a screenshot.
 Respond with only the JSON array. No markdown code fences. No prose.`, pageURL, coverageSummary, content)
+}
+
+// screenshotResponseItem is one raw item in the LLM's JSON-array response for a
+// screenshot-gap detection call.
+type screenshotResponseItem struct {
+	QuotedPassage string `json:"quoted_passage"`
+	ShouldShow    string `json:"should_show"`
+	SuggestedAlt  string `json:"suggested_alt"`
+	InsertionHint string `json:"insertion_hint"`
+}
+
+// parseScreenshotResponse extracts a JSON array from raw LLM output and returns
+// parsed items. Reuses extractJSONArray (from drift.go) for preamble tolerance.
+func parseScreenshotResponse(raw string) ([]screenshotResponseItem, error) {
+	arr := extractJSONArray(raw)
+	var items []screenshotResponseItem
+	if err := json.Unmarshal([]byte(arr), &items); err != nil {
+		return nil, fmt.Errorf("invalid screenshot-gap JSON: %w (raw: %q)", err, raw)
+	}
+	return items, nil
 }
