@@ -265,7 +265,11 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 		}
 		return nil, fmt.Errorf("bifrost CompleteJSON: expected tool %q, got %q", respondToolName, got)
 	}
-	return json.RawMessage(tc.Function.Arguments), nil
+	raw := json.RawMessage(tc.Function.Arguments)
+	if err := schema.ValidateResponse(raw); err != nil {
+		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
+	}
+	return raw, nil
 }
 
 // Complete sends a user prompt and returns the first completion text.

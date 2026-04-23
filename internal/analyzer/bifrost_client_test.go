@@ -564,6 +564,46 @@ func TestBifrostClient_CompleteJSON_Anthropic_WrongToolName(t *testing.T) {
 	assert.Contains(t, err.Error(), "respond")
 }
 
+func TestBifrostClient_CompleteJSON_Anthropic_RejectsSchemaViolations(t *testing.T) {
+	// Anthropic's tool input_schema is advisory — the model can ignore it and
+	// emit arguments that don't match. The client must validate against the
+	// schema and return a clear error rather than handing malformed data to the
+	// caller. The canary payload is missing the required "summary" field.
+	respondID := "tc_1"
+	respondName := "respond"
+	badArgs := `{"features":["a","b"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &respondID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &respondName,
+							Arguments: badArgs,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	schema := JSONSchema{
+		Name: "analyze_response",
+		Doc: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"summary":  {"type": "string"},
+				"features": {"type": "array", "items": {"type": "string"}}
+			},
+			"required": ["summary", "features"]
+		}`),
+	}
+	_, err := client.CompleteJSON(context.Background(), "x", schema)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "analyze_response")
+}
+
 func TestBifrostClient_CompleteJSON_Anthropic_SetsMaxCompletionTokens(t *testing.T) {
 	respondID := "tc_1"
 	respondName := "respond"

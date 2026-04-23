@@ -1,8 +1,12 @@
 package analyzer
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
+
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // JSONSchema describes the expected shape of a structured LLM response.
@@ -27,6 +31,35 @@ func (s JSONSchema) Validate() error {
 	}
 	if _, ok := obj["type"]; !ok {
 		return fmt.Errorf("JSONSchema %q: doc must have a 'type' field at the root", s.Name)
+	}
+	return nil
+}
+
+// ValidateResponse checks that raw parses as JSON and conforms to s.Doc. It
+// exists because some providers' structured-output contracts are advisory
+// (Anthropic's tool input_schema, for example) — the model usually obeys but
+// isn't guaranteed to. Every CompleteJSON implementation must call this before
+// returning so callers can rely on the payload matching the declared shape.
+func (s JSONSchema) ValidateResponse(raw json.RawMessage) error {
+	compiler := jsonschema.NewCompiler()
+	const schemaURL = "inline://schema.json"
+	if err := compiler.AddResource(schemaURL, bytes.NewReader(s.Doc)); err != nil {
+		return fmt.Errorf("JSONSchema %q: add resource: %w", s.Name, err)
+	}
+	compiled, err := compiler.Compile(schemaURL)
+	if err != nil {
+		return fmt.Errorf("JSONSchema %q: compile: %w", s.Name, err)
+	}
+
+	var payload any
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber() // jsonschema/v5 requires json.Number for numeric validation
+	if err := dec.Decode(&payload); err != nil {
+		return fmt.Errorf("JSONSchema %q: response is not valid JSON: %w", s.Name, err)
+	}
+
+	if err := compiled.Validate(payload); err != nil {
+		return fmt.Errorf("JSONSchema %q: response does not conform to schema: %w", s.Name, err)
 	}
 	return nil
 }

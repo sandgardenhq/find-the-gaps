@@ -69,3 +69,78 @@ func TestJSONSchema_Validate_MissingTypeField_ReturnsError(t *testing.T) {
 		t.Errorf("error should mention 'type', got: %v", err)
 	}
 }
+
+// --- ValidateResponse tests ---
+
+func analyzeResponseSchema() analyzer.JSONSchema {
+	return analyzer.JSONSchema{
+		Name: "analyze_response",
+		Doc: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"summary":  {"type": "string"},
+				"features": {"type": "array", "items": {"type": "string"}}
+			},
+			"required": ["summary", "features"],
+			"additionalProperties": false
+		}`),
+	}
+}
+
+func TestJSONSchema_ValidateResponse_ConformingPayload_OK(t *testing.T) {
+	s := analyzeResponseSchema()
+	raw := json.RawMessage(`{"summary":"ok","features":["a","b"]}`)
+	if err := s.ValidateResponse(raw); err != nil {
+		t.Fatalf("expected valid, got error: %v", err)
+	}
+}
+
+func TestJSONSchema_ValidateResponse_MissingRequired_ReturnsError(t *testing.T) {
+	s := analyzeResponseSchema()
+	raw := json.RawMessage(`{"summary":"ok"}`) // "features" missing
+	err := s.ValidateResponse(raw)
+	if err == nil {
+		t.Fatal("expected error for missing required field")
+	}
+	if !strings.Contains(err.Error(), "analyze_response") {
+		t.Errorf("error should identify schema by name, got: %v", err)
+	}
+}
+
+func TestJSONSchema_ValidateResponse_WrongType_ReturnsError(t *testing.T) {
+	s := analyzeResponseSchema()
+	raw := json.RawMessage(`{"summary":"ok","features":"not-an-array"}`)
+	if err := s.ValidateResponse(raw); err == nil {
+		t.Fatal("expected error for wrong type")
+	}
+}
+
+func TestJSONSchema_ValidateResponse_AdditionalProperties_ReturnsError(t *testing.T) {
+	s := analyzeResponseSchema()
+	raw := json.RawMessage(`{"summary":"ok","features":[],"extra":"nope"}`)
+	if err := s.ValidateResponse(raw); err == nil {
+		t.Fatal("expected error when additionalProperties=false is violated")
+	}
+}
+
+func TestJSONSchema_ValidateResponse_MalformedJSON_ReturnsError(t *testing.T) {
+	s := analyzeResponseSchema()
+	raw := json.RawMessage(`not json at all`)
+	err := s.ValidateResponse(raw)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON payload")
+	}
+}
+
+func TestJSONSchema_ValidateResponse_InvalidSchemaDoc_ReturnsError(t *testing.T) {
+	// Schema.Doc itself is not a valid JSON Schema — ValidateResponse must surface
+	// this clearly instead of silently passing.
+	s := analyzer.JSONSchema{
+		Name: "bad",
+		Doc:  json.RawMessage(`{"type":"object","properties":"this-should-be-an-object"}`),
+	}
+	raw := json.RawMessage(`{}`)
+	if err := s.ValidateResponse(raw); err == nil {
+		t.Fatal("expected error when schema doc is malformed")
+	}
+}
