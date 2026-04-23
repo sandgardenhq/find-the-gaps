@@ -214,14 +214,10 @@ func TestAnalyze_llmClientError_returnsError(t *testing.T) {
 	}
 }
 
-func TestAnalyze_fullPipeline_withCachedAnalysis(t *testing.T) {
-	// Exercise the full pipeline with every LLM-triggering step pre-cached:
-	// spider index, page analyses, product summary, code features, feature map,
-	// docs feature map. DetectDrift's docsFeatureMap has no pages, so no drift
-	// LLM calls are issued either. In Phase 3, llmClient binds to tiering.Large()
-	// (anthropic); with fake-key and no LLM calls made, the pipeline runs to
-	// completion end-to-end. A fake server stands by to fail loudly if an
-	// unexpected LLM request is sent.
+func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
+	// Every LLM-triggering step is pre-cached so analyze exits cleanly without
+	// making any LLM calls. A fake server stands by to fail loudly if an
+	// unexpected request arrives.
 	docsURL := "https://docs.example.com/page"
 	repoDir := t.TempDir()
 	cacheBase := t.TempDir()

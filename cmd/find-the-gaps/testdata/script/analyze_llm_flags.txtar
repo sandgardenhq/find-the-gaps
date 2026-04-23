@@ -1,5 +1,4 @@
 # analyze accepts LLM tier flags without error (no --docs-url, so no LLM call).
 mkdir repo
-env ANTHROPIC_API_KEY=fake-key
 exec ftg analyze --repo repo --cache-dir $WORK/cache --llm-small ollama/llama3 --llm-large anthropic/claude-test
 stdout 'scanned 0 files'
