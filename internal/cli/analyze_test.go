@@ -367,11 +367,60 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 	}
 }
 
-// TestAnalyze_llmAnalyzeError_continuesWithWarning was removed during the
-// llm-tiering migration (Phase 3 / Task 7). It exercised the AnalyzePage error
-// path using a fake ollama server wired through --llm-base-url. In Phase 3,
-// llmClient is bound to tiering.Large(), which must be a tool-use provider
-// (anthropic or openai), and neither can be cleanly redirected to a local
-// httptest server. Phase 4 (Task 9) routes AnalyzePage to tiering.Small(),
-// where ollama is a valid choice; this test will be re-added there against a
-// fake server routed via OLLAMA_BASE_URL.
+func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
+	// AnalyzePage routes through tiering.Small(). Point Small at a local ollama-
+	// compatible server that returns 500 for every request; the analyze loop must
+	// log a warning and continue rather than abort.
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	projectDir := filepath.Join(cacheBase, projectName)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-populate the spider index but do NOT record an analysis, so the
+	// analyze loop invokes AnalyzePage for this page.
+	docsDir := filepath.Join(projectDir, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := spider.LoadIndex(docsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := spider.URLToFilename(docsURL)
+	if err := os.WriteFile(filepath.Join(docsDir, filename), []byte("# Doc page\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Record(docsURL, filename); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	t.Setenv("OLLAMA_BASE_URL", srv.URL)
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-small", "ollama/test-model",
+		"--llm-typical", "ollama/test-model",
+		"--llm-large", "anthropic/claude-test",
+	})
+	if code != 0 {
+		t.Fatalf("analyze should exit 0 after skipping failed page (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "0 pages analyzed") {
+		t.Errorf("expected '0 pages analyzed' in output; got: %s", combined)
+	}
+}
