@@ -31,13 +31,19 @@ type DriftProgressFunc func(accumulated []DriftFinding) error
 // to skip incremental callbacks.
 func DetectDrift(
 	ctx context.Context,
-	client ToolLLMClient,
+	tiering LLMTiering,
 	featureMap FeatureMap,
 	docsMap DocsFeatureMap,
 	pageReader func(url string) (string, error),
 	repoRoot string,
 	onFinding DriftProgressFunc,
 ) ([]DriftFinding, error) {
+	toolClient, ok := tiering.Large().(ToolLLMClient)
+	if !ok {
+		return nil, fmt.Errorf("DetectDrift: large tier does not support tool use (required for drift detection)")
+	}
+	classifier := tiering.Small()
+
 	// Index docsMap by feature name for fast lookup.
 	docPages := make(map[string][]string, len(docsMap))
 	for _, entry := range docsMap {
@@ -61,13 +67,13 @@ func DetectDrift(
 		if len(pages) == 0 {
 			continue
 		}
-		pages = classifyDriftPages(ctx, client, pages, pageReader)
+		pages = classifyDriftPages(ctx, classifier, pages, pageReader)
 		if len(pages) == 0 {
 			continue
 		}
 
 		log.Infof("  checking drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
-		issues, err := detectDriftForFeature(ctx, client, tools, entry, pages, pageReader, repoRoot)
+		issues, err := detectDriftForFeature(ctx, toolClient, tools, entry, pages, pageReader, repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}

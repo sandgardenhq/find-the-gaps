@@ -120,7 +120,6 @@ func newAnalyzeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("LLM client: %w", err)
 			}
-			llmClient := tiering.Large() // temp: Phase 4 will route each call site to its proper tier
 
 			log.Infof("crawling %s", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
@@ -295,10 +294,6 @@ func newAnalyzeCmd() *cobra.Command {
 			log.Debug("feature mapping complete", "code", len(featureMap), "docs", len(docsFeatureMap))
 
 			log.Infof("detecting documentation drift...")
-			toolClient, ok := llmClient.(analyzer.ToolLLMClient)
-			if !ok {
-				return fmt.Errorf("LLM client does not support tool use (required for drift detection); configure a tool-use-capable provider in --llm-large (anthropic or openai)")
-			}
 			pageReader := func(url string) (string, error) {
 				path, ok := idx.FilePath(url)
 				if !ok {
@@ -317,7 +312,7 @@ func newAnalyzeCmd() *cobra.Command {
 			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
 				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
 			}
-			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
+			driftFindings, err := analyzer.DetectDrift(ctx, tiering, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
 			if err != nil {
 				return fmt.Errorf("detect drift: %w", err)
 			}
