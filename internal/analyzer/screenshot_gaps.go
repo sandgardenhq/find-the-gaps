@@ -69,3 +69,16 @@ func extractImages(md string) []imageRef {
 	}
 	return refs
 }
+
+// buildCoverageMap groups image references by their containing section heading.
+// Passed into the prompt so the LLM can apply the locality rule.
+func buildCoverageMap(refs []imageRef) map[string][]imageRef {
+	if len(refs) == 0 {
+		return map[string][]imageRef{}
+	}
+	out := make(map[string][]imageRef)
+	for _, r := range refs {
+		out[r.SectionHeading] = append(out[r.SectionHeading], r)
+	}
+	return out
+}

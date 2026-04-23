@@ -45,3 +45,18 @@ func TestExtractImages_MixedSyntaxes(t *testing.T) {
 	assert.Equal(t, "a.png", got[0].Src)
 	assert.Equal(t, "b.png", got[1].Src)
 }
+
+func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
+	refs := []imageRef{
+		{Src: "a.png", SectionHeading: "Intro", ParagraphIndex: 1},
+		{Src: "b.png", SectionHeading: "Intro", ParagraphIndex: 3},
+		{Src: "c.png", SectionHeading: "Setup", ParagraphIndex: 7},
+	}
+	m := buildCoverageMap(refs)
+	assert.Equal(t, []imageRef{refs[0], refs[1]}, m["Intro"])
+	assert.Equal(t, []imageRef{refs[2]}, m["Setup"])
+}
+
+func TestBuildCoverageMap_EmptyInput(t *testing.T) {
+	assert.Empty(t, buildCoverageMap(nil))
+}
