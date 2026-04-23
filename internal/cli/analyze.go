@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -335,8 +336,15 @@ func newAnalyzeCmd() *cobra.Command {
 			var screenshotGaps []analyzer.ScreenshotGap
 			if !skipScreenshotCheck {
 				log.Infof("detecting missing screenshots...")
+				urls := make([]string, 0, len(pages))
+				for url := range pages {
+					urls = append(urls, url)
+				}
+				sort.Strings(urls)
+
 				var docPages []analyzer.DocPage
-				for url, filePath := range pages {
+				for _, url := range urls {
+					filePath := pages[url]
 					data, readErr := os.ReadFile(filePath)
 					if readErr != nil {
 						log.Warnf("skip page %s: %v", url, readErr)
