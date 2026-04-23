@@ -331,10 +331,37 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("detect drift: %w", err)
 			}
 			log.Debugf("drift detection complete: %d findings", len(driftFindings))
+
+			var screenshotGaps []analyzer.ScreenshotGap
+			if !skipScreenshotCheck {
+				log.Infof("detecting missing screenshots...")
+				var docPages []analyzer.DocPage
+				for url, filePath := range pages {
+					data, readErr := os.ReadFile(filePath)
+					if readErr != nil {
+						log.Warnf("skip page %s: %v", url, readErr)
+						continue
+					}
+					docPages = append(docPages, analyzer.DocPage{
+						URL:     url,
+						Path:    filePath,
+						Content: string(data),
+					})
+				}
+				progress := func(done, total int, page string) {
+					log.Infof("  [%d/%d] %s", done, total, page)
+				}
+				screenshotGaps, err = analyzer.DetectScreenshotGaps(ctx, llmClient, docPages, progress)
+				if err != nil {
+					return fmt.Errorf("detect screenshots: %w", err)
+				}
+				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotGaps))
+			}
+
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings, nil); err != nil {
+			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings, screenshotGaps); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 

@@ -361,6 +361,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"--docs-url", docsURL,
 		"--llm-provider", "anthropic",
 		"--llm-model", "claude-test",
+		"--skip-screenshot-check",
 	})
 	if code != 0 {
 		t.Fatalf("analyze with anthropic provider failed (code=%d): stdout=%q stderr=%q",
