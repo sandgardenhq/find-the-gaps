@@ -25,3 +25,14 @@ func parseTierString(raw string) (provider, model string, err error) {
 	}
 	return provider, model, nil
 }
+
+// providerSupportsToolUse reports whether the Bifrost integration for this
+// provider currently supports tool calling (required by drift detection).
+func providerSupportsToolUse(provider string) bool {
+	switch provider {
+	case "anthropic", "openai":
+		return true
+	default:
+		return false
+	}
+}

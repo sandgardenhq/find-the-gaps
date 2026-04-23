@@ -37,3 +37,24 @@ func TestParseTierString(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderSupportsToolUse(t *testing.T) {
+	cases := map[string]bool{
+		"anthropic":         true,
+		"openai":            true,
+		"ollama":            false,
+		"lmstudio":          false,
+		"openai-compatible": false,
+	}
+	for provider, want := range cases {
+		if got := providerSupportsToolUse(provider); got != want {
+			t.Errorf("providerSupportsToolUse(%q) = %v; want %v", provider, got, want)
+		}
+	}
+}
+
+func TestProviderSupportsToolUseRejectsUnknown(t *testing.T) {
+	if providerSupportsToolUse("bedrock") {
+		t.Fatal("unknown provider should not report tool-use support")
+	}
+}
