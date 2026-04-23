@@ -1,16 +1,11 @@
-# doctor exits zero and reports versions from fake rg + mdfetch on PATH.
-# PATH prepends $WORK/bin so the fakes shadow any real binaries on the system.
-chmod 755 bin/rg
+# doctor exits zero and reports the version from a fake mdfetch on PATH.
+# PATH prepends $WORK/bin so the fake shadows any real binary on the system.
 chmod 755 bin/mdfetch
 env PATH=$WORK/bin:$PATH
 exec ftg doctor
-stdout 'ripgrep 99\.9\.9'
 stdout 'mdfetch 42\.0\.0'
 ! stderr .
 
--- bin/rg --
-#!/bin/sh
-echo "ripgrep 99.9.9"
 -- bin/mdfetch --
 #!/bin/sh
 echo "mdfetch 42.0.0"
