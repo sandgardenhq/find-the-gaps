@@ -1,5 +1,5 @@
-// Package doctor checks that the external tools find-the-gaps shells out to
-// (ripgrep, mdfetch) are installed and reports a clear install hint if not.
+// Package doctor checks that the external tool find-the-gaps shells out to
+// (mdfetch) is installed and reports a clear install hint if not.
 package doctor
 
 import (
@@ -14,8 +14,8 @@ import (
 )
 
 type Tool struct {
-	Name        string              // display name, e.g. "ripgrep"
-	Binary      string              // executable name on PATH, e.g. "rg"
+	Name        string              // display name, e.g. "mdfetch"
+	Binary      string              // executable name on PATH, e.g. "mdfetch"
 	VersionArg  string              // argument that prints the version, e.g. "--version"
 	InstallHint string              // human-readable install fallback shown when automated install is unavailable
 	InstallCmds map[string][]string // GOOS → {cmd, arg1, ...} for automated install
@@ -23,15 +23,6 @@ type Tool struct {
 
 // RequiredTools is the fixed list of external dependencies find-the-gaps needs.
 var RequiredTools = []Tool{
-	{
-		Name:        "ripgrep",
-		Binary:      "rg",
-		VersionArg:  "--version",
-		InstallHint: "brew install ripgrep",
-		InstallCmds: map[string][]string{
-			"darwin": {"brew", "install", "ripgrep"},
-		},
-	},
 	{
 		Name:        "mdfetch",
 		Binary:      "mdfetch",

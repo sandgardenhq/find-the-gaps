@@ -10,7 +10,6 @@ import (
 
 func TestRun_Doctor_AllPresent_ReturnsZero(t *testing.T) {
 	dir := t.TempDir()
-	writeFakeBin(t, dir, "rg", "ripgrep 99.0.0")
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
 	t.Setenv("PATH", dir)
 
@@ -19,8 +18,8 @@ func TestRun_Doctor_AllPresent_ReturnsZero(t *testing.T) {
 	if code != 0 {
 		t.Errorf("code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "ripgrep 99.0.0") {
-		t.Errorf("stdout missing ripgrep version; got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "mdfetch 1.2.3") {
+		t.Errorf("stdout missing mdfetch version; got %q", stdout.String())
 	}
 }
 
@@ -33,8 +32,8 @@ func TestRun_Doctor_Missing_ReturnsOne(t *testing.T) {
 	if code != 1 {
 		t.Errorf("code = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "ripgrep") {
-		t.Errorf("stderr should mention ripgrep, got %q", stderr.String())
+	if !strings.Contains(stderr.String(), "mdfetch") {
+		t.Errorf("stderr should mention mdfetch, got %q", stderr.String())
 	}
 	if strings.Contains(stderr.String(), "Error:") {
 		t.Errorf("ExitCodeError should not print 'Error:' preamble, got %q", stderr.String())

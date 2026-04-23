@@ -1,5 +1,42 @@
 # Progress
 
+## Remove ripgrep dependency + document supported languages - COMPLETE
+- Started: 2026-04-23
+- Plan: `.plans/2026-04-23-remove-ripgrep-dependency.md` (11 tasks, TDD per task, fresh subagent per task, code review between tasks)
+- Summary: ripgrep (`rg`) was declared as a required external dependency but was never actually shelled out from any analyzer/scanner/spider/reporter code. This branch scrubs it from live code, tests, docs, testscripts, the Homebrew formula stanza, verification plan, and CLAUDE.md. README also gains a "Supported languages" section derived from the tree-sitter extractor registry.
+- Tasks completed (commit SHAs in parens):
+  - 1. Pre-flight grep confirmation — no live ripgrep usage outside doctor/install-deps
+  - 2. Remove rg from `internal/doctor/doctor.go` + tests (72088a0)
+  - 3. Remove rg from `internal/doctor/install_test.go` (9dcc42b)
+  - 4. Pre-existing errcheck debt cleanup in `internal/doctor/install.go` (d41c513) — isolated from feature change
+  - 5. Rewrite `internal/cli/doctor_test.go` to mdfetch-only (5facc6b)
+  - 6. Rewrite `internal/cli/install_deps_test.go` + Short/Long help strings (c7b439d, a570f1c)
+  - 7. Update `internal/cli/doctor.go` + `internal/cli/install_deps.go` + `internal/cli/root_test.go` Short/Long + banner comment (0c5de02)
+  - 8. README — rewrite "What this installs", add new "Supported languages" table, update 4 embedded command help lines (001e50c)
+  - 9. CLAUDE.md — External Runtime Dependencies, Distribution, User Notification, example branch name (92fe325)
+  - 10. VERIFICATION_PLAN.md — Prerequisites, Scenarios 5/6/7, Verification Rules (a71408d)
+  - 11. `cmd/find-the-gaps/testdata/script/doctor_ok.txtar` — mdfetch-only testscript (37e7ccb)
+- Gate results (full suite, final pass):
+  - `go test ./...` — all green
+  - `go test -race ./...` — all green
+  - `go test -cover ./...` — all packages ≥ 90%:
+    - internal/doctor: 98.4%
+    - internal/cli: 90.2%
+    - cmd/find-the-gaps: 100.0%
+    - internal/analyzer: 94.7%
+    - internal/reporter: 97.4%
+    - internal/scanner: 93.8%
+    - internal/scanner/lang: 91.8%
+    - internal/spider: 94.4%
+  - `golangci-lint run` — 0 issues
+  - `go build ./...` — success
+  - CLI smoke: `doctor --help`, `install-deps --help`, root `--help` — all clean of ripgrep/rg
+- Completed: 2026-04-23
+- Notes:
+  - 4 intentional negative assertions remain in `internal/doctor/doctor_test.go` — they assert ripgrep/rg do NOT appear in output (regression guard-rails), not leftover mentions. Preserved deliberately.
+  - `.gitignore` line 48 lists `.plans/` while CLAUDE.md says plans are tracked in git. The contradiction is pre-existing (`.plans/` contents were tracked before the ignore rule was added). Out of scope for this PR; flagged for follow-up.
+  - Task 4 split from Task 3 in the plan because the errcheck violations it fixes pre-date this branch (from commit 1703ec2). Isolating the pre-existing-debt commit from the feature commit keeps the git history reviewable.
+
 ## Task 7 (fix-feature-doc-status plan): WriteMapping consumes DocsFeatureMap - COMPLETE
 - Started: 2026-04-23
 - Bug: mapping.md marked every feature "undocumented" because WriteMapping compared canonical CodeFeature.Name strings against PageAnalysis.Features (raw per-page LLM output from an unrelated pass). The two name universes almost never collide verbatim.

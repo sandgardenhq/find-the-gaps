@@ -8,8 +8,8 @@ import (
 func newInstallDepsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install-deps",
-		Short: "Install required external tools (ripgrep, mdfetch).",
-		Long:  "Install ripgrep and mdfetch if they are not already on $PATH. Already-present tools are skipped.",
+		Short: "Install the required external tool (mdfetch).",
+		Long:  "Install mdfetch if it is not already on $PATH. An already-present tool is skipped.",
 		RunE: func(cc *cobra.Command, _ []string) error {
 			if code := doctor.RunInstall(cc.Context(), cc.OutOrStdout(), cc.ErrOrStderr()); code != 0 {
 				return &ExitCodeError{Code: code}
