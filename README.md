@@ -85,20 +85,57 @@ Usage:
   ftg analyze [flags]
 
 Flags:
-      --cache-dir string      base directory for all cached results (default ".find-the-gaps")
-      --docs-url string       URL of the documentation site to analyze
-  -h, --help                  help for analyze
-      --llm-base-url string   base URL for local providers (required for openai-compatible; default: provider-specific)
-      --llm-model string      model name (default varies by provider; e.g. llama3 for ollama)
-      --llm-provider string   LLM provider: anthropic | openai | ollama | lmstudio | openai-compatible (default "anthropic")
-      --no-cache              force full re-scan, ignoring any cached results
-      --no-symbols            map features to files only, skipping symbol-level analysis
-      --repo string           path to the repository to analyze (default ".")
-      --workers int           number of parallel mdfetch workers (default 5)
+      --cache-dir string     base directory for all cached results (default ".find-the-gaps")
+      --docs-url string      URL of the documentation site to analyze
+  -h, --help                 help for analyze
+      --llm-large string     large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
+      --llm-small string     small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
+      --llm-typical string   typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
+      --no-cache             force full re-scan, ignoring any cached results
+      --no-symbols           map features to files only, skipping symbol-level analysis
+      --repo string          path to the repository to analyze (default ".")
+      --workers int          number of parallel mdfetch workers (default 5)
 
 Global Flags:
   -v, --verbose   show debug logs
 ```
+
+#### LLM tier configuration
+
+Find the Gaps routes LLM work across three reasoning tiers so cheap, high-volume
+calls land on cheaper models while the hardest calls use a frontier model:
+
+| Tier      | Used for                                            | Default                         |
+|-----------|-----------------------------------------------------|---------------------------------|
+| `small`   | Per-page doc summaries and release-note classifier  | `anthropic/claude-haiku-4-5`    |
+| `typical` | Extracting features from code                       | `anthropic/claude-sonnet-4-6`   |
+| `large`   | Feature-to-code mapping and agentic drift detection | `anthropic/claude-opus-4-7`     |
+
+Each tier accepts a combined `provider/model` string. Bare model names default
+to the `anthropic` provider. The `large` tier must name a provider that supports
+tool use (currently `anthropic` or `openai`) — the CLI refuses to start otherwise.
+
+Configure tiers via flag, environment variable, or TOML:
+
+```toml
+[llm]
+small   = "anthropic/claude-haiku-4-5"
+typical = "anthropic/claude-sonnet-4-6"
+large   = "anthropic/claude-opus-4-7"
+```
+
+Environment variables:
+
+- `FIND_THE_GAPS_LLM_SMALL`
+- `FIND_THE_GAPS_LLM_TYPICAL`
+- `FIND_THE_GAPS_LLM_LARGE`
+- `ANTHROPIC_API_KEY` — required when any tier points at an Anthropic model
+- `OPENAI_API_KEY` — required when any tier points at an OpenAI model
+- `OLLAMA_BASE_URL` — overrides the default Ollama endpoint
+
+> **Breaking change.** The old `--llm-provider`, `--llm-model`, and
+> `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`
+> with `--llm-typical X/Y` (or the tier that matches your use case).
 
 ### doctor
 
