@@ -186,6 +186,18 @@ func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMe
 	return result, nil
 }
 
+// CompleteJSON sends prompt and requests a response conforming to schema,
+// returning the raw JSON bytes. Dispatches per provider:
+//   - Anthropic: forced tool use with a single "respond" tool whose input_schema
+//     equals schema.Doc.
+//   - OpenAI: response_format={"type":"json_schema", ...} with strict=true.
+//
+// Implemented in CompleteJSON_anthropic.go and CompleteJSON_openai.go; this
+// method is a dispatcher stub until those land (Phase 2).
+func (c *BifrostClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+	return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)
+}
+
 // Complete sends a user prompt and returns the first completion text.
 func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, error) {
 	bifrostCtx := schemas.NewBifrostContext(ctx, schemas.NoDeadline)
