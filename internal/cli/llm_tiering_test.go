@@ -40,3 +40,92 @@ func TestNewLLMTiering_RejectsNonToolUseLarge(t *testing.T) {
 		t.Fatalf("expected error about tool use, got %v", err)
 	}
 }
+
+func TestNewLLMTiering_ExposesCounters(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	tg, err := newLLMTiering("", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tg.SmallCounter() == nil || tg.TypicalCounter() == nil || tg.LargeCounter() == nil {
+		t.Fatal("all three counters must be non-nil")
+	}
+}
+
+func TestBuildTierClient_OpenAI_MissingKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	_, _, err := buildTierClient("openai", "gpt-4o")
+	if err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") {
+		t.Fatalf("expected OPENAI_API_KEY error, got %v", err)
+	}
+}
+
+func TestBuildTierClient_OpenAI_Success(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	client, counter, err := buildTierClient("openai", "gpt-4o")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("openai path must return non-nil client and counter")
+	}
+}
+
+func TestBuildTierClient_Ollama_DefaultBaseURL(t *testing.T) {
+	t.Setenv("OLLAMA_BASE_URL", "")
+	client, counter, err := buildTierClient("ollama", "llama3.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("ollama path must return non-nil client and counter")
+	}
+}
+
+func TestBuildTierClient_Ollama_CustomBaseURL(t *testing.T) {
+	t.Setenv("OLLAMA_BASE_URL", "http://ollama.local:11434")
+	client, _, err := buildTierClient("ollama", "llama3.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestBuildTierClient_LMStudio(t *testing.T) {
+	t.Setenv("LMSTUDIO_BASE_URL", "")
+	client, counter, err := buildTierClient("lmstudio", "local-model")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("lmstudio path must return non-nil client and counter")
+	}
+}
+
+func TestBuildTierClient_OpenAICompatible_MissingBaseURL(t *testing.T) {
+	t.Setenv("OPENAI_COMPATIBLE_BASE_URL", "")
+	_, _, err := buildTierClient("openai-compatible", "local-model")
+	if err == nil || !strings.Contains(err.Error(), "OPENAI_COMPATIBLE_BASE_URL") {
+		t.Fatalf("expected OPENAI_COMPATIBLE_BASE_URL error, got %v", err)
+	}
+}
+
+func TestBuildTierClient_OpenAICompatible_Success(t *testing.T) {
+	t.Setenv("OPENAI_COMPATIBLE_BASE_URL", "http://example.local")
+	client, counter, err := buildTierClient("openai-compatible", "local-model")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("openai-compatible path must return non-nil client and counter")
+	}
+}
+
+func TestBuildTierClient_UnknownProvider(t *testing.T) {
+	_, _, err := buildTierClient("bogus", "whatever")
+	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
+		t.Fatalf("expected unknown provider error, got %v", err)
+	}
+}
