@@ -222,11 +222,11 @@ func TestWalk_skipsKnownDependencyDirs(t *testing.T) {
 		name    string
 		dirName string
 	}{
-		{"go vendor",      "vendor"},
-		{"node_modules",   "node_modules"},
+		{"go vendor", "vendor"},
+		{"node_modules", "node_modules"},
 		{"python pycache", "__pycache__"},
-		{"rust target",    "target"},
-		{"python venv",    "venv"},
+		{"rust target", "target"},
+		{"python venv", "venv"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
