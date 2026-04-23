@@ -9,9 +9,9 @@ import (
 )
 
 func TestInstallDepsCmd_AllPresent_ExitsZero(t *testing.T) {
-	// Write fake rg and mdfetch binaries so RunInstall skips actual installs.
+	// Write a fake mdfetch binary so RunInstall skips actual installs.
 	dir := t.TempDir()
-	for _, name := range []string{"rg", "mdfetch"} {
+	for _, name := range []string{"mdfetch"} {
 		path := filepath.Join(dir, name)
 		script := "#!/bin/sh\necho \"" + name + " 1.0.0\"\n"
 		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {

@@ -192,7 +192,7 @@ func TestRun_verbose_doctorShowsDebugOutput(t *testing.T) {
 		log.SetLevel(log.InfoLevel)
 	})
 	// Running doctor --verbose must produce DEBU lines in stderr
-	// regardless of whether rg/mdfetch are installed.
+	// regardless of whether mdfetch is installed.
 	var stdout, stderr bytes.Buffer
 	run(&stdout, &stderr, []string{"--verbose", "doctor"})
 	// Do not assert exit code — tools may or may not be present in CI.

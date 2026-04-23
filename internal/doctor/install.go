@@ -30,24 +30,24 @@ func runInstall(
 	exitCode := 0
 	for _, t := range tools {
 		if lookup(t.Binary) {
-			fmt.Fprintf(stdout, "%-8s already installed, skipping.\n", t.Name)
+			_, _ = fmt.Fprintf(stdout, "%-8s already installed, skipping.\n", t.Name)
 			continue
 		}
 		cmdArgs, ok := t.InstallCmds[goos]
 		if !ok {
-			fmt.Fprintf(stderr, "%s: no automated install available on %s.\n  install manually: %s\n",
+			_, _ = fmt.Fprintf(stderr, "%s: no automated install available on %s.\n  install manually: %s\n",
 				t.Name, goos, t.InstallHint)
 			exitCode = 1
 			continue
 		}
-		fmt.Fprintf(stdout, "Installing %s...\n", t.Name)
+		_, _ = fmt.Fprintf(stdout, "Installing %s...\n", t.Name)
 		if err := runner(ctx, stdout, stderr, cmdArgs[0], cmdArgs[1:]...); err != nil {
-			fmt.Fprintf(stderr, "Failed to install %s: %v\n  try manually: %s\n",
+			_, _ = fmt.Fprintf(stderr, "Failed to install %s: %v\n  try manually: %s\n",
 				t.Name, err, t.InstallHint)
 			exitCode = 1
 			continue
 		}
-		fmt.Fprintf(stdout, "%s installed.\n", t.Name)
+		_, _ = fmt.Fprintf(stdout, "%s installed.\n", t.Name)
 	}
 	return exitCode
 }
