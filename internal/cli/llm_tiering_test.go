@@ -1,13 +1,12 @@
 package cli
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestNewLLMTiering_DefaultsRequireAnthropicKey(t *testing.T) {
-	os.Unsetenv("ANTHROPIC_API_KEY")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	_, err := newLLMTiering("", "", "")
 	if err == nil {
 		t.Fatal("expected error when ANTHROPIC_API_KEY unset")
