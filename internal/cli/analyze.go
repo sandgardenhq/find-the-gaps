@@ -42,9 +42,6 @@ func runBothMaps(
 	codeCh := make(chan bothMapsResult, 1)
 	docsCh := make(chan docsMapsResult, 1)
 
-	// MapFeaturesToDocs still accepts a raw client and []string feature names.
-	// Task 12 will migrate it onto the tiering interface.
-	client := tiering.Large()
 	featureNames := make([]string, len(features))
 	for i, f := range features {
 		featureNames[i] = f.Name
@@ -56,7 +53,7 @@ func runBothMaps(
 	}()
 
 	go func() {
-		fm, err := analyzer.MapFeaturesToDocs(ctx, client, featureNames, pages, workers, docsTokenBudget, onDocsPage)
+		fm, err := analyzer.MapFeaturesToDocs(ctx, tiering, featureNames, pages, workers, docsTokenBudget, onDocsPage)
 		docsCh <- docsMapsResult{fm, err}
 	}()
 
