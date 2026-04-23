@@ -12,14 +12,26 @@ Project maintainers know their docs rot. It persists not because the problem is 
 
 Find the Gaps closes that gap.
 
+## Supported languages
+
+Find the Gaps uses [tree-sitter](https://github.com/smacker/go-tree-sitter) to extract symbols (functions, types, exports) from these languages:
+
+| Language | Extensions |
+| --- | --- |
+| Go | `.go` |
+| Python | `.py`, `.pyw` |
+| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` |
+| Rust | `.rs` |
+
+Unrecognized text files are still scanned as plain text so they can be cross-referenced against docs, but no symbols are extracted from them. Binary files (images, archives, fonts, audio, compiled libraries, etc.) are skipped entirely.
+
 ## What this installs
 
-Find the Gaps shells out to two runtime dependencies that must be on your `$PATH`:
+Find the Gaps shells out to one runtime dependency that must be on your `$PATH`:
 
-- [`ripgrep`](https://github.com/BurntSushi/ripgrep) — fast codebase searching
 - [`mdfetch`](https://www.npmjs.com/package/@sandgarden/mdfetch) — downloads a documentation site as markdown
 
-Run `ftg doctor` at any time to check that both are available and see their detected versions.
+Run `ftg doctor` at any time to check that it is available and see its detected version.
 
 ## Install
 
@@ -52,9 +64,9 @@ Usage:
 Available Commands:
   analyze      Analyze a codebase against its documentation site for gaps.
   completion   Generate the autocompletion script for the specified shell
-  doctor       Check that required external tools (ripgrep, mdfetch) are installed.
+  doctor       Check that the required external tool (mdfetch) is installed.
   help         Help about any command
-  install-deps Install required external tools (ripgrep, mdfetch).
+  install-deps Install the required external tool (mdfetch).
 
 Flags:
   -h, --help      help for ftg
@@ -91,7 +103,7 @@ Global Flags:
 ### doctor
 
 ```
-Check that required external tools (ripgrep, mdfetch) are installed.
+Check that the required external tool (mdfetch) is installed.
 
 Usage:
   ftg doctor [flags]
@@ -106,7 +118,7 @@ Global Flags:
 ### install-deps
 
 ```
-Install ripgrep and mdfetch if they are not already on $PATH. Already-present tools are skipped.
+Install mdfetch if it is not already on $PATH. An already-present tool is skipped.
 
 Usage:
   ftg install-deps [flags]
