@@ -60,3 +60,26 @@ func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
 func TestBuildCoverageMap_EmptyInput(t *testing.T) {
 	assert.Empty(t, buildCoverageMap(nil))
 }
+
+func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
+	pageURL := "https://example.com/quickstart"
+	content := "# Quickstart\n\nRun the command and see the output.\n"
+	coverage := map[string][]imageRef{
+		"Quickstart": {{Src: "hero.png", AltText: "Hero", SectionHeading: "Quickstart", ParagraphIndex: 0}},
+	}
+	got := buildScreenshotPrompt(pageURL, content, coverage)
+	assert.Contains(t, got, pageURL)
+	assert.Contains(t, got, content)
+	assert.Contains(t, got, "hero.png")
+	assert.Contains(t, got, "quoted_passage")
+	assert.Contains(t, got, "should_show")
+	assert.Contains(t, got, "suggested_alt")
+	assert.Contains(t, got, "insertion_hint")
+	assert.Contains(t, got, "same section")
+	assert.Contains(t, got, "3 paragraphs")
+}
+
+func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	assert.Contains(t, got, "No existing images")
+}

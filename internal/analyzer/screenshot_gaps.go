@@ -1,7 +1,9 @@
 package analyzer
 
 import (
+	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -81,4 +83,59 @@ func buildCoverageMap(refs []imageRef) map[string][]imageRef {
 		out[r.SectionHeading] = append(out[r.SectionHeading], r)
 	}
 	return out
+}
+
+// buildScreenshotPrompt assembles the LLM prompt for one docs page.
+func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef) string {
+	var coverageSummary string
+	if len(coverage) == 0 {
+		coverageSummary = "No existing images on this page."
+	} else {
+		sections := make([]string, 0, len(coverage))
+		for s := range coverage {
+			sections = append(sections, s)
+		}
+		sort.Strings(sections)
+		var lines []string
+		for _, s := range sections {
+			heading := s
+			if heading == "" {
+				heading = "(no heading)"
+			}
+			for _, r := range coverage[s] {
+				lines = append(lines, fmt.Sprintf("- section %q, paragraph %d: src=%q alt=%q",
+					heading, r.ParagraphIndex, r.Src, r.AltText))
+			}
+		}
+		coverageSummary = strings.Join(lines, "\n")
+	}
+
+	// PROMPT: Identifies passages in a documentation page that describe user-facing UI moments (web, app, terminal) and should have a screenshot nearby but do not. Applies a locality rule: a passage is already covered if an image appears in the same section heading or within 3 paragraphs before/after. Returns a JSON array; empty if nothing needs a screenshot.
+	return fmt.Sprintf(`You are reviewing a documentation page to identify places where a screenshot would materially help the reader, but none is present nearby.
+
+URL: %s
+
+Existing images on this page (if any):
+%s
+
+Page content:
+%s
+
+A passage is ALREADY COVERED (do not flag it) if an existing image on this page appears in the same section heading as the passage, OR within 3 paragraphs before/after the passage.
+
+Only flag passages that describe a concrete user-facing moment the reader would benefit from seeing: a web UI, an app screen, a terminal session with visible output, a dialog, a dashboard, a button or form the user interacts with.
+
+Do NOT flag:
+- Pure reference material (API signatures, type tables, option lists).
+- Abstract prose with no concrete UI moment.
+- Passages already covered by a nearby image per the locality rule above.
+
+For each remaining gap, return an object with these fields:
+- "quoted_passage": the exact verbatim quote from the page that describes the UI moment. Do not paraphrase.
+- "should_show": a concrete description of what the screenshot should depict. Be specific: name the visible elements, values, buttons, states. Not "a screenshot of the feature".
+- "suggested_alt": alt text / caption for the screenshot, under 100 characters.
+- "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
+
+Return a JSON array of these objects. Return [] if nothing needs a screenshot.
+Respond with only the JSON array. No markdown code fences. No prose.`, pageURL, coverageSummary, content)
 }
