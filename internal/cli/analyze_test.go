@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAnalyze_repoFlag_appearsInHelp(t *testing.T) {
@@ -397,4 +399,12 @@ func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 	if !strings.Contains(combined, "analyzed") && !strings.Contains(combined, "warning") {
 		t.Errorf("expected warning or '0 pages analyzed'; got: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
+}
+
+func TestAnalyzeCmd_HasSkipScreenshotCheckFlag(t *testing.T) {
+	cmd := newAnalyzeCmd()
+	f := cmd.Flags().Lookup("skip-screenshot-check")
+	require.NotNil(t, f)
+	assert.Equal(t, "false", f.DefValue)
+	assert.Contains(t, f.Usage, "screenshot")
 }

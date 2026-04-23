@@ -73,15 +73,16 @@ func runBothMaps(
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		docsURL     string
-		repoPath    string
-		cacheDir    string
-		workers     int
-		noCache     bool
-		noSymbols   bool
-		llmProvider string
-		llmModel    string
-		llmBaseURL  string
+		docsURL             string
+		repoPath            string
+		cacheDir            string
+		workers             int
+		noCache             bool
+		noSymbols           bool
+		llmProvider         string
+		llmModel            string
+		llmBaseURL          string
+		skipScreenshotCheck bool
 	)
 
 	cmd := &cobra.Command{
@@ -357,6 +358,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&llmBaseURL, "llm-base-url", "",
 		"base URL for local providers (required for openai-compatible; default: provider-specific)")
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
+	cmd.Flags().BoolVar(&skipScreenshotCheck, "skip-screenshot-check", false,
+		"skip the missing-screenshot detection pass")
 
 	return cmd
 }
