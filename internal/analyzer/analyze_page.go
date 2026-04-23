@@ -34,7 +34,7 @@ Respond with only the JSON object. No markdown code fences. No prose.`, pageURL,
 	}
 
 	var resp analyzePageResponse
-	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &resp); err != nil {
 		return PageAnalysis{}, fmt.Errorf("AnalyzePage %s: invalid JSON response: %w", pageURL, err)
 	}
 

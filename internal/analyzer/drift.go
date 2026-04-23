@@ -344,7 +344,7 @@ Content preview:
 // If no valid array is found, the trimmed input is returned unchanged so the
 // caller's json.Unmarshal still produces a useful error.
 func extractJSONArray(s string) string {
-	s = strings.TrimSpace(s)
+	s = stripCodeFence(s)
 	for i := len(s) - 1; i >= 0; i-- {
 		if s[i] != '[' {
 			continue

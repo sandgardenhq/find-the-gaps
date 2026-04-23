@@ -72,7 +72,7 @@ Respond with only the JSON array. No markdown code fences. No prose.`,
 	}
 
 	var matched []string
-	if err := json.Unmarshal([]byte(raw), &matched); err != nil {
+	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &matched); err != nil {
 		return nil, fmt.Errorf("mapPageToFeatures %s: invalid JSON response: %w", pageURL, err)
 	}
 	if matched == nil {
