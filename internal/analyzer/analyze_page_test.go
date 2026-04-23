@@ -63,6 +63,33 @@ func TestAnalyzePage_InvalidJSON_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestAnalyzePage_StripsMarkdownCodeFence(t *testing.T) {
+	fenced := "```json\n{\"summary\":\"Fenced.\",\"features\":[\"a\"]}\n```"
+	c := &fakeClient{responses: []string{fenced}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
+	if err != nil {
+		t.Fatalf("expected fenced JSON to parse, got error: %v", err)
+	}
+	if got.Summary != "Fenced." {
+		t.Errorf("Summary: got %q, want %q", got.Summary, "Fenced.")
+	}
+	if len(got.Features) != 1 || got.Features[0] != "a" {
+		t.Errorf("Features: got %v", got.Features)
+	}
+}
+
+func TestAnalyzePage_StripsBareCodeFence(t *testing.T) {
+	fenced := "```\n{\"summary\":\"Bare.\",\"features\":[]}\n```"
+	c := &fakeClient{responses: []string{fenced}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
+	if err != nil {
+		t.Fatalf("expected bare-fenced JSON to parse, got error: %v", err)
+	}
+	if got.Summary != "Bare." {
+		t.Errorf("Summary: got %q", got.Summary)
+	}
+}
+
 func TestAnalyzePage_MissingFeaturesKey_ReturnsEmptySlice(t *testing.T) {
 	c := &fakeClient{responses: []string{`{"summary":"A page with no features key."}`}}
 	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")

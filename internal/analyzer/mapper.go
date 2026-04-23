@@ -157,7 +157,7 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 		}
 
 		var entries []mapEntry
-		if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		if err := json.Unmarshal([]byte(stripCodeFence(raw)), &entries); err != nil {
 			return nil, fmt.Errorf("MapFeaturesToCode: invalid JSON response: %w", err)
 		}
 

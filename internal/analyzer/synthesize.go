@@ -40,7 +40,7 @@ Respond with only the JSON object. No markdown code fences. No prose.`, sb.Strin
 	}
 
 	var resp synthesizeResponse
-	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &resp); err != nil {
 		return ProductSummary{}, fmt.Errorf("SynthesizeProduct: invalid JSON response: %w", err)
 	}
 

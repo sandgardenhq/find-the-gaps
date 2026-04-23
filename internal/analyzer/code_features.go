@@ -76,7 +76,7 @@ Respond with only the JSON array. No markdown code fences. No prose.`, strings.J
 		}
 
 		var features []CodeFeature
-		if err := json.Unmarshal([]byte(raw), &features); err != nil {
+		if err := json.Unmarshal([]byte(stripCodeFence(raw)), &features); err != nil {
 			return nil, fmt.Errorf("ExtractFeaturesFromCode: invalid JSON response: %w", err)
 		}
 		if features == nil {
