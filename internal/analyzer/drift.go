@@ -40,7 +40,7 @@ func DetectDrift(
 ) ([]DriftFinding, error) {
 	toolClient, ok := tiering.Large().(ToolLLMClient)
 	if !ok {
-		return nil, fmt.Errorf("DetectDrift: large tier does not support tool use (required for drift detection)")
+		return nil, fmt.Errorf("DetectDrift: large tier does not support tool use (required for drift detection); configure --llm-large with a tool-use-capable provider (anthropic or openai)")
 	}
 	classifier := tiering.Small()
 
