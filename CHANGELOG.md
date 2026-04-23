@@ -6,10 +6,14 @@
 - Removed `--llm-provider`, `--llm-model`, and `--llm-base-url` flags.
 - Introduced `--llm-small`, `--llm-typical`, `--llm-large` with combined
   `provider/model` syntax (e.g. `anthropic/claude-opus-4-7`). Bare model names
-  default to the `anthropic` provider. Each tier is configurable independently
-  via CLI flag, `[llm]` section in TOML config, or `FIND_THE_GAPS_LLM_*` env var.
+  default to the `anthropic` provider. Each tier is configurable via CLI flag
+  or the corresponding `FIND_THE_GAPS_LLM_SMALL` / `_TYPICAL` / `_LARGE` env var.
+- Base URLs for local providers moved from `--llm-base-url` to provider-specific
+  env vars: `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`, and `OPENAI_COMPATIBLE_BASE_URL`
+  (the last is required when any tier uses the `openai-compatible` provider).
 - Migration: replace `--llm-provider X --llm-model Y` with
-  `--llm-typical X/Y` (or the tier that matches your use case).
+  `--llm-typical X/Y` (or the tier that matches your use case), and move any
+  `--llm-base-url` value into the matching `*_BASE_URL` env var.
 
 ### Added
 - Per-tier client construction with eager startup validation; unknown providers

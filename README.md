@@ -115,27 +115,22 @@ Each tier accepts a combined `provider/model` string. Bare model names default
 to the `anthropic` provider. The `large` tier must name a provider that supports
 tool use (currently `anthropic` or `openai`) — the CLI refuses to start otherwise.
 
-Configure tiers via flag, environment variable, or TOML:
-
-```toml
-[llm]
-small   = "anthropic/claude-haiku-4-5"
-typical = "anthropic/claude-sonnet-4-6"
-large   = "anthropic/claude-opus-4-7"
-```
-
-Environment variables:
+Configure tiers via flag or environment variable:
 
 - `FIND_THE_GAPS_LLM_SMALL`
 - `FIND_THE_GAPS_LLM_TYPICAL`
 - `FIND_THE_GAPS_LLM_LARGE`
 - `ANTHROPIC_API_KEY` — required when any tier points at an Anthropic model
 - `OPENAI_API_KEY` — required when any tier points at an OpenAI model
-- `OLLAMA_BASE_URL` — overrides the default Ollama endpoint
+- `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
+- `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
+- `OPENAI_COMPATIBLE_BASE_URL` — required when any tier uses the `openai-compatible` provider
 
 > **Breaking change.** The old `--llm-provider`, `--llm-model`, and
 > `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`
-> with `--llm-typical X/Y` (or the tier that matches your use case).
+> with `--llm-typical X/Y` (or the tier that matches your use case). Base URLs
+> for `ollama`, `lmstudio`, and `openai-compatible` are now set via the
+> `*_BASE_URL` env vars listed above.
 
 ### doctor
 
