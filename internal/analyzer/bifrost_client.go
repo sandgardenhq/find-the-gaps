@@ -190,12 +190,82 @@ func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMe
 // returning the raw JSON bytes. Dispatches per provider:
 //   - Anthropic: forced tool use with a single "respond" tool whose input_schema
 //     equals schema.Doc.
-//   - OpenAI: response_format={"type":"json_schema", ...} with strict=true.
-//
-// Implemented in CompleteJSON_anthropic.go and CompleteJSON_openai.go; this
-// method is a dispatcher stub until those land (Phase 2).
+//   - OpenAI: response_format={"type":"json_schema", ...} with strict=true (Phase 2.4).
 func (c *BifrostClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
-	return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)
+	switch c.provider {
+	case schemas.Anthropic:
+		return c.completeJSONAnthropic(ctx, prompt, schema)
+	default:
+		return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)
+	}
+}
+
+// completeJSONAnthropic forces the model to emit structured output by registering
+// a single tool named "respond" whose parameters schema equals schema.Doc and
+// setting tool_choice to require that tool. The tool's call arguments are the
+// parse-guaranteed JSON response.
+func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+	const respondToolName = "respond"
+
+	var params schemas.ToolFunctionParameters
+	if err := json.Unmarshal(schema.Doc, &params); err != nil {
+		return nil, fmt.Errorf("CompleteJSON: schema %q: invalid JSON Schema doc: %w", schema.Name, err)
+	}
+	desc := fmt.Sprintf("Return the final answer by calling this tool with arguments matching the %s schema.", schema.Name)
+	tool := schemas.ChatTool{
+		Type: schemas.ChatToolTypeFunction,
+		Function: &schemas.ChatToolFunction{
+			Name:        respondToolName,
+			Description: &desc,
+			Parameters:  &params,
+		},
+	}
+	toolChoice := &schemas.ChatToolChoice{
+		ChatToolChoiceStruct: &schemas.ChatToolChoiceStruct{
+			Type:     schemas.ChatToolChoiceTypeFunction,
+			Function: &schemas.ChatToolChoiceFunction{Name: respondToolName},
+		},
+	}
+
+	bifrostCtx := schemas.NewBifrostContext(ctx, schemas.NoDeadline)
+	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
+		Provider: c.provider,
+		Model:    c.model,
+		Input: []schemas.ChatMessage{
+			{
+				Role:    schemas.ChatMessageRoleUser,
+				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
+			},
+		},
+		Params: &schemas.ChatParameters{
+			Tools:               []schemas.ChatTool{tool},
+			ToolChoice:          toolChoice,
+			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+		},
+	})
+	if bifrostErr != nil {
+		if bifrostErr.Error != nil {
+			return nil, fmt.Errorf("bifrost CompleteJSON: %s", bifrostErr.Error.Message)
+		}
+		return nil, fmt.Errorf("bifrost CompleteJSON: unknown error")
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
+	}
+
+	msg := resp.Choices[0].Message
+	if msg == nil || msg.ChatAssistantMessage == nil || len(msg.ToolCalls) == 0 {
+		return nil, fmt.Errorf("bifrost CompleteJSON: model did not make a tool call; schema=%q", schema.Name)
+	}
+	tc := msg.ToolCalls[0]
+	if tc.Function.Name == nil || *tc.Function.Name != respondToolName {
+		got := ""
+		if tc.Function.Name != nil {
+			got = *tc.Function.Name
+		}
+		return nil, fmt.Errorf("bifrost CompleteJSON: expected tool %q, got %q", respondToolName, got)
+	}
+	return json.RawMessage(tc.Function.Arguments), nil
 }
 
 // Complete sends a user prompt and returns the first completion text.
