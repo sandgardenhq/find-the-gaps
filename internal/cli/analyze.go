@@ -199,9 +199,6 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			tokenCounter := tiering.LargeCounter()
-			_ = tokenCounter // Task 14 will drop this local; kept here to minimize this commit's diff.
-
 			// Extract the canonical feature list from CODE. These are the features
 			// the codebase actually implements — used as the source of truth for gap analysis.
 			codeFeaturesPath := filepath.Join(projectDir, "codefeatures.json")
