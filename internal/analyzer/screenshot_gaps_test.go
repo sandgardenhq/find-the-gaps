@@ -48,6 +48,61 @@ func TestExtractImages_MixedSyntaxes(t *testing.T) {
 	assert.Equal(t, "b.png", got[1].Src)
 }
 
+func TestExtractImages_IgnoresBashCommentsInFencedCodeBlocks(t *testing.T) {
+	md := "# Real Heading\n\n" +
+		"```bash\n" +
+		"# install the cli\n" +
+		"#!/bin/sh\n" +
+		"brew install foo\n" +
+		"```\n\n" +
+		"![Dashboard](dashboard.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real Heading", got[0].SectionHeading,
+		"bash comment inside fenced code block must not overwrite the section heading")
+}
+
+func TestExtractImages_IgnoresTildeFencedCodeBlocks(t *testing.T) {
+	md := "# Real Heading\n\n" +
+		"~~~python\n" +
+		"# python comment that looks like a heading\n" +
+		"print('hello')\n" +
+		"~~~\n\n" +
+		"![Dashboard](dashboard.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real Heading", got[0].SectionHeading)
+}
+
+func TestExtractImages_RequiresATXHeadingSyntax(t *testing.T) {
+	// "#no-space" and "#tag" and "#!/bin/sh" are NOT valid ATX headings.
+	// Only "#" (1-6 repeats) followed by whitespace counts.
+	md := "# Real Heading\n\n" +
+		"#notaheading because no space\n\n" +
+		"#!/bin/sh\n\n" +
+		"![Dashboard](dashboard.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real Heading", got[0].SectionHeading)
+}
+
+func TestExtractImages_AcceptsAllATXLevels(t *testing.T) {
+	for _, prefix := range []string{"#", "##", "###", "####", "#####", "######"} {
+		md := prefix + " Heading\n\n![x](x.png)\n"
+		got := extractImages(md)
+		require.Len(t, got, 1, "prefix=%q", prefix)
+		assert.Equal(t, "Heading", got[0].SectionHeading, "prefix=%q", prefix)
+	}
+}
+
+func TestExtractImages_RejectsSevenOrMoreHashes(t *testing.T) {
+	// 7+ `#` chars is not a valid ATX heading per CommonMark.
+	md := "# Real\n\n####### Not a heading\n\n![x](x.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real", got[0].SectionHeading)
+}
+
 func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
 	refs := []imageRef{
 		{Src: "a.png", SectionHeading: "Intro", ParagraphIndex: 1},

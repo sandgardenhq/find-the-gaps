@@ -23,23 +23,25 @@ var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var htmlImgRe = regexp.MustCompile(`(?i)<img\s+([^>]+?)>`)
 var htmlAttrSrcRe = regexp.MustCompile(`(?i)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 var htmlAttrAltRe = regexp.MustCompile(`(?i)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+var atxHeadingRe = regexp.MustCompile(`^#{1,6}\s`)
 
 // extractImages returns all image references in the markdown, annotated with their
-// containing section heading and paragraph index. Paragraphs are separated by blank lines.
+// containing section heading and paragraph index. Paragraphs are blank-line
+// separated. Lines inside fenced code blocks (``` or ~~~) are excluded from
+// heading detection so shell/Python comments like `# install foo` don't get
+// mistaken for Markdown headings.
 func extractImages(md string) []imageRef {
 	var refs []imageRef
-	paragraphs := strings.Split(md, "\n\n")
 	currentHeading := ""
-	for pIdx, block := range paragraphs {
-		// Track the most recent heading.
-		for _, line := range strings.Split(block, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "#") {
-				h := strings.TrimLeft(trimmed, "#")
-				currentHeading = strings.TrimSpace(h)
-			}
+	inFence := false
+	pIdx := 0
+	var blockLines []string
+
+	flush := func() {
+		if len(blockLines) == 0 {
+			return
 		}
-		// Find markdown images in this block.
+		block := strings.Join(blockLines, "\n")
 		for _, m := range markdownImageRe.FindAllStringSubmatch(block, -1) {
 			refs = append(refs, imageRef{
 				AltText:        m[1],
@@ -48,11 +50,9 @@ func extractImages(md string) []imageRef {
 				ParagraphIndex: pIdx,
 			})
 		}
-		// Find HTML <img> tags in this block.
 		for _, m := range htmlImgRe.FindAllStringSubmatch(block, -1) {
 			attrs := m[1]
-			src := ""
-			alt := ""
+			src, alt := "", ""
 			if mm := htmlAttrSrcRe.FindStringSubmatch(attrs); mm != nil {
 				src = mm[1]
 				if src == "" {
@@ -72,7 +72,35 @@ func extractImages(md string) []imageRef {
 				ParagraphIndex: pIdx,
 			})
 		}
+		blockLines = nil
 	}
+
+	for line := range strings.SplitSeq(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			blockLines = append(blockLines, line)
+			continue
+		}
+
+		if !inFence {
+			if trimmed == "" {
+				if len(blockLines) > 0 {
+					flush()
+					pIdx++
+				}
+				continue
+			}
+			if atxHeadingRe.MatchString(trimmed) {
+				currentHeading = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+			}
+		}
+
+		blockLines = append(blockLines, line)
+	}
+	flush()
+
 	return refs
 }
 
