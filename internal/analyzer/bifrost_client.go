@@ -15,6 +15,13 @@ type bifrostRequester interface {
 	ChatCompletionRequest(ctx *schemas.BifrostContext, req *schemas.BifrostChatRequest) (*schemas.BifrostChatResponse, *schemas.BifrostError)
 }
 
+// bifrostMaxCompletionTokens caps every completion's output length. Bifrost's Anthropic
+// provider silently defaults to 4096 for any model it doesn't recognize (e.g.
+// claude-opus-4-7 is missing from its static map as of v1.5.2), which truncates
+// large mapper responses and surfaces as "unexpected end of JSON input". 32k is
+// within the supported output window of every current Opus/Sonnet/Haiku model.
+const bifrostMaxCompletionTokens = 32_000
+
 // BifrostClient implements LLMClient using the Bifrost Go SDK.
 type BifrostClient struct {
 	client   bifrostRequester
@@ -137,7 +144,10 @@ func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMe
 		Provider: c.provider,
 		Model:    c.model,
 		Input:    bifrostMsgs,
-		Params:   &schemas.ChatParameters{Tools: bifrostTools},
+		Params: &schemas.ChatParameters{
+			Tools:               bifrostTools,
+			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+		},
 	})
 	if bifrostErr != nil {
 		if bifrostErr.Error != nil {
@@ -187,6 +197,9 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 				Role:    schemas.ChatMessageRoleUser,
 				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
 			},
+		},
+		Params: &schemas.ChatParameters{
+			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
 		},
 	})
 	if bifrostErr != nil {

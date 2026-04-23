@@ -13,11 +13,13 @@ import (
 
 // fakeBifrostRequester is a test double for bifrostRequester.
 type fakeBifrostRequester struct {
-	resp     *schemas.BifrostChatResponse
-	bifroErr *schemas.BifrostError
+	resp        *schemas.BifrostChatResponse
+	bifroErr    *schemas.BifrostError
+	lastRequest *schemas.BifrostChatRequest
 }
 
-func (f *fakeBifrostRequester) ChatCompletionRequest(_ *schemas.BifrostContext, _ *schemas.BifrostChatRequest) (*schemas.BifrostChatResponse, *schemas.BifrostError) {
+func (f *fakeBifrostRequester) ChatCompletionRequest(_ *schemas.BifrostContext, req *schemas.BifrostChatRequest) (*schemas.BifrostChatResponse, *schemas.BifrostError) {
+	f.lastRequest = req
 	return f.resp, f.bifroErr
 }
 
@@ -194,6 +196,68 @@ func TestBifrostClient_Complete_NilContent_ReturnsError(t *testing.T) {
 	_, err := client.Complete(context.Background(), "ping")
 	if err == nil {
 		t.Fatal("expected error for nil Content")
+	}
+}
+
+func TestBifrostClient_Complete_SetsMaxCompletionTokens(t *testing.T) {
+	// Bifrost's Anthropic provider defaults max_tokens to 4096 for any model not in its
+	// static fallback map (which omits newer Claude versions). Large JSON responses get
+	// truncated — producing "unexpected end of JSON input" downstream. Complete must
+	// explicitly set Params.MaxCompletionTokens so responses have room to finish.
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &text}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.Complete(context.Background(), "ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.lastRequest == nil {
+		t.Fatal("expected request to be captured")
+	}
+	if fake.lastRequest.Params == nil {
+		t.Fatal("expected Params to be set on request")
+	}
+	if fake.lastRequest.Params.MaxCompletionTokens == nil {
+		t.Fatal("expected Params.MaxCompletionTokens to be set (bifrost defaults to 4096 otherwise)")
+	}
+	if *fake.lastRequest.Params.MaxCompletionTokens < 16_000 {
+		t.Errorf("MaxCompletionTokens = %d, want >= 16000 so mapper responses don't truncate",
+			*fake.lastRequest.Params.MaxCompletionTokens)
+	}
+}
+
+func TestBifrostClient_CompleteWithTools_SetsMaxCompletionTokens(t *testing.T) {
+	// Same reasoning as Complete: must prevent bifrost's 4096 default from truncating
+	// tool-driven responses (drift agent can produce long final messages).
+	text := "done"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(&schemas.ChatMessageContent{ContentStr: &text}, nil),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteWithTools(context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.lastRequest == nil || fake.lastRequest.Params == nil {
+		t.Fatal("expected Params to be set on request")
+	}
+	if fake.lastRequest.Params.MaxCompletionTokens == nil {
+		t.Fatal("expected Params.MaxCompletionTokens to be set")
+	}
+	if *fake.lastRequest.Params.MaxCompletionTokens < 16_000 {
+		t.Errorf("MaxCompletionTokens = %d, want >= 16000",
+			*fake.lastRequest.Params.MaxCompletionTokens)
 	}
 }
 
