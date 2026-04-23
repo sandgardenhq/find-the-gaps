@@ -14,7 +14,7 @@ func TestAnalyzePage_ExtractsSummaryAndFeatures(t *testing.T) {
 		`{"summary":"Covers Homebrew install.","features":["Homebrew install","go install"]}`,
 	}}
 
-	got, err := analyzer.AnalyzePage(context.Background(), c, "https://docs.example.com/install", "# Install\nUse brew.")
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://docs.example.com/install", "# Install\nUse brew.")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestAnalyzePage_ExtractsSummaryAndFeatures(t *testing.T) {
 
 func TestAnalyzePage_EmptyFeatures_OK(t *testing.T) {
 	c := &fakeClient{responses: []string{`{"summary":"A page.","features":[]}`}}
-	got, err := analyzer.AnalyzePage(context.Background(), c, "https://example.com", "content")
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestAnalyzePage_EmptyFeatures_OK(t *testing.T) {
 
 func TestAnalyzePage_ClientError_Propagates(t *testing.T) {
 	c := &fakeClient{forcedErr: errors.New("timeout")}
-	_, err := analyzer.AnalyzePage(context.Background(), c, "https://example.com", "content")
+	_, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -57,7 +57,7 @@ func TestAnalyzePage_ClientError_Propagates(t *testing.T) {
 
 func TestAnalyzePage_InvalidJSON_ReturnsError(t *testing.T) {
 	c := &fakeClient{responses: []string{"not json"}}
-	_, err := analyzer.AnalyzePage(context.Background(), c, "https://example.com", "content")
+	_, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -65,7 +65,7 @@ func TestAnalyzePage_InvalidJSON_ReturnsError(t *testing.T) {
 
 func TestAnalyzePage_MissingFeaturesKey_ReturnsEmptySlice(t *testing.T) {
 	c := &fakeClient{responses: []string{`{"summary":"A page with no features key."}`}}
-	got, err := analyzer.AnalyzePage(context.Background(), c, "https://example.com", "content")
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,5 +74,28 @@ func TestAnalyzePage_MissingFeaturesKey_ReturnsEmptySlice(t *testing.T) {
 	}
 	if len(got.Features) != 0 {
 		t.Errorf("expected 0 features, got %v", got.Features)
+	}
+}
+
+func TestAnalyzePage_UsesSmallTier(t *testing.T) {
+	small := &fakeClient{responses: []string{`{"summary":"Small tier used.","features":["x"]}`}}
+	typical := &fakeClient{responses: []string{`{"summary":"Typical tier used.","features":["y"]}`}}
+	large := &fakeClient{responses: []string{`{"summary":"Large tier used.","features":["z"]}`}}
+
+	tiering := &fakeTiering{small: small, typical: typical, large: large}
+
+	_, err := analyzer.AnalyzePage(context.Background(), tiering, "https://example.com", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(small.receivedPrompts) != 1 {
+		t.Errorf("expected small tier to receive 1 prompt, got %d", len(small.receivedPrompts))
+	}
+	if len(typical.receivedPrompts) != 0 {
+		t.Errorf("typical tier must not receive prompts, got %d", len(typical.receivedPrompts))
+	}
+	if len(large.receivedPrompts) != 0 {
+		t.Errorf("large tier must not receive prompts, got %d", len(large.receivedPrompts))
 	}
 }

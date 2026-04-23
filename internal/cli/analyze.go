@@ -162,7 +162,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 				pageNum++
 				log.Infof("  [%d] %s", pageNum, url)
-				pa, analyzeErr := analyzer.AnalyzePage(ctx, llmClient, url, string(content))
+				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, url, string(content))
 				if analyzeErr != nil {
 					log.Warnf("skipping %s: %v", url, analyzeErr)
 					continue

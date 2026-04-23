@@ -12,7 +12,8 @@ type analyzePageResponse struct {
 }
 
 // AnalyzePage sends doc page content to the LLM and returns a summary and feature list.
-func AnalyzePage(ctx context.Context, client LLMClient, pageURL, content string) (PageAnalysis, error) {
+func AnalyzePage(ctx context.Context, tiering LLMTiering, pageURL, content string) (PageAnalysis, error) {
+	client := tiering.Small()
 	// PROMPT: Summarizes a single documentation page and extracts the product features or capabilities described on it. Responds with JSON only.
 	prompt := fmt.Sprintf(`You are analyzing a documentation page for a software product.
 
