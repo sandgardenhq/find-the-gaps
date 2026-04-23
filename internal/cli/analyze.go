@@ -215,7 +215,7 @@ func newAnalyzeCmd() *cobra.Command {
 
 			if !codeFeaturesCached {
 				log.Infof("extracting features from code...")
-				codeFeatures, err = analyzer.ExtractFeaturesFromCode(ctx, llmClient, scan)
+				codeFeatures, err = analyzer.ExtractFeaturesFromCode(ctx, tiering, scan)
 				if err != nil {
 					return fmt.Errorf("extract code features: %w", err)
 				}

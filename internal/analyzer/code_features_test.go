@@ -20,7 +20,7 @@ func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
 			{Path: "internal/upload/upload.go", Symbols: []scanner.Symbol{{Name: "Upload"}}},
 		},
 	}
-	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
 func TestExtractFeaturesFromCode_EmptyScan_ReturnsEmpty(t *testing.T) {
 	c := &fakeClient{}
 	scan := &scanner.ProjectScan{Files: []scanner.ScannedFile{}}
-	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestExtractFeaturesFromCode_NoSymbols_ReturnsEmpty(t *testing.T) {
 			{Path: "internal/foo.go", Symbols: []scanner.Symbol{}},
 		},
 	}
-	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestExtractFeaturesFromCode_ClientError_Propagates(t *testing.T) {
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
 		},
 	}
-	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -90,7 +90,7 @@ func TestExtractFeaturesFromCode_InvalidJSON_ReturnsError(t *testing.T) {
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
 		},
 	}
-	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -104,7 +104,7 @@ func TestExtractFeaturesFromCode_NilResponse_NormalizedToEmpty(t *testing.T) {
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
 		},
 	}
-	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
 		},
 	}
-	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +139,25 @@ func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
 	}
 }
 
+func TestExtractFeaturesFromCode_UsesTypicalTier(t *testing.T) {
+	typical := &fakeClient{responses: []string{`[]`}}
+	small := &fakeClient{}
+	large := &fakeClient{}
+	tiering := &fakeTiering{small: small, typical: typical, large: large}
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}}},
+	}
+	if _, err := analyzer.ExtractFeaturesFromCode(context.Background(), tiering, scan); err != nil {
+		t.Fatal(err)
+	}
+	if typical.callCount != 1 {
+		t.Errorf("expected 1 call on Typical tier, got %d", typical.callCount)
+	}
+	if small.callCount != 0 || large.callCount != 0 {
+		t.Errorf("unexpected dispatch: small=%d large=%d", small.callCount, large.callCount)
+	}
+}
+
 func TestExtractFeaturesFromCode_PromptContainsSymbols(t *testing.T) {
 	// Verify the prompt sent to the LLM includes the file path and symbol name.
 	c := &fakeClient{responses: []string{`[{"name":"some feature","description":"Does something.","layer":"cli","user_facing":true}]`}}
@@ -147,7 +166,7 @@ func TestExtractFeaturesFromCode_PromptContainsSymbols(t *testing.T) {
 			{Path: "internal/auth/handler.go", Symbols: []scanner.Symbol{{Name: "HandleLogin"}}},
 		},
 	}
-	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), c, scan)
+	_, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
 	if err != nil {
 		t.Fatal(err)
 	}

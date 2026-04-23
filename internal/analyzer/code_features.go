@@ -15,7 +15,8 @@ import (
 // codebase's exported symbol index. It uses the same symbol-line format and
 // batching strategy as MapFeaturesToCode. Features from multiple batches are
 // deduplicated and sorted.
-func ExtractFeaturesFromCode(ctx context.Context, client LLMClient, scan *scanner.ProjectScan) ([]CodeFeature, error) {
+func ExtractFeaturesFromCode(ctx context.Context, tiering LLMTiering, scan *scanner.ProjectScan) ([]CodeFeature, error) {
+	client := tiering.Typical()
 	var symLines []string
 	for _, f := range scan.Files {
 		if len(f.Symbols) == 0 {
