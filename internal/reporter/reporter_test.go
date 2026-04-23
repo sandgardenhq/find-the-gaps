@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 )
@@ -51,7 +54,7 @@ func TestWriteGaps_CreatesFile(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{"search"}, []analyzer.DriftFinding{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{"search"}, []analyzer.DriftFinding{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -84,7 +87,7 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	}
 	allFeatures := []string{"gap analysis"} // documented AND implemented → no gaps
 
-	if err := reporter.WriteGaps(dir, mapping, allFeatures, []analyzer.DriftFinding{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, allFeatures, []analyzer.DriftFinding{}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +108,7 @@ func TestWriteGaps_UndocumentedCode(t *testing.T) {
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
 	// "auth" exists in code but is absent from docs
-	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -128,7 +131,7 @@ func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{}}, // no files — not "implemented"
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -255,7 +258,7 @@ func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
 			},
 		},
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{"auth"}, drift); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{"auth"}, drift, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -281,7 +284,7 @@ func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
 func TestWriteGaps_StaleDocumentation_NoneFound(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{}
-	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -388,4 +391,54 @@ func TestWriteMapping_DocStatusUsesCanonicalMap(t *testing.T) {
 	if !strings.Contains(content, "https://docs.example.com/gaps") {
 		t.Errorf("expected the mapped page URL to appear in mapping.md, got:\n%s", content)
 	}
+}
+
+func TestWriteGaps_MissingScreenshotsSection(t *testing.T) {
+	dir := t.TempDir()
+	gaps := []analyzer.ScreenshotGap{
+		{
+			PageURL:       "https://example.com/quickstart",
+			PagePath:      "/cache/quickstart.md",
+			QuotedPassage: "Run the command and see the output.",
+			ShouldShow:    "Terminal showing the analyze summary with findings count.",
+			SuggestedAlt:  "Terminal output of find-the-gaps analyze",
+			InsertionHint: "after the paragraph ending '...see the output.'",
+		},
+		{
+			PageURL:       "https://example.com/quickstart",
+			PagePath:      "/cache/quickstart.md",
+			QuotedPassage: "The dashboard shows open PRs.",
+			ShouldShow:    "Dashboard with two open PRs visible.",
+			SuggestedAlt:  "Dashboard with open PRs",
+			InsertionHint: "after the heading '## Dashboard'",
+		},
+		{
+			PageURL:       "https://example.com/setup",
+			PagePath:      "/cache/setup.md",
+			QuotedPassage: "Configure the CLI.",
+			ShouldShow:    "The config file open in an editor.",
+			SuggestedAlt:  "Configuration file",
+			InsertionHint: "after the code block",
+		},
+	}
+	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, gaps))
+	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	require.NoError(t, err)
+	s := string(body)
+	assert.Contains(t, s, "## Missing Screenshots")
+	// Grouped per page, in order of first occurrence.
+	assert.Regexp(t, `### https://example.com/quickstart[\s\S]*### https://example.com/setup`, s)
+	// Each gap shows its four fields.
+	assert.Contains(t, s, "Run the command and see the output.")
+	assert.Contains(t, s, "Terminal showing the analyze summary")
+	assert.Contains(t, s, "Terminal output of find-the-gaps analyze")
+	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
+}
+
+func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, nil))
+	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "## Missing Screenshots")
 }

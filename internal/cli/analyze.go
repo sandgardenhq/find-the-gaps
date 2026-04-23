@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -73,15 +74,16 @@ func runBothMaps(
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		docsURL     string
-		repoPath    string
-		cacheDir    string
-		workers     int
-		noCache     bool
-		noSymbols   bool
-		llmProvider string
-		llmModel    string
-		llmBaseURL  string
+		docsURL             string
+		repoPath            string
+		cacheDir            string
+		workers             int
+		noCache             bool
+		noSymbols           bool
+		llmProvider         string
+		llmModel            string
+		llmBaseURL          string
+		skipScreenshotCheck bool
 	)
 
 	cmd := &cobra.Command{
@@ -323,17 +325,51 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
-				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
+				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated, nil)
 			}
 			driftFindings, err := analyzer.DetectDrift(ctx, toolClient, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
 			if err != nil {
 				return fmt.Errorf("detect drift: %w", err)
 			}
 			log.Debugf("drift detection complete: %d findings", len(driftFindings))
+
+			var screenshotGaps []analyzer.ScreenshotGap
+			if !skipScreenshotCheck {
+				log.Infof("detecting missing screenshots...")
+				urls := make([]string, 0, len(pages))
+				for url := range pages {
+					urls = append(urls, url)
+				}
+				sort.Strings(urls)
+
+				var docPages []analyzer.DocPage
+				for _, url := range urls {
+					filePath := pages[url]
+					data, readErr := os.ReadFile(filePath)
+					if readErr != nil {
+						log.Warnf("skip page %s: %v", url, readErr)
+						continue
+					}
+					docPages = append(docPages, analyzer.DocPage{
+						URL:     url,
+						Path:    filePath,
+						Content: string(data),
+					})
+				}
+				progress := func(done, total int, page string) {
+					log.Infof("  [%d/%d] %s", done, total, page)
+				}
+				screenshotGaps, err = analyzer.DetectScreenshotGaps(ctx, llmClient, docPages, progress)
+				if err != nil {
+					return fmt.Errorf("detect screenshots: %w", err)
+				}
+				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotGaps))
+			}
+
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
+			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings, screenshotGaps); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
 
@@ -357,6 +393,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&llmBaseURL, "llm-base-url", "",
 		"base URL for local providers (required for openai-compatible; default: provider-specific)")
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
+	cmd.Flags().BoolVar(&skipScreenshotCheck, "skip-screenshot-check", false,
+		"skip the missing-screenshot detection pass")
 
 	return cmd
 }
