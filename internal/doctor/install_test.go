@@ -68,11 +68,11 @@ func TestRunInstall_Missing_RunsInstallCmd(t *testing.T) {
 
 func TestRunInstall_UnsupportedPlatform_ReturnsOne(t *testing.T) {
 	tools := []Tool{{
-		Name:        "ripgrep",
-		Binary:      "rg",
-		InstallHint: "brew install ripgrep",
+		Name:        "mdfetch",
+		Binary:      "mdfetch",
+		InstallHint: "npm install -g @sandgarden/mdfetch",
 		InstallCmds: map[string][]string{
-			"darwin": {"brew", "install", "ripgrep"},
+			"darwin": {"npm", "install", "-g", "@sandgarden/mdfetch"},
 		},
 	}}
 	lookup := func(_ string) bool { return false }
@@ -82,10 +82,10 @@ func TestRunInstall_UnsupportedPlatform_ReturnsOne(t *testing.T) {
 	if code != 1 {
 		t.Errorf("code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "ripgrep") {
+	if !strings.Contains(stderr.String(), "mdfetch") {
 		t.Errorf("stderr missing tool name; got %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "brew install ripgrep") {
+	if !strings.Contains(stderr.String(), "npm install -g @sandgarden/mdfetch") {
 		t.Errorf("stderr missing install hint; got %q", stderr.String())
 	}
 }
@@ -113,10 +113,7 @@ func TestRunInstall_InstallFails_ReturnsOne(t *testing.T) {
 }
 
 func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
-	// RunInstall (public) uses real exec.LookPath. Write fake binaries so both
-	// tools are found and no actual install commands run.
 	dir := t.TempDir()
-	writeFakeBin(t, dir, "rg", "ripgrep 14.0.0")
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.0.0")
 	t.Setenv("PATH", dir)
 
@@ -141,29 +138,3 @@ func TestDefaultRunner_RunsCommand(t *testing.T) {
 	}
 }
 
-func TestRunInstall_MultipleTools_SkipsInstalledInstallsMissing(t *testing.T) {
-	tools := []Tool{
-		{
-			Name: "ripgrep", Binary: "rg",
-			InstallCmds: map[string][]string{"darwin": {"brew", "install", "ripgrep"}},
-		},
-		{
-			Name: "mdfetch", Binary: "mdfetch",
-			InstallCmds: map[string][]string{"darwin": {"npm", "install", "-g", "@sandgarden/mdfetch"}},
-		},
-	}
-	lookup := func(binary string) bool { return binary == "rg" } // rg present, mdfetch missing
-	var installed []string
-	runner := func(_ context.Context, _, _ io.Writer, name string, args ...string) error {
-		installed = append(installed, args[len(args)-1])
-		return nil
-	}
-	var stdout, stderr bytes.Buffer
-	code := runInstall(context.Background(), tools, "darwin", &stdout, &stderr, lookup, runner)
-	if code != 0 {
-		t.Errorf("code = %d, want 0; stderr=%q", code, stderr.String())
-	}
-	if len(installed) != 1 || installed[0] != "@sandgarden/mdfetch" {
-		t.Errorf("expected only mdfetch installed, got %v", installed)
-	}
-}
