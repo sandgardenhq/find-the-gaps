@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAnalyzeCmd_AcceptsTierFlags(t *testing.T) {
@@ -214,6 +217,95 @@ func TestAnalyze_llmClientError_returnsError(t *testing.T) {
 	}
 }
 
+func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
+	// Pre-cache every other LLM-triggering step; the screenshot detector has no
+	// cache, so it always fires when not explicitly skipped. Stub returns an
+	// empty gap array so parsing succeeds and analyze completes.
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	projectDir := filepath.Join(cacheBase, projectName)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docsDir := filepath.Join(projectDir, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := spider.LoadIndex(docsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := spider.URLToFilename(docsURL)
+	mdPath := filepath.Join(docsDir, filename)
+	if err := os.WriteFile(mdPath, []byte("# Doc page\n\nClick the Save button.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Record(docsURL, filename); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.SetProductSummary("A test product.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codeFeatures := []analyzer.CodeFeature{
+		{Name: "feature-one", Description: "Does feature one.", Layer: "cli", UserFacing: true},
+	}
+	scanForCache := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{{Path: "main.go"}},
+	}
+	if err := saveCodeFeaturesCache(filepath.Join(projectDir, "codefeatures.json"), scanForCache, codeFeatures); err != nil {
+		t.Fatal(err)
+	}
+	fmCache := analyzer.FeatureMap{
+		{Feature: codeFeatures[0], Files: []string{"main.go"}, Symbols: []string{"Run"}},
+	}
+	if err := saveFeatureMapCache(filepath.Join(projectDir, "featuremap.json"), codeFeatures, fmCache); err != nil {
+		t.Fatal(err)
+	}
+	docsFM := analyzer.DocsFeatureMap{{Feature: "feature-one", Pages: nil}}
+	if err := saveDocsFeatureMapCache(filepath.Join(projectDir, "docsfeaturemap.json"), []string{"feature-one"}, docsFM); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": `[]`}},
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("OLLAMA_BASE_URL", srv.URL)
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-small", "ollama/test-model",
+		"--llm-typical", "ollama/test-model",
+		"--llm-large", "anthropic/claude-test",
+	})
+	if code != 0 {
+		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "scanned") {
+		t.Errorf("expected 'scanned' in output; got: %s", combined)
+	}
+}
+
 func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 	// Every LLM-triggering step is pre-cached so analyze exits cleanly without
 	// making any LLM calls. A fake server stands by to fail loudly if an
@@ -301,6 +393,7 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "ollama/test-model",
 		"--llm-large", "anthropic/claude-test",
+		"--skip-screenshot-check",
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -360,6 +453,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-large", "anthropic/claude-test",
+		"--skip-screenshot-check",
 	})
 	if code != 0 {
 		t.Fatalf("analyze with anthropic provider failed (code=%d): stdout=%q stderr=%q",
@@ -423,4 +517,12 @@ func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 	if !strings.Contains(combined, "0 pages analyzed") {
 		t.Errorf("expected '0 pages analyzed' in output; got: %s", combined)
 	}
+}
+
+func TestAnalyzeCmd_HasSkipScreenshotCheckFlag(t *testing.T) {
+	cmd := newAnalyzeCmd()
+	f := cmd.Flags().Lookup("skip-screenshot-check")
+	require.NotNil(t, f)
+	assert.Equal(t, "false", f.DefValue)
+	assert.Contains(t, f.Usage, "screenshot")
 }

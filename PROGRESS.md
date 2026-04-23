@@ -1,5 +1,28 @@
 # Progress
 
+## Missing Screenshots Detection - COMPLETE
+- Started: 2026-04-23
+- Design: `.plans/2026-04-23-missing-screenshots-design.md`
+- Plan: `.plans/MISSING_SCREENSHOTS_IMPLEMENTATION_PLAN.md` (11 implementation tasks + final PR task, TDD per task, fresh subagent per task, code review between tasks)
+- Implementation commits:
+  - Task 1 ScreenshotGap type: `997cef5`
+  - Task 2 markdown image parser: `66f07a9`
+  - Task 3 HTML img parser: `cd68ab8` (+ `9560601` single-quote fix from review)
+  - Task 4 coverage map builder: `96b9206`
+  - Task 5 prompt builder with `// PROMPT:` marker: `fedb592`
+  - Task 6 response parser reusing `extractJSONArray`: `91dfec9`
+  - Task 7 `DetectScreenshotGaps` orchestrator: `c506612`
+  - Task 8 reporter "Missing Screenshots" section: `0e48188`
+  - Task 9 `--skip-screenshot-check` flag: `f010611`
+  - Task 10 CLI pipeline wiring: `d8b93d6` (+ `557a170` deterministic URL ordering fix from review)
+  - Task 11 VERIFICATION_PLAN scenario: `c091224`
+- Tests: all packages green
+- Coverage: analyzer 95.1%, reporter 97.9% (both above the 90% gate)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-23
+- Notes: LLM-only detection with mandatory verbatim passage citation. Locality rule (same section or within 3 paragraphs) is applied by the LLM against a Go-precomputed coverage map. One LLM call per page. Default on; `--skip-screenshot-check` disables the pass. Missing screenshots render as their own top-level section in `gaps.md` grouped by page.
+
 ## Remove ripgrep dependency + document supported languages - COMPLETE
 - Started: 2026-04-23
 - Plan: `.plans/2026-04-23-remove-ripgrep-dependency.md` (11 tasks, TDD per task, fresh subagent per task, code review between tasks)

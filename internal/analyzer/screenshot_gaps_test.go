@@ -1,0 +1,263 @@
+package analyzer
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestExtractImages_MarkdownSyntax(t *testing.T) {
+	md := "# Title\n\nIntro paragraph.\n\n![Dashboard](dashboard.png)\n\nNext paragraph.\n"
+	got := extractImages(md)
+	assert.Equal(t, []imageRef{
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 2},
+	}, got)
+}
+
+func TestExtractImages_HTMLSyntax(t *testing.T) {
+	md := "# Title\n\n<img src=\"dashboard.png\" alt=\"Dashboard\">\n\nNext paragraph.\n"
+	got := extractImages(md)
+	assert.Equal(t, []imageRef{
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+	}, got)
+}
+
+func TestExtractImages_HTMLSyntax_SingleQuotes(t *testing.T) {
+	md := "# Title\n\n<img src='dashboard.png' alt='Dashboard'>\n\nNext paragraph.\n"
+	got := extractImages(md)
+	assert.Equal(t, []imageRef{
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+	}, got)
+}
+
+func TestExtractImages_HTMLSyntax_AttrsReversed(t *testing.T) {
+	md := "# Title\n\n<img alt=\"Dashboard\" src=\"dashboard.png\">\n"
+	got := extractImages(md)
+	assert.Equal(t, []imageRef{
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+	}, got)
+}
+
+func TestExtractImages_MixedSyntaxes(t *testing.T) {
+	md := "# Title\n\n![One](a.png)\n\n<img src=\"b.png\" alt=\"Two\">\n"
+	got := extractImages(md)
+	assert.Len(t, got, 2)
+	assert.Equal(t, "a.png", got[0].Src)
+	assert.Equal(t, "b.png", got[1].Src)
+}
+
+func TestExtractImages_IgnoresBashCommentsInFencedCodeBlocks(t *testing.T) {
+	md := "# Real Heading\n\n" +
+		"```bash\n" +
+		"# install the cli\n" +
+		"#!/bin/sh\n" +
+		"brew install foo\n" +
+		"```\n\n" +
+		"![Dashboard](dashboard.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real Heading", got[0].SectionHeading,
+		"bash comment inside fenced code block must not overwrite the section heading")
+}
+
+func TestExtractImages_IgnoresTildeFencedCodeBlocks(t *testing.T) {
+	md := "# Real Heading\n\n" +
+		"~~~python\n" +
+		"# python comment that looks like a heading\n" +
+		"print('hello')\n" +
+		"~~~\n\n" +
+		"![Dashboard](dashboard.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real Heading", got[0].SectionHeading)
+}
+
+func TestExtractImages_RequiresATXHeadingSyntax(t *testing.T) {
+	// "#no-space" and "#tag" and "#!/bin/sh" are NOT valid ATX headings.
+	// Only "#" (1-6 repeats) followed by whitespace counts.
+	md := "# Real Heading\n\n" +
+		"#notaheading because no space\n\n" +
+		"#!/bin/sh\n\n" +
+		"![Dashboard](dashboard.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real Heading", got[0].SectionHeading)
+}
+
+func TestExtractImages_AcceptsAllATXLevels(t *testing.T) {
+	for _, prefix := range []string{"#", "##", "###", "####", "#####", "######"} {
+		md := prefix + " Heading\n\n![x](x.png)\n"
+		got := extractImages(md)
+		require.Len(t, got, 1, "prefix=%q", prefix)
+		assert.Equal(t, "Heading", got[0].SectionHeading, "prefix=%q", prefix)
+	}
+}
+
+func TestExtractImages_RejectsSevenOrMoreHashes(t *testing.T) {
+	// 7+ `#` chars is not a valid ATX heading per CommonMark.
+	md := "# Real\n\n####### Not a heading\n\n![x](x.png)\n"
+	got := extractImages(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Real", got[0].SectionHeading)
+}
+
+func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
+	refs := []imageRef{
+		{Src: "a.png", SectionHeading: "Intro", ParagraphIndex: 1},
+		{Src: "b.png", SectionHeading: "Intro", ParagraphIndex: 3},
+		{Src: "c.png", SectionHeading: "Setup", ParagraphIndex: 7},
+	}
+	m := buildCoverageMap(refs)
+	assert.Equal(t, []imageRef{refs[0], refs[1]}, m["Intro"])
+	assert.Equal(t, []imageRef{refs[2]}, m["Setup"])
+}
+
+func TestBuildCoverageMap_EmptyInput(t *testing.T) {
+	assert.Empty(t, buildCoverageMap(nil))
+}
+
+func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
+	pageURL := "https://example.com/quickstart"
+	content := "# Quickstart\n\nRun the command and see the output.\n"
+	coverage := map[string][]imageRef{
+		"Quickstart": {{Src: "hero.png", AltText: "Hero", SectionHeading: "Quickstart", ParagraphIndex: 0}},
+	}
+	got := buildScreenshotPrompt(pageURL, content, coverage)
+	assert.Contains(t, got, pageURL)
+	assert.Contains(t, got, content)
+	assert.Contains(t, got, "hero.png")
+	assert.Contains(t, got, "quoted_passage")
+	assert.Contains(t, got, "should_show")
+	assert.Contains(t, got, "suggested_alt")
+	assert.Contains(t, got, "insertion_hint")
+	assert.Contains(t, got, "same section")
+	assert.Contains(t, got, "3 paragraphs")
+}
+
+func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	assert.Contains(t, got, "No existing images")
+}
+
+func TestParseScreenshotResponse_Valid(t *testing.T) {
+	raw := `[{"quoted_passage":"Click Save.","should_show":"Save button highlighted.","suggested_alt":"Save button","insertion_hint":"after the sentence 'Click Save.'"}]`
+	got, err := parseScreenshotResponse(raw)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Click Save.", got[0].QuotedPassage)
+	assert.Equal(t, "Save button highlighted.", got[0].ShouldShow)
+	assert.Equal(t, "Save button", got[0].SuggestedAlt)
+	assert.Equal(t, "after the sentence 'Click Save.'", got[0].InsertionHint)
+}
+
+func TestParseScreenshotResponse_EmptyArray(t *testing.T) {
+	got, err := parseScreenshotResponse("[]")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestParseScreenshotResponse_WithPreamble(t *testing.T) {
+	raw := "Here is the JSON: []"
+	got, err := parseScreenshotResponse(raw)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestParseScreenshotResponse_Malformed(t *testing.T) {
+	_, err := parseScreenshotResponse("not json")
+	require.Error(t, err)
+}
+
+// fakeLLMClient collects calls and returns canned responses per call index.
+type fakeLLMClient struct {
+	responses []string
+	errs      []error
+	prompts   []string
+}
+
+func (f *fakeLLMClient) Complete(_ context.Context, prompt string) (string, error) {
+	i := len(f.prompts)
+	f.prompts = append(f.prompts, prompt)
+	if i < len(f.errs) && f.errs[i] != nil {
+		return "", f.errs[i]
+	}
+	if i < len(f.responses) {
+		return f.responses[i], nil
+	}
+	return "[]", nil
+}
+
+func TestDetectScreenshotGaps_NoPages(t *testing.T) {
+	client := &fakeLLMClient{}
+	gaps, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
+	require.NoError(t, err)
+	assert.Empty(t, gaps)
+	assert.Empty(t, client.prompts)
+}
+
+func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
+	client := &fakeLLMClient{
+		responses: []string{
+			`[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block"}]`,
+		},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n\nRun the command.\n"},
+	}
+	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+	require.Len(t, gaps, 1)
+	assert.Equal(t, "https://example.com/a", gaps[0].PageURL)
+	assert.Equal(t, "/tmp/a.md", gaps[0].PagePath)
+	assert.Equal(t, "Run the command.", gaps[0].QuotedPassage)
+}
+
+func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
+	client := &fakeLLMClient{
+		responses: []string{"not json", "[]"},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
+		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
+	}
+	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err) // parse errors log-and-continue
+	assert.Empty(t, gaps)
+	assert.Len(t, client.prompts, 2) // both pages were attempted
+}
+
+func TestDetectScreenshotGaps_Progress(t *testing.T) {
+	client := &fakeLLMClient{}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
+		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
+	}
+	var calls []struct {
+		done, total int
+		page        string
+	}
+	progress := func(done, total int, page string) {
+		calls = append(calls, struct {
+			done, total int
+			page        string
+		}{done, total, page})
+	}
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, progress)
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+	assert.Equal(t, 1, calls[0].done)
+	assert.Equal(t, 2, calls[0].total)
+	assert.Equal(t, "https://example.com/a", calls[0].page)
+	assert.Equal(t, 2, calls[1].done)
+}
+
+func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := &fakeLLMClient{errs: []error{context.Canceled}}
+	pages := []DocPage{{URL: "https://x", Path: "/x", Content: "# x\n"}}
+	_, err := DetectScreenshotGaps(ctx, client, pages, nil)
+	require.Error(t, err)
+}

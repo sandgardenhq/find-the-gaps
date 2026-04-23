@@ -74,7 +74,14 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 // Undocumented Code: features with a code implementation but no documentation page.
 // Unmapped Features: features mentioned in docs with no code match.
 // Stale Documentation: inaccuracies found in pages that DO cover a feature.
-func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string, drift []analyzer.DriftFinding) error {
+// Missing Screenshots: passages describing user-facing moments with no nearby screenshot.
+func WriteGaps(
+	dir string,
+	mapping analyzer.FeatureMap,
+	allDocFeatures []string,
+	drift []analyzer.DriftFinding,
+	screenshotGaps []analyzer.ScreenshotGap,
+) error {
 	codeFeatures := make(map[string]bool)
 	for _, entry := range mapping {
 		if len(entry.Files) > 0 {
@@ -143,6 +150,31 @@ func WriteGaps(dir string, mapping analyzer.FeatureMap, allDocFeatures []string,
 				} else {
 					fmt.Fprintf(&sb, "- %s\n\n", issue.Issue)
 				}
+			}
+		}
+	}
+
+	// Missing screenshots — omitted when there are none.
+	if len(screenshotGaps) > 0 {
+		sb.WriteString("\n## Missing Screenshots\n\n")
+		// Preserve first-occurrence order of pages.
+		seen := map[string]bool{}
+		var order []string
+		byPage := map[string][]analyzer.ScreenshotGap{}
+		for _, g := range screenshotGaps {
+			if !seen[g.PageURL] {
+				seen[g.PageURL] = true
+				order = append(order, g.PageURL)
+			}
+			byPage[g.PageURL] = append(byPage[g.PageURL], g)
+		}
+		for _, page := range order {
+			fmt.Fprintf(&sb, "### %s\n\n", page)
+			for _, g := range byPage[page] {
+				fmt.Fprintf(&sb, "- **Passage:** %q\n", g.QuotedPassage)
+				fmt.Fprintf(&sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
+				fmt.Fprintf(&sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
+				fmt.Fprintf(&sb, "  - **Insert:** %s\n\n", g.InsertionHint)
 			}
 		}
 	}
