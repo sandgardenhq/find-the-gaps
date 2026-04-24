@@ -304,6 +304,18 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 	if !strings.Contains(combined, "scanned") {
 		t.Errorf("expected 'scanned' in output; got: %s", combined)
 	}
+	// screenshots.md must exist because the screenshot pass ran.
+	if _, err := os.Stat(filepath.Join(projectDir, "screenshots.md")); err != nil {
+		t.Errorf("expected screenshots.md to exist; got: %v", err)
+	}
+	// Stdout must list it in the reports block.
+	if !strings.Contains(combined, "screenshots.md") {
+		t.Errorf("expected 'screenshots.md' in output; got: %s", combined)
+	}
+	// It must NOT be annotated as skipped on the happy path.
+	if strings.Contains(combined, "screenshots.md (skipped)") {
+		t.Errorf("unexpected 'skipped' annotation on happy path; got: %s", combined)
+	}
 }
 
 func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
