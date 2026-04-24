@@ -393,49 +393,6 @@ func TestWriteMapping_DocStatusUsesCanonicalMap(t *testing.T) {
 	}
 }
 
-func TestWriteGaps_MissingScreenshotsSection(t *testing.T) {
-	dir := t.TempDir()
-	gaps := []analyzer.ScreenshotGap{
-		{
-			PageURL:       "https://example.com/quickstart",
-			PagePath:      "/cache/quickstart.md",
-			QuotedPassage: "Run the command and see the output.",
-			ShouldShow:    "Terminal showing the analyze summary with findings count.",
-			SuggestedAlt:  "Terminal output of find-the-gaps analyze",
-			InsertionHint: "after the paragraph ending '...see the output.'",
-		},
-		{
-			PageURL:       "https://example.com/quickstart",
-			PagePath:      "/cache/quickstart.md",
-			QuotedPassage: "The dashboard shows open PRs.",
-			ShouldShow:    "Dashboard with two open PRs visible.",
-			SuggestedAlt:  "Dashboard with open PRs",
-			InsertionHint: "after the heading '## Dashboard'",
-		},
-		{
-			PageURL:       "https://example.com/setup",
-			PagePath:      "/cache/setup.md",
-			QuotedPassage: "Configure the CLI.",
-			ShouldShow:    "The config file open in an editor.",
-			SuggestedAlt:  "Configuration file",
-			InsertionHint: "after the code block",
-		},
-	}
-	_ = gaps // obsolete — Task 7 deletes this test wholesale.
-	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil))
-	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
-	require.NoError(t, err)
-	s := string(body)
-	assert.Contains(t, s, "## Missing Screenshots")
-	// Grouped per page, in order of first occurrence.
-	assert.Regexp(t, `### https://example.com/quickstart[\s\S]*### https://example.com/setup`, s)
-	// Each gap shows its four fields.
-	assert.Contains(t, s, "Run the command and see the output.")
-	assert.Contains(t, s, "Terminal showing the analyze summary")
-	assert.Contains(t, s, "Terminal output of find-the-gaps analyze")
-	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
-}
-
 func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	dir := t.TempDir()
 	gaps := []analyzer.ScreenshotGap{
@@ -506,14 +463,6 @@ func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 	s := string(body)
 	// /second appears first because it shows up first in the input.
 	assert.Regexp(t, `### https://example.com/second[\s\S]*### https://example.com/first`, s)
-}
-
-func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil))
-	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
-	require.NoError(t, err)
-	assert.NotContains(t, string(body), "## Missing Screenshots")
 }
 
 func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
