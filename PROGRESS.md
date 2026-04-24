@@ -1,5 +1,18 @@
 # Progress
 
+## Task 10 (multi-lang-support): End-to-end verification & milestone close-out - COMPLETE
+- Started: 2026-04-24
+- Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 10), design `.plans/2026-04-24-multi-lang-support-design.md`
+- Summary: Verified the full multi-language support milestone end-to-end. All 9 new extractors (Java, C#, Kotlin, Swift, Scala, PHP, Ruby, C, C++) are implemented, registered in `detect.go`, covered by unit tests, and documented in the README supported-languages table. No changes to the `Extractor` interface or to `GenericExtractor`. JavaScript remains handled by `TypeScriptExtractor` (documented).
+- Tests: `go test ./...` — all packages green. 100+ new tests across the 9 extractor files; 19 new rows in `detect_test.go` for the added extensions (`.java`, `.cs`, `.kt`, `.kts`, `.swift`, `.scala`, `.sc`, `.php`, `.rb`, `.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hh`, `.hpp`, `.hxx`).
+- Coverage: total 92.4% statements; `internal/scanner/lang` 90.4% (above the 90% gate).
+- Build: OK (`go build ./...`).
+- Linting: OK (`golangci-lint run` — 0 issues).
+- Sanity check: synthetic one-file-per-language fixture parsed via the scanner pipeline at a throwaway `cmd/sanity-check/` (since removed). Result: 9 files with symbols, 0 errors — `Calc.java`→[Calc(class), add(func)], `api.cs`→[Api(class), Add(func)], `main.kt`→[Calc(class)], `Calc.swift`→[Calc(class)], `Calc.scala`→[Calc(class)], `calc.php`→[Calc(class), add(func)], `calc.rb`→[Calc(class), add(func)], `calc.h`→[add(func)], `calc.hpp`→[Calc(class), add(func)].
+- Commits on branch `feat/multi-lang-support` (10 feature commits + closeout): `7996c7b` Java, `effe1f8` Java test polish, `6587df4` C#, `5aa291e` Kotlin, `a30a5a4` Swift, `cc243f8` Scala, `ce875c2` PHP, `18af994` Ruby, `2bff9f5` C, `a7c2dc2` C++.
+- Completed: 2026-04-24
+- Notes: Raised first-class language support from 4 → 13. Ready for PR to `main`.
+
 ## Task 9 (multi-lang-support): C++ extractor - COMPLETE
 - Started: 2026-04-24
 - Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 9), design `.plans/2026-04-24-multi-lang-support-design.md`
