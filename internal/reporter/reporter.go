@@ -181,3 +181,38 @@ func WriteGaps(
 
 	return os.WriteFile(filepath.Join(dir, "gaps.md"), []byte(sb.String()), 0o644)
 }
+
+// WriteScreenshots writes screenshots.md to dir. Call ONLY when the screenshot
+// pass actually ran — a skipped pass must produce NO file. Zero-length gaps is
+// valid and produces a "_None found._" body.
+func WriteScreenshots(dir string, gaps []analyzer.ScreenshotGap) error {
+	var sb strings.Builder
+	sb.WriteString("# Missing Screenshots\n\n")
+
+	if len(gaps) == 0 {
+		sb.WriteString("_None found._\n")
+		return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+	}
+
+	// Preserve first-occurrence page order.
+	seen := map[string]bool{}
+	var order []string
+	byPage := map[string][]analyzer.ScreenshotGap{}
+	for _, g := range gaps {
+		if !seen[g.PageURL] {
+			seen[g.PageURL] = true
+			order = append(order, g.PageURL)
+		}
+		byPage[g.PageURL] = append(byPage[g.PageURL], g)
+	}
+	for _, page := range order {
+		fmt.Fprintf(&sb, "### %s\n\n", page)
+		for _, g := range byPage[page] {
+			fmt.Fprintf(&sb, "- **Passage:** %q\n", g.QuotedPassage)
+			fmt.Fprintf(&sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
+			fmt.Fprintf(&sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
+			fmt.Fprintf(&sb, "  - **Insert:** %s\n\n", g.InsertionHint)
+		}
+	}
+	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+}
