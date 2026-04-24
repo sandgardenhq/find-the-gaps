@@ -22,6 +22,7 @@ Find the Gaps uses [tree-sitter](https://github.com/smacker/go-tree-sitter) to e
 | Python | `.py`, `.pyw` |
 | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` |
 | Rust | `.rs` |
+| Java | `.java` |
 
 Unrecognized text files are still scanned as plain text so they can be cross-referenced against docs, but no symbols are extracted from them. Binary files (images, archives, fonts, audio, compiled libraries, etc.) are skipped entirely.
 

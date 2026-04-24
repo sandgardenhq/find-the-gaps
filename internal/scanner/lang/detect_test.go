@@ -40,6 +40,13 @@ func TestDetect_rsFile_returnsRustExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_javaFile_returnsJavaExtractor(t *testing.T) {
+	e := Detect("src/Main.java")
+	if e == nil || e.Language() != "Java" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {

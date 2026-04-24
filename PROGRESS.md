@@ -1,5 +1,19 @@
 # Progress
 
+## Task 1 (multi-lang-support): Java extractor - COMPLETE
+- Started: 2026-04-24
+- Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 1), design `.plans/2026-04-24-multi-lang-support-design.md`
+- Summary: Added `JavaExtractor` in `internal/scanner/lang/java.go` implementing the existing `Extractor` interface on top of `github.com/smacker/go-tree-sitter/java`. Emits any declaration whose `modifiers` child contains a `public` token — top-level `class_declaration`, `record_declaration` (→ `KindClass`), `interface_declaration` (→ `KindInterface`), `enum_declaration` (→ `KindType`), plus `public` `method_declaration` members of their bodies (→ `KindFunc`). Javadoc `/** */` immediately preceding a declaration becomes `DocComment` with markers stripped; structural `{` tokens are skipped when walking backwards through sibling order. Imports are top-level `import_declaration` nodes; path is the full dotted `scoped_identifier` text. Registered in `detect.go` and covered by a new row in `detect_test.go`.
+- Tree-sitter node types used: `import_declaration`, `class_declaration`, `record_declaration`, `interface_declaration`, `enum_declaration`, `method_declaration`, `class_body`, `interface_body`, `enum_body`, `modifiers` (with `public`/`private`/`protected` token children), `scoped_identifier`, `block_comment`.
+- RED: wrote 5 tests in `java_test.go` covering exported method, non-public skip (private / package-private / protected), public class kind, two imports, Javadoc comment capture. First run failed with `undefined: JavaExtractor`; after stub, runtime failures reported "expected 1 symbol, got 0" — confirmed RED for the right reasons.
+- GREEN: implemented `Extract` + helpers (`javaWalkType`, `javaWalkMembers`, `javaHasModifier`, `javaDeclSignature`, `javaPrecedingComment`, `javaExtractImport`) to the minimum needed to pass each test in order.
+- Tests: all 5 Java tests pass, full `./...` suite green.
+- Coverage: `internal/scanner/lang` 91.5% of statements (≥ 90% gate).
+- Build: OK (`go build ./...`).
+- Linting: OK (`golangci-lint run` — 0 issues).
+- Completed: 2026-04-24
+- Notes: Wrote a temporary `java_debug_test.go` that dumped `tree.RootNode().String()` + modifier child types for a Java fixture — confirmed the comment node type is `block_comment` (not `comment` as in TS), that `method_declaration` without a `modifiers` child is package-private, and that `class_body` includes literal `{` / `}` punctuation as siblings (handled by `javaPrecedingComment` skipping `{`). Debug test deleted before commit.
+
 ## Fix lmstudio empty-key regression; remove openai-compatible - COMPLETE
 - Started: 2026-04-23
 - Summary: Code-review of the Bifrost consolidation surfaced a regression: lmstudio (and the now-removed openai-compatible) routed through Bifrost's OpenAI provider with an empty API key, but Bifrost's per-request key filter (`bifrost.go selectKeyFromProviderForModel` + `utils.go CanProviderKeyValueBeEmpty`) drops empty-value keys for OpenAI, causing every request to fail with "no keys found that support model: …". Fixed inside `bifrostAccount.GetKeysForProvider`: when `provider == OpenAI && apiKey == "" && baseURL != ""`, substitute a non-empty placeholder bearer (`local-server-no-auth`). LM Studio ignores the Authorization header, so the placeholder is harmless. Also removed the `openai-compatible` CLI provider entirely (per direction) — references gone from `buildTierClient`, `tier_validate.go`, `tier_parse_test.go`, `llm_tiering_test.go`, `README.md`, `CHANGELOG.md`. Replaced the two openai-compatible tests with a single removal-assertion test.
