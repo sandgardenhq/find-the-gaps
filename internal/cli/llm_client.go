@@ -61,50 +61,53 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 }
 
 // buildTierClient constructs a single (LLMClient, TokenCounter) for one (provider, model).
+//
+// lmstudio collapses to Bifrost's schemas.OpenAI provider with a
+// NetworkConfig.BaseURL override — Bifrost honors BaseURL for OpenAI
+// (see bifrost core schemas/provider.go:54). ollama uses the dedicated Bifrost
+// Ollama provider, which threads the server URL through Key.OllamaKeyConfig.
 func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.TokenCounter, error) {
+	var (
+		bifrostProvider string
+		apiKey, baseURL string
+		counter         analyzer.TokenCounter
+	)
 	switch provider {
 	case "anthropic":
-		key := os.Getenv("ANTHROPIC_API_KEY")
-		if key == "" {
+		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
 			return nil, nil, fmt.Errorf("ANTHROPIC_API_KEY not set")
 		}
-		client, err := analyzer.NewBifrostClientWithProvider("anthropic", key, model)
-		if err != nil {
-			return nil, nil, err
-		}
-		counter := analyzer.NewAnthropicCounter(key, model, os.Getenv("ANTHROPIC_BASE_URL"))
-		return client, counter, nil
+		bifrostProvider = "anthropic"
+		counter = analyzer.NewAnthropicCounter(apiKey, model, os.Getenv("ANTHROPIC_BASE_URL"))
 	case "openai":
-		key := os.Getenv("OPENAI_API_KEY")
-		if key == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+		if apiKey == "" {
 			return nil, nil, fmt.Errorf("OPENAI_API_KEY not set")
 		}
-		client, err := analyzer.NewBifrostClientWithProvider("openai", key, model)
-		if err != nil {
-			return nil, nil, err
-		}
-		// OpenAI uses local tiktoken counter.
-		counter := analyzer.NewTiktokenCounter()
-		return client, counter, nil
+		bifrostProvider = "openai"
+		counter = analyzer.NewTiktokenCounter()
 	case "ollama":
-		baseURL := os.Getenv("OLLAMA_BASE_URL")
+		baseURL = os.Getenv("OLLAMA_BASE_URL")
 		if baseURL == "" {
 			baseURL = "http://localhost:11434"
 		}
-		return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), analyzer.NewTiktokenCounter(), nil
+		bifrostProvider = "ollama"
+		counter = analyzer.NewTiktokenCounter()
 	case "lmstudio":
-		baseURL := os.Getenv("LMSTUDIO_BASE_URL")
+		baseURL = os.Getenv("LMSTUDIO_BASE_URL")
 		if baseURL == "" {
 			baseURL = "http://localhost:1234"
 		}
-		return analyzer.NewOpenAICompatibleClient(baseURL, model, ""), analyzer.NewTiktokenCounter(), nil
-	case "openai-compatible":
-		baseURL := os.Getenv("OPENAI_COMPATIBLE_BASE_URL")
-		if baseURL == "" {
-			return nil, nil, fmt.Errorf("OPENAI_COMPATIBLE_BASE_URL env var required for openai-compatible")
-		}
-		return analyzer.NewOpenAICompatibleClient(baseURL, model, os.Getenv("OPENAI_API_KEY")), analyzer.NewTiktokenCounter(), nil
+		bifrostProvider = "openai"
+		counter = analyzer.NewTiktokenCounter()
 	default:
 		return nil, nil, fmt.Errorf("unknown provider %q", provider)
 	}
+
+	client, err := analyzer.NewBifrostClientWithProvider(bifrostProvider, apiKey, model, baseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, counter, nil
 }

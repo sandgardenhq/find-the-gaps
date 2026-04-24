@@ -16,7 +16,7 @@ func TestBifrostClient_Anthropic_RealCompletion(t *testing.T) {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 
-	client, err := analyzer.NewBifrostClientWithProvider("anthropic", key, "claude-3-5-sonnet-20241022")
+	client, err := analyzer.NewBifrostClientWithProvider("anthropic", key, "claude-3-5-sonnet-20241022", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestBifrostClient_OpenAI_RealCompletion(t *testing.T) {
 		t.Skip("OPENAI_API_KEY not set")
 	}
 
-	client, err := analyzer.NewBifrostClientWithProvider("openai", key, "gpt-4o-mini")
+	client, err := analyzer.NewBifrostClientWithProvider("openai", key, "gpt-4o-mini", "")
 	if err != nil {
 		t.Fatal(err)
 	}
