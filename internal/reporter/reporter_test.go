@@ -54,7 +54,7 @@ func TestWriteGaps_CreatesFile(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{"search"}, []analyzer.DriftFinding{}, nil); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{"search"}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -87,7 +87,7 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	}
 	allFeatures := []string{"gap analysis"} // documented AND implemented → no gaps
 
-	if err := reporter.WriteGaps(dir, mapping, allFeatures, []analyzer.DriftFinding{}, nil); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, allFeatures, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,7 +108,7 @@ func TestWriteGaps_UndocumentedCode(t *testing.T) {
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
 	// "auth" exists in code but is absent from docs
-	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}, nil); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -131,7 +131,7 @@ func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{}}, // no files — not "implemented"
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}, nil); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -258,7 +258,7 @@ func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
 			},
 		},
 	}
-	if err := reporter.WriteGaps(dir, mapping, []string{"auth"}, drift, nil); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{"auth"}, drift); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -284,7 +284,7 @@ func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
 func TestWriteGaps_StaleDocumentation_NoneFound(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{}
-	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}, nil); err != nil {
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
@@ -421,7 +421,8 @@ func TestWriteGaps_MissingScreenshotsSection(t *testing.T) {
 			InsertionHint: "after the code block",
 		},
 	}
-	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, gaps))
+	_ = gaps // obsolete — Task 7 deletes this test wholesale.
+	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil))
 	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	require.NoError(t, err)
 	s := string(body)
@@ -509,7 +510,7 @@ func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 
 func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, nil))
+	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil))
 	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(body), "## Missing Screenshots")
