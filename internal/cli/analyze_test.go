@@ -414,6 +414,14 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 	if !strings.Contains(combined, "scanned") {
 		t.Errorf("expected 'scanned' in output; got: %s", combined)
 	}
+	// Screenshot pass was skipped — screenshots.md must NOT exist.
+	if _, err := os.Stat(filepath.Join(projectDir, "screenshots.md")); !os.IsNotExist(err) {
+		t.Errorf("expected screenshots.md to NOT exist when skipped; Stat err=%v", err)
+	}
+	// Stdout lists it as (skipped).
+	if !strings.Contains(combined, "screenshots.md (skipped)") {
+		t.Errorf("expected '(skipped)' annotation in output; got: %s", combined)
+	}
 }
 
 func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
