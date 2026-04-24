@@ -97,17 +97,18 @@ Before any scenario runs:
 
 **Steps**:
 1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>`.
-2. Inspect `gaps.md`.
+2. Inspect `<projectDir>/screenshots.md`.
 3. Re-run with `--skip-screenshot-check`.
-4. Re-inspect `gaps.md`.
+4. Inspect the output directory.
 
 **Success Criteria**:
-- [ ] First run's `gaps.md` contains a `## Missing Screenshots` section.
-- [ ] At least one gap is listed for the known UI passage, with all four fields populated: passage, should-show, alt text, insertion hint.
-- [ ] Second run's `gaps.md` contains NO `## Missing Screenshots` section.
-- [ ] Exit code behavior matches the findings count (consistent with existing drift exit semantics).
+- [ ] First run writes `screenshots.md`; `gaps.md` does NOT contain a `Missing Screenshots` section.
+- [ ] `screenshots.md` contains at least one gap for the known UI passage with all four fields populated.
+- [ ] Stdout lists `screenshots.md` in the `reports:` block.
+- [ ] Second run does NOT write `screenshots.md`.
+- [ ] Second run's stdout lists `screenshots.md (skipped)`.
 
-**If Blocked**: If the section renders on the skip run, the flag is not wired correctly. Stop and ask.
+**If Blocked**: If `screenshots.md` renders on the skipped run, the gating is broken. Stop and ask.
 
 ---
 
