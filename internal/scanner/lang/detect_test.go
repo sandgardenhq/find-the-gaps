@@ -47,6 +47,13 @@ func TestDetect_javaFile_returnsJavaExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_csFile_returnsCSharpExtractor(t *testing.T) {
+	e := Detect("src/Main.cs")
+	if e == nil || e.Language() != "C#" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {

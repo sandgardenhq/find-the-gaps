@@ -1,5 +1,19 @@
 # Progress
 
+## Task 2 (multi-lang-support): C# extractor - COMPLETE
+- Started: 2026-04-24
+- Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 2), design `.plans/2026-04-24-multi-lang-support-design.md`
+- Summary: Added `CSharpExtractor` in `internal/scanner/lang/csharp.go` implementing the existing `Extractor` interface on top of `github.com/smacker/go-tree-sitter/csharp`. Emits any declaration whose children include a `modifier` node containing a `public` token — `class_declaration`, `record_declaration`, `struct_declaration` (→ `KindClass`), `interface_declaration` (→ `KindInterface`), `enum_declaration` (→ `KindType`), plus `public` `method_declaration` members of their `declaration_list` bodies (→ `KindFunc`). `namespace_declaration` bodies (`declaration_list`) are descended into so idiomatic namespace-wrapped code is covered; nested namespaces recurse. XML `///` doc comments immediately preceding a declaration become `DocComment`: consecutive `comment` siblings whose text starts with `///` are collected, each `///` prefix stripped, joined with newlines. `using X;` imports emit `Path = X`; aliased `using Alias = X.Y;` populates `Alias` from the directive's `name` field and `Path` from the following `qualified_name`. Registered in `detect.go` with `.cs`, covered by a new row in `detect_test.go`, and README's supported-languages table gains a C# row.
+- Tree-sitter node types used: `using_directive` (with `name` field for alias + `qualified_name`/`identifier` for path), `namespace_declaration` (with `body: declaration_list`), `class_declaration`, `record_declaration`, `struct_declaration`, `interface_declaration`, `enum_declaration`, `method_declaration`, `declaration_list` (shared body type for namespaces and classes), `modifier` (with named child `public`/`private`/`internal`/`protected`), `comment` (one per `///` line), `qualified_name`.
+- RED: wrote 7 tests in `csharp_test.go` — exported method (`Add`), non-public skip (private / internal / protected), public class kind, public interface kind, public enum kind, imports (plain + aliased with `Alias = "Proj"`), and `///` doc capture (assertions: non-empty, `///` markers stripped, multiple lines joined with `\n`). First run failed with `undefined: CSharpExtractor`; after stub, runtime failures reported "expected symbol X, got: []" — RED confirmed for the right reasons.
+- GREEN: implemented `Extract` + helpers (`csharpWalkNamespace`, `csharpWalkType`, `csharpWalkMembers`, `csharpHasPublic`, `csharpDeclSignature`, `csharpPrecedingComment`, `csharpExtractUsing`) to the minimum needed to pass each test in order.
+- Tests: all 7 C# tests pass, full `./...` suite green.
+- Coverage: `internal/scanner/lang` 91.1% of statements (≥ 90% gate).
+- Build: OK (`go build ./...`).
+- Linting: OK (`golangci-lint run` — 0 issues).
+- Completed: 2026-04-24
+- Notes: Wrote a temporary `csharp_debug_test.go` that dumped `tree.RootNode().String()` + a deep per-node walk for a representative C# fixture — confirmed that (a) modifiers in tree-sitter-csharp are individual `modifier` nodes with a named child `public`/`private`/... (NOT a `modifiers` container as in Java), (b) namespace bodies use `declaration_list` and enum bodies use `enum_member_declaration_list`, (c) XML doc lines are separate `comment` nodes one per `///` line, and (d) `using_directive` uses the `name` field only for the alias in `using Alias = X.Y;` form. Debug test deleted before commit (verified via `ls *_debug_test.go` returning no matches).
+
 ## Task 1 (multi-lang-support): Java extractor - COMPLETE
 - Started: 2026-04-24
 - Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 1), design `.plans/2026-04-24-multi-lang-support-design.md`
