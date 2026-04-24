@@ -478,6 +478,20 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
 }
 
+func TestWriteScreenshots_Empty_WritesNoneFound(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, reporter.WriteScreenshots(dir, nil))
+
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+
+	assert.Contains(t, s, "# Missing Screenshots")
+	assert.Contains(t, s, "_None found._")
+	// No per-page headers when there are no findings.
+	assert.NotContains(t, s, "### ")
+}
+
 func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, nil))
