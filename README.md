@@ -29,6 +29,7 @@ Find the Gaps uses [tree-sitter](https://github.com/smacker/go-tree-sitter) to e
 | Scala | `.scala`, `.sc` |
 | PHP | `.php` |
 | Ruby | `.rb` |
+| C | `.c`, `.h` |
 
 Unrecognized text files are still scanned as plain text so they can be cross-referenced against docs, but no symbols are extracted from them. Binary files (images, archives, fonts, audio, compiled libraries, etc.) are skipped entirely.
 

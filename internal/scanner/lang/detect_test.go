@@ -103,6 +103,20 @@ func TestDetect_rbFile_returnsRubyExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_cFile_returnsCExtractor(t *testing.T) {
+	e := Detect("src/impl.c")
+	if e == nil || e.Language() != "C" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hFile_returnsCExtractor(t *testing.T) {
+	e := Detect("include/api.h")
+	if e == nil || e.Language() != "C" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {

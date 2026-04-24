@@ -28,6 +28,7 @@ func init() {
 		&ScalaExtractor{},
 		&PHPExtractor{},
 		&RubyExtractor{},
+		&CExtractor{},
 	}
 }
 
