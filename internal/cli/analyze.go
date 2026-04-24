@@ -359,10 +359,20 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
 				return fmt.Errorf("write gaps: %w", err)
 			}
+			if !skipScreenshotCheck {
+				if err := reporter.WriteScreenshots(projectDir, screenshotGaps); err != nil {
+					return fmt.Errorf("write screenshots: %w", err)
+				}
+			}
 
+			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
+			if skipScreenshotCheck {
+				screenshotsLine += " (skipped)"
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports: %s/mapping.md, %s/gaps.md\n",
-				len(scan.Files), len(pages), len(featureMap), projectDir, projectDir)
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n  %s/gaps.md\n%s\n",
+				len(scan.Files), len(pages), len(featureMap),
+				projectDir, projectDir, screenshotsLine)
 
 			return nil
 		},
