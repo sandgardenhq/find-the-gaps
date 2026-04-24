@@ -5,12 +5,38 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
 
+// version is overwritten at release time via:
+//   go build -ldflags "-X github.com/sandgardenhq/find-the-gaps/internal/cli.version=v1.2.3"
+// When unset, currentVersion() falls back to the module version reported by
+// runtime/debug.BuildInfo (populated by `go install`), and finally to "dev".
 var version = "dev"
+
+// resolveVersion picks the best version string given an ldflags-injected value
+// and the module version reported by runtime/debug.BuildInfo. Precedence:
+// ldflags override > BuildInfo module version > "dev".
+func resolveVersion(ldflagsVersion, buildInfoVersion string) string {
+	if ldflagsVersion != "" && ldflagsVersion != "dev" {
+		return ldflagsVersion
+	}
+	if buildInfoVersion != "" && buildInfoVersion != "(devel)" {
+		return buildInfoVersion
+	}
+	return "dev"
+}
+
+func currentVersion() string {
+	var biVersion string
+	if info, ok := debug.ReadBuildInfo(); ok {
+		biVersion = info.Main.Version
+	}
+	return resolveVersion(version, biVersion)
+}
 
 // ExitCodeError signals to Execute that the CLI should exit with the given
 // non-zero code without printing any additional error text. The subcommand
@@ -30,7 +56,7 @@ func NewRootCmd() *cobra.Command {
 		Short: "Find outdated or missing documentation in a codebase.",
 		Long: "ftg analyzes a codebase alongside its documentation site to " +
 			"identify outdated or missing documentation.",
-		Version:       version,
+		Version:       currentVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
