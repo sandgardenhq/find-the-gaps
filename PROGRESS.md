@@ -722,3 +722,12 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Integration tests: `analyze_tier_flags.txtar` (happy-path all three flags) and `analyze_tier_reject_ollama_large.txtar` (fail-fast)
   - Restored `TestAnalyze_llmAnalyzeError_continuesWithWarning` against ollama-compatible httptest server via OLLAMA_BASE_URL (feasible post-tiering because AnalyzePage routes to Small)
   - README: tier table + TOML form + env-var list + breaking-change callout; CHANGELOG: Unreleased entry with migration recipe
+
+## Task: Split screenshots into their own report - COMPLETE
+- Started: 2026-04-24
+- Tests: 434 passing, 0 failing
+- Coverage: reporter: 98.0%, cli: 90.5%, analyzer: 94.9%, doctor: 98.4%, scanner: 93.8%, scanner/lang: 91.8%, spider: 94.4%, cmd/find-the-gaps: 100.0%
+- Build: ✅ Successful
+- Linting: ✅ Clean
+- Completed: 2026-04-24
+- Notes: `gaps.md` no longer contains a Missing Screenshots section; new `screenshots.md` written whenever the screenshot pass runs (including zero-findings case). Skipped pass writes no file and is annotated in the CLI reports block.
