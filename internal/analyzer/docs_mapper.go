@@ -21,6 +21,25 @@ const DocsMapperPageBudget = 40_000
 // need to be goroutine-safe. Returning a non-nil error aborts the mapping.
 type DocsMapProgressFunc func(partial DocsFeatureMap) error
 
+// mapPageResponse wraps the matched-features array in an object because
+// provider tool-call input_schemas must be JSON objects at the root.
+type mapPageResponse struct {
+	Features []string `json:"features"`
+}
+
+// PROMPT SCHEMA: output shape for mapPageToFeatures.
+var mapPageSchema = JSONSchema{
+	Name: "map_page_response",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "features": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["features"],
+      "additionalProperties": false
+    }`),
+}
+
 // mapPageToFeatures asks the LLM which features from the canonical list are
 // covered by a single documentation page. Content is truncated to fit the budget.
 //
@@ -50,7 +69,7 @@ func mapPageToFeatures(
 		content = content[:keepChars]
 	}
 
-	// PROMPT: Maps a single documentation page to the canonical product features it covers. Returns a JSON array of matching feature strings only.
+	// PROMPT: Maps a single documentation page to the canonical product features it covers.
 	prompt := fmt.Sprintf(`You are analyzing a documentation page to identify which product features it covers.
 
 Product features:
@@ -61,24 +80,23 @@ Documentation page URL: %s
 Documentation page content:
 %s
 
-Return a JSON array of feature strings (exact matches from the list above) that this page covers.
-Only include features that are clearly addressed on this page.
-Respond with only the JSON array. No markdown code fences. No prose.`,
+Populate "features" with the feature strings (exact matches from the list above) that this page covers.
+Only include features that are clearly addressed on this page.`,
 		string(featuresJSON), pageURL, content)
 
-	raw, err := client.Complete(ctx, prompt)
+	raw, err := client.CompleteJSON(ctx, prompt, mapPageSchema)
 	if err != nil {
 		return nil, fmt.Errorf("mapPageToFeatures %s: %w", pageURL, err)
 	}
 
-	var matched []string
-	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &matched); err != nil {
+	var resp mapPageResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("mapPageToFeatures %s: invalid JSON response: %w", pageURL, err)
 	}
-	if matched == nil {
-		matched = []string{}
+	if resp.Features == nil {
+		resp.Features = []string{}
 	}
-	return matched, nil
+	return resp.Features, nil
 }
 
 // pageResult is the outcome of processing one doc page.

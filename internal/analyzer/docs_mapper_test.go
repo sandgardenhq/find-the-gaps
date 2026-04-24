@@ -15,8 +15,10 @@ import (
 )
 
 // fakeDynamicClient responds based on which URL appears in the prompt.
+// responses maps a url substring → the wrapped JSON payload
+// (e.g. `{"features":["auth"]}`) to return when that substring appears.
 type fakeDynamicClient struct {
-	responses map[string]string // url substring → JSON response
+	responses map[string]string
 }
 
 func (f *fakeDynamicClient) Complete(_ context.Context, prompt string) (string, error) {
@@ -25,7 +27,7 @@ func (f *fakeDynamicClient) Complete(_ context.Context, prompt string) (string, 
 			return resp, nil
 		}
 	}
-	return `[]`, nil
+	return `{"features":[]}`, nil
 }
 
 func (f *fakeDynamicClient) CompleteJSON(_ context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {
@@ -34,7 +36,7 @@ func (f *fakeDynamicClient) CompleteJSON(_ context.Context, prompt string, _ ana
 			return json.RawMessage(resp), nil
 		}
 	}
-	return json.RawMessage(`[]`), nil
+	return json.RawMessage(`{"features":[]}`), nil
 }
 
 // --- mapPageToFeatures tests ---
@@ -42,7 +44,9 @@ func (f *fakeDynamicClient) CompleteJSON(_ context.Context, prompt string, _ ana
 func TestMapPageToFeatures_HappyPath(t *testing.T) {
 	features := []string{"authentication", "search", "billing"}
 	featuresJSON, _ := json.Marshal(features)
-	client := &fakeClient{responses: []string{`["authentication","search"]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":["authentication","search"]}`),
+	}}
 
 	got, err := analyzer.ExportedMapPageToFeatures(
 		context.Background(), client, &fakeCounter{n: 100},
@@ -51,12 +55,16 @@ func TestMapPageToFeatures_HappyPath(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"authentication", "search"}, got)
+	require.Len(t, client.jsonSchemas, 1)
+	assert.Equal(t, "map_page_response", client.jsonSchemas[0].Name)
 }
 
 func TestMapPageToFeatures_EmptyResponse(t *testing.T) {
 	features := []string{"authentication"}
 	featuresJSON, _ := json.Marshal(features)
-	client := &fakeClient{responses: []string{`[]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":[]}`),
+	}}
 
 	got, err := analyzer.ExportedMapPageToFeatures(
 		context.Background(), client, &fakeCounter{n: 10},
@@ -70,7 +78,9 @@ func TestMapPageToFeatures_EmptyResponse(t *testing.T) {
 func TestMapPageToFeatures_InvalidJSON(t *testing.T) {
 	features := []string{"authentication"}
 	featuresJSON, _ := json.Marshal(features)
-	client := &fakeClient{responses: []string{`not json`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`not json`),
+	}}
 
 	_, err := analyzer.ExportedMapPageToFeatures(
 		context.Background(), client, &fakeCounter{n: 10},
@@ -86,7 +96,9 @@ func TestMapPageToFeatures_ContentTruncatedWhenOverBudget(t *testing.T) {
 	// Content is ~2500 tokens (10k chars), which exceeds available(550), so truncation fires.
 	features := []string{"authentication"}
 	featuresJSON, _ := json.Marshal(features)
-	client := &fakeClient{responses: []string{`["authentication"]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":["authentication"]}`),
+	}}
 
 	largeContent := strings.Repeat("word ", 2_000) // ~10k chars / ~2500 tokens
 	_, err := analyzer.ExportedMapPageToFeatures(
@@ -107,7 +119,9 @@ func TestMapPageToFeatures_BudgetTooSmallReturnsEmpty(t *testing.T) {
 	// must return empty without calling the LLM.
 	features := []string{"authentication"}
 	featuresJSON, _ := json.Marshal(features)
-	client := &fakeClient{responses: []string{`["authentication"]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":["authentication"]}`),
+	}}
 
 	// featureTokens(500) + promptOverhead(400) = 900 > tokenBudget(100)
 	got, err := analyzer.ExportedMapPageToFeatures(
@@ -141,9 +155,9 @@ func TestMapFeaturesToDocs_AggregatesAcrossPages(t *testing.T) {
 	}
 
 	client := &fakeDynamicClient{responses: map[string]string{
-		"https://example.com/auth":    `["auth"]`,
-		"https://example.com/search":  `["search"]`,
-		"https://example.com/billing": `["billing"]`,
+		"https://example.com/auth":    `{"features":["auth"]}`,
+		"https://example.com/search":  `{"features":["search"]}`,
+		"https://example.com/billing": `{"features":["billing"]}`,
 	}}
 
 	fm, err := analyzer.MapFeaturesToDocs(
@@ -167,7 +181,9 @@ func TestMapFeaturesToDocs_SkipsMissingFile(t *testing.T) {
 	pages := map[string]string{
 		"https://example.com/missing": "/tmp/does-not-exist-ftg-test.md",
 	}
-	client := &fakeClient{responses: []string{`["auth"]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":["auth"]}`),
+	}}
 
 	fm, err := analyzer.MapFeaturesToDocs(
 		context.Background(), &fakeTiering{small: client},
@@ -210,8 +226,8 @@ func TestMapFeaturesToDocs_OnPageCalledAfterEachResult(t *testing.T) {
 		"https://example.com/search": write("search.md", "search content"),
 	}
 	client := &fakeDynamicClient{responses: map[string]string{
-		"https://example.com/auth":   `["auth"]`,
-		"https://example.com/search": `["search"]`,
+		"https://example.com/auth":   `{"features":["auth"]}`,
+		"https://example.com/search": `{"features":["search"]}`,
 	}}
 
 	var callCount int
@@ -235,7 +251,9 @@ func TestMapFeaturesToDocs_OnPageErrorAborts(t *testing.T) {
 	p := filepath.Join(dir, "auth.md")
 	require.NoError(t, os.WriteFile(p, []byte("auth content"), 0o644))
 
-	client := &fakeClient{responses: []string{`["auth"]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":["auth"]}`),
+	}}
 	boom := errors.New("disk full")
 
 	_, err := analyzer.MapFeaturesToDocs(
@@ -256,9 +274,11 @@ func TestMapFeaturesToDocs_UsesSmallTier(t *testing.T) {
 	require.NoError(t, os.WriteFile(p, []byte("auth content"), 0o644))
 	pages := map[string]string{"https://example.com/auth": p}
 
-	small := &fakeClient{responses: []string{`["auth"]`}}
-	typical := &fakeClient{responses: []string{`["auth"]`}}
-	large := &fakeClient{responses: []string{`["auth"]`}}
+	small := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_page_response": json.RawMessage(`{"features":["auth"]}`),
+	}}
+	typical := &fakeClient{}
+	large := &fakeClient{}
 	tiering := &fakeTiering{small: small, typical: typical, large: large}
 
 	_, err := analyzer.MapFeaturesToDocs(

@@ -279,7 +279,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{
-				{"message": map[string]any{"content": `[]`}},
+				{"message": map[string]any{"content": `{"gaps":[]}`}},
 			},
 		})
 	}))

@@ -21,6 +21,23 @@ type driftStubClient struct {
 	completeFunc func(ctx context.Context, prompt string) (string, error)
 }
 
+// submitFindings builds a ChatMessage that invokes the submit_findings terminal
+// tool with the given issues. Test helper.
+func submitFindings(issues ...analyzer.DriftIssue) analyzer.ChatMessage {
+	if issues == nil {
+		issues = []analyzer.DriftIssue{}
+	}
+	args, _ := json.Marshal(struct {
+		Findings []analyzer.DriftIssue `json:"findings"`
+	}{Findings: issues})
+	return analyzer.ChatMessage{
+		Role: "assistant",
+		ToolCalls: []analyzer.ToolCall{
+			{ID: "submit", Name: "submit_findings", Arguments: string(args)},
+		},
+	}
+}
+
 func (s *driftStubClient) Complete(ctx context.Context, prompt string) (string, error) {
 	s.completeCalls++
 	if s.completeFunc != nil {
@@ -79,10 +96,7 @@ func TestDetectDrift_NoDocumentedFeatures_ReturnsEmpty(t *testing.T) {
 func TestDetectDrift_DocumentedFeature_ReturnsIssues(t *testing.T) {
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{
-			{
-				Role:    "assistant",
-				Content: `[{"page":"https://docs.example.com/auth","issue":"Email requirement not documented."}]`,
-			},
+			submitFindings(analyzer.DriftIssue{Page: "https://docs.example.com/auth", Issue: "Email requirement not documented."}),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -108,7 +122,7 @@ func TestDetectDrift_DocumentedFeature_ReturnsIssues(t *testing.T) {
 
 func TestDetectDrift_LLMReturnsEmptyArray_FeatureDropped(t *testing.T) {
 	client := &driftStubClient{
-		responses: []analyzer.ChatMessage{{Role: "assistant", Content: "[]"}},
+		responses: []analyzer.ChatMessage{submitFindings()},
 	}
 	featureMap := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
@@ -125,7 +139,7 @@ func TestDetectDrift_LLMReturnsEmptyArray_FeatureDropped(t *testing.T) {
 
 func TestDetectDrift_ToolCall_ExecutedAndContinued(t *testing.T) {
 	// First response: LLM requests read_file tool.
-	// Second response: LLM returns final JSON after seeing tool result.
+	// Second response: LLM calls submit_findings with its conclusions.
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{
 			{
@@ -134,10 +148,7 @@ func TestDetectDrift_ToolCall_ExecutedAndContinued(t *testing.T) {
 					{ID: "call_1", Name: "read_file", Arguments: `{"path":"auth.go"}`},
 				},
 			},
-			{
-				Role:    "assistant",
-				Content: `[{"page":"","issue":"The docs omit that Login returns a JWT token."}]`,
-			},
+			submitFindings(analyzer.DriftIssue{Page: "", Issue: "The docs omit that Login returns a JWT token."}),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -166,7 +177,7 @@ func TestDetectDrift_ReadFile_OutsideRepo_ReturnsError(t *testing.T) {
 				Role:      "assistant",
 				ToolCalls: []analyzer.ToolCall{{ID: "call_1", Name: "read_file", Arguments: `{"path":"../../../etc/passwd"}`}},
 			},
-			{Role: "assistant", Content: "[]"},
+			submitFindings(),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -188,10 +199,7 @@ func TestDetectDrift_ReadPage_ToolCall_ExecutedAndContinued(t *testing.T) {
 				Role:      "assistant",
 				ToolCalls: []analyzer.ToolCall{{ID: "call_2", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
 			},
-			{
-				Role:    "assistant",
-				Content: `[{"page":"https://docs.example.com/auth","issue":"The rate limiting behavior is not documented."}]`,
-			},
+			submitFindings(analyzer.DriftIssue{Page: "https://docs.example.com/auth", Issue: "The rate limiting behavior is not documented."}),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -214,7 +222,7 @@ func TestDetectDrift_UnknownTool_GracefulContinuation(t *testing.T) {
 				Role:      "assistant",
 				ToolCalls: []analyzer.ToolCall{{ID: "call_3", Name: "nonexistent_tool", Arguments: `{}`}},
 			},
-			{Role: "assistant", Content: "[]"},
+			submitFindings(),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -236,7 +244,7 @@ func TestDetectDrift_ReadFile_BadJSON_ReturnsError(t *testing.T) {
 				Role:      "assistant",
 				ToolCalls: []analyzer.ToolCall{{ID: "call_4", Name: "read_file", Arguments: `not-json`}},
 			},
-			{Role: "assistant", Content: "[]"},
+			submitFindings(),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -257,7 +265,7 @@ func TestDetectDrift_ReadPage_BadJSON_ReturnsError(t *testing.T) {
 				Role:      "assistant",
 				ToolCalls: []analyzer.ToolCall{{ID: "call_5", Name: "read_page", Arguments: `not-json`}},
 			},
-			{Role: "assistant", Content: "[]"},
+			submitFindings(),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -278,7 +286,7 @@ func TestDetectDrift_ReadPage_PageReaderError_ReturnedToLLM(t *testing.T) {
 				Role:      "assistant",
 				ToolCalls: []analyzer.ToolCall{{ID: "call_6", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
 			},
-			{Role: "assistant", Content: "[]"},
+			submitFindings(),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -309,11 +317,11 @@ func TestDetectDrift_CompleteWithTools_Error_Propagated(t *testing.T) {
 	assert.Contains(t, err.Error(), "bifrost unavailable")
 }
 
-func TestDetectDrift_InvalidJSONResponse_ReturnsError(t *testing.T) {
-	// LLM returns non-JSON content (not a tool call); DetectDrift should return an error.
+func TestDetectDrift_TextResponseWithoutSubmitFindings_ReturnsError(t *testing.T) {
+	// LLM returns text content instead of calling submit_findings; DetectDrift must error.
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{
-			{Role: "assistant", Content: "this is not json"},
+			{Role: "assistant", Content: "this is not a tool call"},
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -324,17 +332,16 @@ func TestDetectDrift_InvalidJSONResponse_ReturnsError(t *testing.T) {
 
 	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid JSON drift response")
+	assert.Contains(t, err.Error(), "submit_findings")
 }
 
-func TestDetectDrift_ProseBeforeJSON_ParsedSuccessfully(t *testing.T) {
-	// LLM returns prose before the JSON array (common despite the prompt instruction).
-	// DetectDrift must extract the array and parse it successfully.
+func TestDetectDrift_SubmitFindingsBadJSON_ReturnsError(t *testing.T) {
+	// LLM calls submit_findings but with malformed arguments; DetectDrift must error.
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{
 			{
-				Role:    "assistant",
-				Content: `Here are the issues I found:\n\n[{"page":"https://docs.example.com/auth","issue":"Email requirement not documented."}]`,
+				Role:      "assistant",
+				ToolCalls: []analyzer.ToolCall{{ID: "submit", Name: "submit_findings", Arguments: `not json`}},
 			},
 		},
 	}
@@ -344,32 +351,9 @@ func TestDetectDrift_ProseBeforeJSON_ParsedSuccessfully(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
-	require.NoError(t, err)
-	require.Len(t, findings, 1)
-	assert.Contains(t, findings[0].Issues[0].Issue, "Email requirement")
-}
-
-func TestDetectDrift_ProseWithGoSliceNotation_ParsedSuccessfully(t *testing.T) {
-	// LLM prose contains Go []string type notation before the final empty JSON array.
-	// The extractor must not mistake []string for the array and must find the real [].
-	client := &driftStubClient{
-		responses: []analyzer.ChatMessage{
-			{
-				Role:    "assistant",
-				Content: "The struct has an OrderingRules []string field and ToneStylePreferences string field not mentioned in docs.\n\n[]",
-			},
-		},
-	}
-	featureMap := analyzer.FeatureMap{
-		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
-	}
-	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
-	pageReader := func(url string) (string, error) { return "# Auth", nil }
-
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
-	require.NoError(t, err)
-	assert.Empty(t, findings, "empty JSON array after prose should produce no findings")
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid submit_findings arguments")
 }
 
 func TestDetectDrift_ReleaseNotePageOnly_Skipped(t *testing.T) {
@@ -398,9 +382,7 @@ func TestDetectDrift_MixedPages_ReleaseNotesFiltered(t *testing.T) {
 	// are sent to the LLM.
 	var capturedMessages []analyzer.ChatMessage
 	client := &driftStubClient{
-		responses: []analyzer.ChatMessage{
-			{Role: "assistant", Content: "[]"},
-		},
+		responses: []analyzer.ChatMessage{submitFindings()},
 	}
 	_ = capturedMessages
 	featureMap := analyzer.FeatureMap{
@@ -408,8 +390,8 @@ func TestDetectDrift_MixedPages_ReleaseNotesFiltered(t *testing.T) {
 	}
 	docsMap := analyzer.DocsFeatureMap{
 		{Feature: "auth", Pages: []string{
-			"https://docs.example.com/auth",          // real doc page — keep
-			"https://docs.example.com/release-notes", // changelog — filter out
+			"https://docs.example.com/auth",
+			"https://docs.example.com/release-notes",
 		}},
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
@@ -452,9 +434,7 @@ func TestDetectDrift_ContentClassifierError_FailsOpen(t *testing.T) {
 		completeFunc: func(_ context.Context, _ string) (string, error) {
 			return "", fmt.Errorf("classifier unavailable")
 		},
-		responses: []analyzer.ChatMessage{
-			{Role: "assistant", Content: "[]"},
-		},
+		responses: []analyzer.ChatMessage{submitFindings()},
 	}
 	featureMap := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
@@ -474,8 +454,8 @@ func TestDetectDrift_OnFinding_CalledPerFeatureWithFindings(t *testing.T) {
 	// and receive the accumulated slice up to that point.
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{
-			{Role: "assistant", Content: `[{"page":"","issue":"issue for auth"}]`},
-			{Role: "assistant", Content: `[{"page":"","issue":"issue for search"}]`},
+			submitFindings(analyzer.DriftIssue{Page: "", Issue: "issue for auth"}),
+			submitFindings(analyzer.DriftIssue{Page: "", Issue: "issue for search"}),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -508,7 +488,7 @@ func TestDetectDrift_OnFinding_ErrorPropagated(t *testing.T) {
 	// An error returned from the callback must abort DetectDrift.
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{
-			{Role: "assistant", Content: `[{"page":"","issue":"something wrong"}]`},
+			submitFindings(analyzer.DriftIssue{Page: "", Issue: "something wrong"}),
 		},
 	}
 	featureMap := analyzer.FeatureMap{
@@ -556,7 +536,7 @@ func TestDetectDrift_UsesLargeAndSmall(t *testing.T) {
 	}
 	typical := &driftStubClient{}
 	large := &driftStubClient{
-		responses: []analyzer.ChatMessage{{Role: "assistant", Content: "[]"}},
+		responses: []analyzer.ChatMessage{submitFindings()},
 	}
 	tiering := &fakeTiering{small: small, typical: typical, large: large}
 

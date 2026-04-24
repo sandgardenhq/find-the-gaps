@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const driftMaxRounds = 20
+const driftMaxRounds = 30
 
 // DriftProgressFunc is called after each feature's findings are appended to the
 // accumulated slice. It receives the full accumulated slice so far. Return a
@@ -105,7 +105,7 @@ func detectDriftForFeature(
 		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
 	}
 
-	// PROMPT: Reviews documentation accuracy for one feature using tool calls to read source files and cached doc pages. Returns a JSON array of specific inaccuracies expressed as documentation feedback.
+	// PROMPT: Reviews documentation accuracy for one feature using tool calls to read source files and cached doc pages. Invokes the submit_findings tool with a structured list of inaccuracies when done.
 	systemPrompt := fmt.Sprintf(`You are reviewing documentation accuracy for a software feature.
 
 Feature: %s
@@ -132,11 +132,10 @@ within documentation that already exists for this feature.
 Express each finding as documentation feedback — describe what is wrong or
 missing in the docs, not what the code does. One finding per specific issue.
 
-When you are done investigating, return a JSON array of objects:
-[{"page": "<url or empty string>", "issue": "<one or two sentences>"}]
-
-If no issues are found, return [].
-Respond with only the JSON array. No markdown code fences. No prose.`,
+When you are done investigating, call the submit_findings tool with the list of
+findings. Each finding has a "page" (URL or empty string) and an "issue"
+(one or two sentences). If no issues are found, call submit_findings with an
+empty findings array.`,
 		entry.Feature.Name,
 		entry.Feature.Description,
 		strings.Join(entry.Files, ", "),
@@ -153,16 +152,22 @@ Respond with only the JSON array. No markdown code fences. No prose.`,
 		}
 		messages = append(messages, resp)
 
-		if len(resp.ToolCalls) == 0 {
-			// Final response — extract and parse the JSON array.
-			// The LLM may include prose before or after the array despite the prompt
-			// instruction; find the outermost [...] and parse only that.
-			raw := extractJSONArray(resp.Content)
-			var issues []DriftIssue
-			if err := json.Unmarshal([]byte(raw), &issues); err != nil {
-				return nil, fmt.Errorf("invalid JSON drift response: %w (raw: %q)", err, resp.Content)
+		// submit_findings is the terminal tool — when the LLM calls it, we return.
+		for _, tc := range resp.ToolCalls {
+			if tc.Name == "submit_findings" {
+				var payload struct {
+					Findings []DriftIssue `json:"findings"`
+				}
+				if err := json.Unmarshal([]byte(tc.Arguments), &payload); err != nil {
+					return nil, fmt.Errorf("invalid submit_findings arguments: %w (raw: %q)", err, tc.Arguments)
+				}
+				return payload.Findings, nil
 			}
-			return issues, nil
+		}
+
+		if len(resp.ToolCalls) == 0 {
+			// No tool calls AND no submit_findings — the model ignored the protocol.
+			return nil, fmt.Errorf("drift agent returned text response instead of calling submit_findings: %q", resp.Content)
 		}
 
 		// Execute each tool call and append results.
@@ -176,7 +181,7 @@ Respond with only the JSON array. No markdown code fences. No prose.`,
 		}
 	}
 
-	return nil, fmt.Errorf("drift agent loop exceeded %d rounds without a final response", driftMaxRounds)
+	return nil, fmt.Errorf("drift agent loop exceeded %d rounds without calling submit_findings", driftMaxRounds)
 }
 
 // executeTool runs one tool call and returns the result string to feed back to the LLM.
@@ -225,7 +230,9 @@ func executeReadPage(rawArgs string, pageReader func(url string) (string, error)
 	return content
 }
 
-// driftTools returns the two tool definitions available during drift detection.
+// driftTools returns the tool definitions available during drift detection.
+// read_file and read_page are investigation tools; submit_findings is the
+// terminal tool — calling it ends the agent loop and returns the findings.
 func driftTools() []Tool {
 	return []Tool{
 		{
@@ -254,6 +261,34 @@ func driftTools() []Tool {
 					},
 				},
 				"required": []string{"url"},
+			},
+		},
+		{
+			Name:        "submit_findings",
+			Description: "Submit the final list of documentation accuracy findings for this feature. Call this exactly once when you are done investigating. Pass an empty findings array if no issues were found.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"findings": map[string]any{
+						"type":        "array",
+						"description": "List of documentation accuracy issues.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"page": map[string]any{
+									"type":        "string",
+									"description": "URL of the doc page the issue refers to, or empty string if page-agnostic.",
+								},
+								"issue": map[string]any{
+									"type":        "string",
+									"description": "One or two sentences describing the documentation issue.",
+								},
+							},
+							"required": []string{"page", "issue"},
+						},
+					},
+				},
+				"required": []string{"findings"},
 			},
 		},
 	}
@@ -337,22 +372,3 @@ Content preview:
 	return strings.Contains(strings.ToLower(resp), "yes")
 }
 
-// extractJSONArray scans s from right to left, looking for the rightmost '['
-// that begins a syntactically valid JSON array (through the end of the string).
-// This handles LLM responses that include prose before or after the array, or
-// that contain Go slice-type notation (e.g. "[]string") in the prose.
-// If no valid array is found, the trimmed input is returned unchanged so the
-// caller's json.Unmarshal still produces a useful error.
-func extractJSONArray(s string) string {
-	s = stripCodeFence(s)
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] != '[' {
-			continue
-		}
-		var probe []json.RawMessage
-		if json.Unmarshal([]byte(s[i:]), &probe) == nil {
-			return s[i:]
-		}
-	}
-	return s
-}

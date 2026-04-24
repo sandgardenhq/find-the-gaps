@@ -142,36 +142,10 @@ func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
 	assert.Contains(t, got, "No existing images")
 }
 
-func TestParseScreenshotResponse_Valid(t *testing.T) {
-	raw := `[{"quoted_passage":"Click Save.","should_show":"Save button highlighted.","suggested_alt":"Save button","insertion_hint":"after the sentence 'Click Save.'"}]`
-	got, err := parseScreenshotResponse(raw)
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "Click Save.", got[0].QuotedPassage)
-	assert.Equal(t, "Save button highlighted.", got[0].ShouldShow)
-	assert.Equal(t, "Save button", got[0].SuggestedAlt)
-	assert.Equal(t, "after the sentence 'Click Save.'", got[0].InsertionHint)
-}
-
-func TestParseScreenshotResponse_EmptyArray(t *testing.T) {
-	got, err := parseScreenshotResponse("[]")
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-func TestParseScreenshotResponse_WithPreamble(t *testing.T) {
-	raw := "Here is the JSON: []"
-	got, err := parseScreenshotResponse(raw)
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-func TestParseScreenshotResponse_Malformed(t *testing.T) {
-	_, err := parseScreenshotResponse("not json")
-	require.Error(t, err)
-}
-
 // fakeLLMClient collects calls and returns canned responses per call index.
+// Responses are in the wrapped {"gaps":[...]} format; use `{"gaps":[]}` for
+// the empty case. When responses is shorter than the call count, `{"gaps":[]}`
+// is returned.
 type fakeLLMClient struct {
 	responses []string
 	errs      []error
@@ -187,7 +161,7 @@ func (f *fakeLLMClient) Complete(_ context.Context, prompt string) (string, erro
 	if i < len(f.responses) {
 		return f.responses[i], nil
 	}
-	return "[]", nil
+	return `{"gaps":[]}`, nil
 }
 
 func (f *fakeLLMClient) CompleteJSON(ctx context.Context, prompt string, _ JSONSchema) (json.RawMessage, error) {
@@ -209,7 +183,7 @@ func TestDetectScreenshotGaps_NoPages(t *testing.T) {
 func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 	client := &fakeLLMClient{
 		responses: []string{
-			`[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block"}]`,
+			`{"gaps":[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block"}]}`,
 		},
 	}
 	pages := []DocPage{
@@ -225,7 +199,7 @@ func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 
 func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
 	client := &fakeLLMClient{
-		responses: []string{"not json", "[]"},
+		responses: []string{"not json", `{"gaps":[]}`},
 	}
 	pages := []DocPage{
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},

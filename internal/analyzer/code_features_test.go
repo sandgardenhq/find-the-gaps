@@ -2,6 +2,7 @@ package analyzer_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,7 +14,9 @@ import (
 )
 
 func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
-	c := &fakeClient{responses: []string{`[{"name":"feature one","description":"Does X.","layer":"cli","user_facing":true},{"name":"feature two","description":"Does Y.","layer":"analysis engine","user_facing":false}]`}}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"code_features_response": json.RawMessage(`{"features":[{"name":"feature one","description":"Does X.","layer":"cli","user_facing":true},{"name":"feature two","description":"Does Y.","layer":"analysis engine","user_facing":false}]}`),
+	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "internal/auth/auth.go", Symbols: []scanner.Symbol{{Name: "Authenticate"}}},
@@ -33,6 +36,8 @@ func TestExtractFeaturesFromCode_ReturnsFeatures(t *testing.T) {
 	assert.False(t, got[1].UserFacing)
 	assert.Equal(t, "Does Y.", got[1].Description)
 	assert.Equal(t, "analysis engine", got[1].Layer)
+	require.Len(t, c.jsonSchemas, 1)
+	assert.Equal(t, "code_features_response", c.jsonSchemas[0].Name)
 }
 
 func TestExtractFeaturesFromCode_EmptyScan_ReturnsEmpty(t *testing.T) {
@@ -84,7 +89,9 @@ func TestExtractFeaturesFromCode_ClientError_Propagates(t *testing.T) {
 }
 
 func TestExtractFeaturesFromCode_InvalidJSON_ReturnsError(t *testing.T) {
-	c := &fakeClient{responses: []string{"not valid json"}}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"code_features_response": json.RawMessage(`not valid json`),
+	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
@@ -96,26 +103,10 @@ func TestExtractFeaturesFromCode_InvalidJSON_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestExtractFeaturesFromCode_NilResponse_NormalizedToEmpty(t *testing.T) {
-	// LLM returns explicit null
-	c := &fakeClient{responses: []string{`null`}}
-	scan := &scanner.ProjectScan{
-		Files: []scanner.ScannedFile{
-			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
-		},
-	}
-	got, err := analyzer.ExtractFeaturesFromCode(context.Background(), &fakeTiering{typical: c}, scan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil {
-		t.Error("nil features must be normalized to empty slice")
-	}
-}
-
 func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
-	// LLM returns a response with a duplicate name — result must deduplicate.
-	c := &fakeClient{responses: []string{`[{"name":"authentication","description":"Auth.","layer":"cli","user_facing":true},{"name":"authentication","description":"Auth again.","layer":"cli","user_facing":true},{"name":"file upload","description":"Upload.","layer":"cli","user_facing":true}]`}}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"code_features_response": json.RawMessage(`{"features":[{"name":"authentication","description":"Auth.","layer":"cli","user_facing":true},{"name":"authentication","description":"Auth again.","layer":"cli","user_facing":true},{"name":"file upload","description":"Upload.","layer":"cli","user_facing":true}]}`),
+	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Auth"}}},
@@ -140,7 +131,9 @@ func TestExtractFeaturesFromCode_DeduplicatesWithinBatch(t *testing.T) {
 }
 
 func TestExtractFeaturesFromCode_UsesTypicalTier(t *testing.T) {
-	typical := &fakeClient{responses: []string{`[]`}}
+	typical := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"code_features_response": json.RawMessage(`{"features":[]}`),
+	}}
 	small := &fakeClient{}
 	large := &fakeClient{}
 	tiering := &fakeTiering{small: small, typical: typical, large: large}
@@ -159,8 +152,9 @@ func TestExtractFeaturesFromCode_UsesTypicalTier(t *testing.T) {
 }
 
 func TestExtractFeaturesFromCode_PromptContainsSymbols(t *testing.T) {
-	// Verify the prompt sent to the LLM includes the file path and symbol name.
-	c := &fakeClient{responses: []string{`[{"name":"some feature","description":"Does something.","layer":"cli","user_facing":true}]`}}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"code_features_response": json.RawMessage(`{"features":[{"name":"some feature","description":"Does something.","layer":"cli","user_facing":true}]}`),
+	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "internal/auth/handler.go", Symbols: []scanner.Symbol{{Name: "HandleLogin"}}},

@@ -93,8 +93,9 @@ Flags:
       --llm-typical string   typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
       --no-cache             force full re-scan, ignoring any cached results
       --no-symbols           map features to files only, skipping symbol-level analysis
-      --repo string          path to the repository to analyze (default ".")
-      --workers int          number of parallel mdfetch workers (default 5)
+      --repo string              path to the repository to analyze (default ".")
+      --skip-screenshot-check    skip the missing-screenshot detection pass
+      --workers int              number of parallel mdfetch workers (default 5)
 
 Global Flags:
   -v, --verbose   show debug logs
@@ -166,10 +167,11 @@ Global Flags:
 
 `ftg analyze` writes two reports to `.find-the-gaps/<project>/`:
 
-- **`gaps.md`** — documentation issues in three sections:
+- **`gaps.md`** — documentation issues in up to four sections:
   - *Undocumented Code* — features implemented in code but absent from docs
   - *Unmapped Features* — features mentioned in docs with no matching code
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
+  - *Missing Screenshots* — passages describing user-facing moments with no nearby screenshot (omitted when `--skip-screenshot-check` is passed)
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
 ## Development
