@@ -1,0 +1,26 @@
+name: Find the Gaps
+description: Analyze a repository against its docs site to surface documentation gaps.
+author: Sandgarden
+
+inputs:
+  docs-url:
+    description: URL of the live documentation site to analyze against.
+    required: true
+  bifrost-api-key:
+    description: Bifrost API key. Provide via `${{ secrets.BIFROST_API_KEY }}`.
+    required: true
+  create-issue:
+    description: When 'true', open or update a tracking issue with findings.
+    required: false
+    default: 'true'
+  skip-screenshot-check:
+    description: When 'true', skip screenshot-gap detection.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Placeholder
+      shell: bash
+      run: echo "action.yml skeleton; steps wired in Task 5"
