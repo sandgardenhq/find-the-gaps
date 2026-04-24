@@ -68,6 +68,13 @@ func TestDetect_ktsFile_returnsKotlinExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_swiftFile_returnsSwiftExtractor(t *testing.T) {
+	e := Detect("Sources/App/Main.swift")
+	if e == nil || e.Language() != "Swift" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {

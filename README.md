@@ -25,6 +25,7 @@ Find the Gaps uses [tree-sitter](https://github.com/smacker/go-tree-sitter) to e
 | Java | `.java` |
 | C# | `.cs` |
 | Kotlin | `.kt`, `.kts` |
+| Swift | `.swift` |
 
 Unrecognized text files are still scanned as plain text so they can be cross-referenced against docs, but no symbols are extracted from them. Binary files (images, archives, fonts, audio, compiled libraries, etc.) are skipped entirely.
 

@@ -24,6 +24,7 @@ func init() {
 		&JavaExtractor{},
 		&CSharpExtractor{},
 		&KotlinExtractor{},
+		&SwiftExtractor{},
 	}
 }
 
