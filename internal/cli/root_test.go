@@ -10,6 +10,73 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+func TestResolveVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		ldflags  string
+		buildVer string
+		want     string
+	}{
+		{
+			name:     "ldflags override wins over BuildInfo",
+			ldflags:  "v1.2.3",
+			buildVer: "v9.9.9",
+			want:     "v1.2.3",
+		},
+		{
+			name:     "ldflags override wins when BuildInfo is devel",
+			ldflags:  "v1.2.3",
+			buildVer: "(devel)",
+			want:     "v1.2.3",
+		},
+		{
+			name:     "BuildInfo used when ldflags is dev sentinel",
+			ldflags:  "dev",
+			buildVer: "v0.4.0",
+			want:     "v0.4.0",
+		},
+		{
+			name:     "BuildInfo pseudo-version is acceptable",
+			ldflags:  "dev",
+			buildVer: "v0.0.0-20260424123456-abcdef012345",
+			want:     "v0.0.0-20260424123456-abcdef012345",
+		},
+		{
+			name:     "fallback to dev when BuildInfo is (devel)",
+			ldflags:  "dev",
+			buildVer: "(devel)",
+			want:     "dev",
+		},
+		{
+			name:     "fallback to dev when BuildInfo is empty",
+			ldflags:  "dev",
+			buildVer: "",
+			want:     "dev",
+		},
+		{
+			name:     "fallback to dev when both are empty",
+			ldflags:  "",
+			buildVer: "",
+			want:     "dev",
+		},
+		{
+			name:     "empty ldflags treated as no override",
+			ldflags:  "",
+			buildVer: "v2.0.0",
+			want:     "v2.0.0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveVersion(tc.ldflags, tc.buildVer)
+			if got != tc.want {
+				t.Errorf("resolveVersion(%q, %q) = %q, want %q", tc.ldflags, tc.buildVer, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewRootCmd_Structure(t *testing.T) {
 	root := NewRootCmd()
 
