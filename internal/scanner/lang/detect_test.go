@@ -89,6 +89,13 @@ func TestDetect_scFile_returnsScalaExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_phpFile_returnsPHPExtractor(t *testing.T) {
+	e := Detect("src/index.php")
+	if e == nil || e.Language() != "PHP" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {
