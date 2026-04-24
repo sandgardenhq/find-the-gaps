@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1.1
+
+### Added
+- Homebrew install path. `brew install sandgardenhq/tap/find-the-gaps`
+  installs the `ftg` binary, pulls in `node` as a dependency, and runs
+  `ftg install-deps` during post-install to fetch `mdfetch` from npm.
+  Works on macOS and Linux. The release workflow now renders the formula
+  from `.github/homebrew/find-the-gaps.rb.tmpl` on each tag and pushes it
+  to the `sandgardenhq/homebrew-tap` repo.
+
+## v0.1.0
+
 ### Changed (breaking)
 - Removed `--llm-provider`, `--llm-model`, and `--llm-base-url` flags.
 - Introduced `--llm-small`, `--llm-typical`, `--llm-large` with combined
