@@ -30,13 +30,25 @@ func NewOpenAICompatibleClient(baseURL, model, apiKey string) *OpenAICompatibleC
 }
 
 type oaiRequest struct {
-	Model    string       `json:"model"`
-	Messages []oaiMessage `json:"messages"`
+	Model          string             `json:"model"`
+	Messages       []oaiMessage       `json:"messages"`
+	ResponseFormat *oaiResponseFormat `json:"response_format,omitempty"`
 }
 
 type oaiMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+type oaiResponseFormat struct {
+	Type       string         `json:"type"`
+	JSONSchema *oaiJSONSchema `json:"json_schema,omitempty"`
+}
+
+type oaiJSONSchema struct {
+	Name   string          `json:"name"`
+	Strict bool            `json:"strict"`
+	Schema json.RawMessage `json:"schema"`
 }
 
 type oaiResponse struct {
@@ -97,12 +109,62 @@ func (c *OpenAICompatibleClient) CompleteWithTools(ctx context.Context, messages
 	return ChatMessage{Role: "assistant", Content: out.Choices[0].Message.Content}, nil
 }
 
-// CompleteJSON sends prompt and requests a response conforming to schema. The
-// exact wire format depends on the server's flavor (Ollama top-level `format`,
-// LM Studio / generic OpenAI-compatible `response_format`). Implemented in
-// Phase 2; stub returns not-implemented until then.
+// CompleteJSON sends prompt and requests a structured response conforming to
+// schema via OpenAI's `response_format: {type: "json_schema", ...}` contract.
+// This is supported by LM Studio, modern Ollama's OpenAI-compat endpoint, and
+// any OpenAI-compatible server that implements structured outputs. The returned
+// bytes are validated against schema before being returned.
 func (c *OpenAICompatibleClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
-	return nil, fmt.Errorf("OpenAICompatibleClient.CompleteJSON: not implemented yet")
+	body, err := json.Marshal(oaiRequest{
+		Model:    c.model,
+		Messages: []oaiMessage{{Role: "user", Content: prompt}},
+		ResponseFormat: &oaiResponseFormat{
+			Type: "json_schema",
+			JSONSchema: &oaiJSONSchema{
+				Name:   schema.Name,
+				Strict: true,
+				Schema: schema.Doc,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("openai-compatible CompleteJSON request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("openai-compatible CompleteJSON: status %d: %s", resp.StatusCode, b)
+	}
+
+	var out oaiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("openai-compatible CompleteJSON: decode response: %w", err)
+	}
+	if len(out.Choices) == 0 {
+		return nil, fmt.Errorf("openai-compatible CompleteJSON: no choices in response")
+	}
+
+	raw := json.RawMessage(out.Choices[0].Message.Content)
+	if err := schema.ValidateResponse(raw); err != nil {
+		return nil, fmt.Errorf("openai-compatible CompleteJSON: %w", err)
+	}
+	return raw, nil
 }
 
 // Complete sends prompt as a user message and returns the first completion.

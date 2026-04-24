@@ -21,7 +21,39 @@ type MapProgressFunc func(partial FeatureMap) error
 type mapEntry struct {
 	Feature string   `json:"feature"`
 	Files   []string `json:"files"`
-	Symbols []string `json:"symbols"`
+	Symbols []string `json:"symbols,omitempty"`
+}
+
+// mapResponse wraps the mapEntry array because provider tool-call
+// input_schemas must be JSON objects at the root.
+type mapResponse struct {
+	Entries []mapEntry `json:"entries"`
+}
+
+// PROMPT SCHEMA: output shape for MapFeaturesToCode (symbols optional so the
+// same schema serves both filesOnly and full modes).
+var mapSchema = JSONSchema{
+	Name: "map_response",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "feature": {"type": "string"},
+              "files":   {"type": "array", "items": {"type": "string"}},
+              "symbols": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["feature", "files"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["entries"],
+      "additionalProperties": false
+    }`),
 }
 
 // accEntry accumulates files and symbols for one feature across multiple batches.
@@ -93,7 +125,7 @@ func MapFeaturesToCode(ctx context.Context, tiering LLMTiering, features []CodeF
 
 		var promptText string
 		if filesOnly {
-			// PROMPT: Maps product features to code files only (symbol analysis disabled). Returns a JSON array only.
+			// PROMPT: Maps product features to code files only (symbol analysis disabled).
 			promptText = fmt.Sprintf(`You are mapping product features to their code implementations.
 
 Product features:
@@ -103,13 +135,11 @@ Code files:
 %s
 
 For each feature, identify which code files are most relevant to implementing it.
-Return a JSON array where each element has:
+Populate "entries" with one object per feature, where each object has:
 - "feature": the feature name exactly as provided
-- "files": list of relevant file paths (empty array if none)
-
-Respond with only the JSON array. No markdown code fences. No prose.`, string(featuresJSON), strings.Join(batch, "\n"))
+- "files": list of relevant file paths (empty array if none)`, string(featuresJSON), strings.Join(batch, "\n"))
 		} else {
-			// PROMPT: Maps product features to the code files and symbols most likely to implement them. Returns a JSON array only.
+			// PROMPT: Maps product features to the code files and symbols most likely to implement them.
 			promptText = fmt.Sprintf(`You are mapping product features to their code implementations.
 
 Product features:
@@ -119,12 +149,10 @@ Code symbols (format: "file/path: Symbol1, Symbol2"):
 %s
 
 For each feature, identify which code files and exported symbols are most relevant to implementing it.
-Return a JSON array where each element has:
+Populate "entries" with one object per feature, where each object has:
 - "feature": the feature name exactly as provided
 - "files": list of relevant file paths (empty array if none)
-- "symbols": list of relevant exported symbol names (empty array if none)
-
-Respond with only the JSON array. No markdown code fences. No prose.`, string(featuresJSON), strings.Join(batch, "\n"))
+- "symbols": list of relevant exported symbol names (empty array if none)`, string(featuresJSON), strings.Join(batch, "\n"))
 		}
 
 		// Validate with provider-exact token count; split if over budget.
@@ -151,17 +179,17 @@ Respond with only the JSON array. No markdown code fences. No prose.`, string(fe
 		}
 		log.Infof("  batch %d/%d: %d %s", i+1, len(queue), len(batch), batchKind)
 
-		raw, err := client.Complete(ctx, promptText)
+		raw, err := client.CompleteJSON(ctx, promptText, mapSchema)
 		if err != nil {
 			return nil, fmt.Errorf("MapFeaturesToCode: %w", err)
 		}
 
-		var entries []mapEntry
-		if err := json.Unmarshal([]byte(stripCodeFence(raw)), &entries); err != nil {
+		var resp mapResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
 			return nil, fmt.Errorf("MapFeaturesToCode: invalid JSON response: %w", err)
 		}
 
-		for _, e := range entries {
+		for _, e := range resp.Entries {
 			entry, ok := acc[e.Feature]
 			if !ok {
 				// Feature returned by LLM not in our list — skip.

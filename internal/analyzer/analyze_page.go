@@ -11,10 +11,24 @@ type analyzePageResponse struct {
 	Features []string `json:"features"`
 }
 
+// PROMPT SCHEMA: output shape for AnalyzePage.
+var analyzePageSchema = JSONSchema{
+	Name: "analyze_page_response",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "summary":  {"type": "string"},
+        "features": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["summary", "features"],
+      "additionalProperties": false
+    }`),
+}
+
 // AnalyzePage sends doc page content to the LLM and returns a summary and feature list.
 func AnalyzePage(ctx context.Context, tiering LLMTiering, pageURL, content string) (PageAnalysis, error) {
 	client := tiering.Small()
-	// PROMPT: Summarizes a single documentation page and extracts the product features or capabilities described on it. Responds with JSON only.
+	// PROMPT: Summarizes a single documentation page and extracts the product features or capabilities described on it.
 	prompt := fmt.Sprintf(`You are analyzing a documentation page for a software product.
 
 URL: %s
@@ -22,19 +36,17 @@ URL: %s
 Content:
 %s
 
-Return a JSON object with exactly these fields:
+Populate the response with:
 - "summary": a 1-2 sentence description of what this page covers
-- "features": a list of product features or capabilities described on this page (short noun phrases, max 8 words each)
+- "features": a list of product features or capabilities described on this page (short noun phrases, max 8 words each)`, pageURL, content)
 
-Respond with only the JSON object. No markdown code fences. No prose.`, pageURL, content)
-
-	raw, err := client.Complete(ctx, prompt)
+	raw, err := client.CompleteJSON(ctx, prompt, analyzePageSchema)
 	if err != nil {
 		return PageAnalysis{}, fmt.Errorf("AnalyzePage %s: %w", pageURL, err)
 	}
 
 	var resp analyzePageResponse
-	if err := json.Unmarshal([]byte(stripCodeFence(raw)), &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return PageAnalysis{}, fmt.Errorf("AnalyzePage %s: invalid JSON response: %w", pageURL, err)
 	}
 

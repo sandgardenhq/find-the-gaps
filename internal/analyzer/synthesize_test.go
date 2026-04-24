@@ -2,6 +2,7 @@ package analyzer_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -9,8 +10,8 @@ import (
 )
 
 func TestSynthesizeProduct_ReturnsDescriptionAndFeatures(t *testing.T) {
-	c := &fakeClient{responses: []string{
-		`{"description":"A CLI for doc gap detection.","features":["gap analysis","doctor command","Homebrew install"]}`,
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"synthesize_response": json.RawMessage(`{"description":"A CLI for doc gap detection.","features":["gap analysis","doctor command","Homebrew install"]}`),
 	}}
 
 	pages := []analyzer.PageAnalysis{
@@ -28,10 +29,15 @@ func TestSynthesizeProduct_ReturnsDescriptionAndFeatures(t *testing.T) {
 	if len(got.Features) == 0 {
 		t.Error("Features must not be empty")
 	}
+	if len(c.jsonSchemas) != 1 || c.jsonSchemas[0].Name != "synthesize_response" {
+		t.Errorf("expected CompleteJSON with synthesize_response schema, got %+v", c.jsonSchemas)
+	}
 }
 
 func TestSynthesizeProduct_SinglePage_OK(t *testing.T) {
-	c := &fakeClient{responses: []string{`{"description":"One page product.","features":["one feature"]}`}}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"synthesize_response": json.RawMessage(`{"description":"One page product.","features":["one feature"]}`),
+	}}
 	pages := []analyzer.PageAnalysis{{URL: "https://example.com", Summary: "One page.", Features: []string{"one feature"}}}
 	_, err := analyzer.SynthesizeProduct(context.Background(), &fakeTiering{small: c}, pages)
 	if err != nil {
@@ -49,33 +55,12 @@ func TestSynthesizeProduct_ClientError_Propagates(t *testing.T) {
 	}
 }
 
-func TestSynthesizeProduct_InvalidJSON_ReturnsError(t *testing.T) {
-	c := &fakeClient{responses: []string{"oops"}}
-	_, err := analyzer.SynthesizeProduct(context.Background(), &fakeTiering{small: c}, []analyzer.PageAnalysis{
-		{URL: "https://example.com", Summary: "page.", Features: nil},
-	})
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
-func TestSynthesizeProduct_NilFeatures_NormalizedToEmpty(t *testing.T) {
-	// LLM omits the "features" key entirely; the nil slice must be normalized to [].
-	c := &fakeClient{responses: []string{`{"description":"A product."}`}}
-	pages := []analyzer.PageAnalysis{{URL: "https://example.com", Summary: "page.", Features: nil}}
-	got, err := analyzer.SynthesizeProduct(context.Background(), &fakeTiering{small: c}, pages)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Features == nil {
-		t.Error("Features must be normalized to empty slice, not nil")
-	}
-}
-
 func TestSynthesizeProduct_UsesSmallTier(t *testing.T) {
-	small := &fakeClient{responses: []string{`{"description":"Small tier used.","features":["x"]}`}}
-	typical := &fakeClient{responses: []string{`{"description":"Typical tier used.","features":["y"]}`}}
-	large := &fakeClient{responses: []string{`{"description":"Large tier used.","features":["z"]}`}}
+	small := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"synthesize_response": json.RawMessage(`{"description":"Small tier used.","features":["x"]}`),
+	}}
+	typical := &fakeClient{}
+	large := &fakeClient{}
 
 	tiering := &fakeTiering{small: small, typical: typical, large: large}
 

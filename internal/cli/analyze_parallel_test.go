@@ -21,8 +21,8 @@ func TestRunBothMapsInParallel(t *testing.T) {
 	codeMap, docsMap, err := runBothMaps(
 		context.Background(),
 		stubTieringOn(&stubLLMClient{
-			codeResp: `[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]`,
-			docsResp: `["auth"]`,
+			codeResp: `{"entries":[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]}`,
+			docsResp: `{"features":["auth"]}`,
 		}),
 		[]analyzer.CodeFeature{authFeature},
 		stubScan(),
@@ -65,7 +65,7 @@ func TestRunBothMaps_DocsMapError(t *testing.T) {
 	_, _, err := runBothMaps(
 		context.Background(),
 		stubTieringOn(&stubLLMClient{
-			codeResp: `[{"feature":"auth","files":[],"symbols":[]}]`,
+			codeResp: `{"entries":[{"feature":"auth","files":[],"symbols":[]}]}`,
 			docsResp: `not json`, // forces MapFeaturesToDocs page call to fail
 		}),
 		[]analyzer.CodeFeature{authFeature},
@@ -94,8 +94,8 @@ func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
 	_, _, err := runBothMaps(
 		context.Background(),
 		stubTieringOn(&stubLLMClient{
-			codeResp: `[]`, // empty but valid JSON — code map succeeds immediately
-			docsResp: `["auth"]`,
+			codeResp: `{"entries":[]}`, // empty but valid JSON — code map succeeds immediately
+			docsResp: `{"features":["auth"]}`,
 		}),
 		[]analyzer.CodeFeature{authFeature},
 		// Empty scan so MapFeaturesToCode returns immediately (no LLM call, no error).
@@ -115,8 +115,8 @@ func TestRunBothMaps_DocsMapError_ViaOnPageCallback(t *testing.T) {
 func TestRunBothMaps_FilesOnly_PassedThrough(t *testing.T) {
 	authFeature := analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}
 	client := &stubLLMClient{
-		codeResp: `[{"feature":"auth","files":["auth.go"]}]`,
-		docsResp: `["auth"]`,
+		codeResp: `{"entries":[{"feature":"auth","files":["auth.go"]}]}`,
+		docsResp: `{"features":["auth"]}`,
 	}
 	codeMap, _, err := runBothMaps(
 		context.Background(),

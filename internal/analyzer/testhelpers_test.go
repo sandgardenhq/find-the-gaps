@@ -23,6 +23,11 @@ type fakeClient struct {
 	// When CompleteJSON is called and the schema name isn't in the map, the
 	// fake returns an error so tests notice missing wiring.
 	jsonResponses map[string]json.RawMessage
+	// jsonResponseQueues maps JSONSchema.Name to a FIFO of responses; each
+	// CompleteJSON call pops the next entry. When exhausted, the last entry
+	// is repeated (matches Complete semantics). Takes precedence over
+	// jsonResponses when both are set for the same schema.
+	jsonResponseQueues map[string][]json.RawMessage
 	// jsonSchemas captures schemas passed to CompleteJSON in call order so
 	// tests can assert the right schema reached the client.
 	jsonSchemas []analyzer.JSONSchema
@@ -47,9 +52,18 @@ func (f *fakeClient) Complete(_ context.Context, prompt string) (string, error) 
 
 func (f *fakeClient) CompleteJSON(_ context.Context, prompt string, schema analyzer.JSONSchema) (json.RawMessage, error) {
 	f.receivedPrompts = append(f.receivedPrompts, prompt)
+	callIdx := len(f.jsonSchemas)
 	f.jsonSchemas = append(f.jsonSchemas, schema)
+	f.callCount++
 	if f.forcedErr != nil {
 		return nil, f.forcedErr
+	}
+	if queue, ok := f.jsonResponseQueues[schema.Name]; ok && len(queue) > 0 {
+		idx := callIdx
+		if idx >= len(queue) {
+			idx = len(queue) - 1
+		}
+		return queue[idx], nil
 	}
 	raw, ok := f.jsonResponses[schema.Name]
 	if !ok {

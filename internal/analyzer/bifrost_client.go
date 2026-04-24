@@ -189,15 +189,70 @@ func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMe
 // CompleteJSON sends prompt and requests a response conforming to schema,
 // returning the raw JSON bytes. Dispatches per provider:
 //   - Anthropic: forced tool use with a single "respond" tool whose input_schema
-//     equals schema.Doc.
-//   - OpenAI: response_format={"type":"json_schema", ...} with strict=true (Phase 2.4).
+//     equals schema.Doc (tool_choice forces the model to emit parse-guaranteed
+//     JSON as the tool's arguments).
+//   - OpenAI: native response_format={"type":"json_schema","json_schema":{...}}
+//     with strict=true — the model's content is a JSON string conforming to
+//     schema.Doc.
 func (c *BifrostClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
 	switch c.provider {
 	case schemas.Anthropic:
 		return c.completeJSONAnthropic(ctx, prompt, schema)
+	case schemas.OpenAI:
+		return c.completeJSONOpenAI(ctx, prompt, schema)
 	default:
 		return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)
 	}
+}
+
+// completeJSONOpenAI uses OpenAI's native structured outputs via
+// response_format={"type":"json_schema","json_schema":{"name":..., "strict":true,
+// "schema": schema.Doc}}. The assistant message content is a JSON string
+// conforming to the schema.
+func (c *BifrostClient) completeJSONOpenAI(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+	rf := map[string]any{
+		"type": "json_schema",
+		"json_schema": map[string]any{
+			"name":   schema.Name,
+			"strict": true,
+			"schema": schema.Doc,
+		},
+	}
+	var rfIface any = rf
+
+	bifrostCtx := schemas.NewBifrostContext(ctx, schemas.NoDeadline)
+	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
+		Provider: c.provider,
+		Model:    c.model,
+		Input: []schemas.ChatMessage{
+			{
+				Role:    schemas.ChatMessageRoleUser,
+				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
+			},
+		},
+		Params: &schemas.ChatParameters{
+			ResponseFormat:      &rfIface,
+			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+		},
+	})
+	if bifrostErr != nil {
+		if bifrostErr.Error != nil {
+			return nil, fmt.Errorf("bifrost CompleteJSON: %s", bifrostErr.Error.Message)
+		}
+		return nil, fmt.Errorf("bifrost CompleteJSON: unknown error")
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
+	}
+	msg := resp.Choices[0].Message
+	if msg == nil || msg.Content == nil || msg.Content.ContentStr == nil {
+		return nil, fmt.Errorf("bifrost CompleteJSON: nil content; schema=%q", schema.Name)
+	}
+	raw := json.RawMessage(*msg.Content.ContentStr)
+	if err := schema.ValidateResponse(raw); err != nil {
+		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
+	}
+	return raw, nil
 }
 
 // completeJSONAnthropic forces the model to emit structured output by registering

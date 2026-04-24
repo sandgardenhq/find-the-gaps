@@ -142,7 +142,7 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	// PROMPT: Identifies passages in a documentation page that describe user-facing UI moments (web, app, terminal) and should have a screenshot nearby but do not. Applies a locality rule: a passage is already covered if an image appears in the same section heading or within 3 paragraphs before/after. Returns a JSON array; empty if nothing needs a screenshot.
+	// PROMPT: Identifies passages in a documentation page that describe user-facing UI moments (web, app, terminal) and should have a screenshot nearby but do not. Applies a locality rule: a passage is already covered if an image appears in the same section heading or within 3 paragraphs before/after. Populates "gaps"; empty if nothing needs a screenshot.
 	return fmt.Sprintf(`You are reviewing a documentation page to identify places where a screenshot would materially help the reader, but none is present nearby.
 
 URL: %s
@@ -162,17 +162,16 @@ Do NOT flag:
 - Abstract prose with no concrete UI moment.
 - Passages already covered by a nearby image per the locality rule above.
 
-For each remaining gap, return an object with these fields:
+Populate "gaps" with one object per remaining gap. Each object must have:
 - "quoted_passage": the exact verbatim quote from the page that describes the UI moment. Do not paraphrase.
 - "should_show": a concrete description of what the screenshot should depict. Be specific: name the visible elements, values, buttons, states. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption for the screenshot, under 100 characters.
 - "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
 
-Return a JSON array of these objects. Return [] if nothing needs a screenshot.
-Respond with only the JSON array. No markdown code fences. No prose.`, pageURL, coverageSummary, content)
+Return an empty "gaps" array if nothing needs a screenshot.`, pageURL, coverageSummary, content)
 }
 
-// screenshotResponseItem is one raw item in the LLM's JSON-array response for a
+// screenshotResponseItem is one raw item in the LLM's response for a
 // screenshot-gap detection call.
 type screenshotResponseItem struct {
 	QuotedPassage string `json:"quoted_passage"`
@@ -181,15 +180,36 @@ type screenshotResponseItem struct {
 	InsertionHint string `json:"insertion_hint"`
 }
 
-// parseScreenshotResponse extracts a JSON array from raw LLM output and returns
-// parsed items. Reuses extractJSONArray (from drift.go) for preamble tolerance.
-func parseScreenshotResponse(raw string) ([]screenshotResponseItem, error) {
-	arr := extractJSONArray(raw)
-	var items []screenshotResponseItem
-	if err := json.Unmarshal([]byte(arr), &items); err != nil {
-		return nil, fmt.Errorf("invalid screenshot-gap JSON: %w (raw: %q)", err, raw)
-	}
-	return items, nil
+// screenshotGapsResponse wraps the gap array because provider tool-call
+// input_schemas must be JSON objects at the root.
+type screenshotGapsResponse struct {
+	Gaps []screenshotResponseItem `json:"gaps"`
+}
+
+// PROMPT SCHEMA: output shape for DetectScreenshotGaps.
+var screenshotGapsSchema = JSONSchema{
+	Name: "screenshot_gaps_response",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "quoted_passage": {"type": "string"},
+              "should_show":    {"type": "string"},
+              "suggested_alt":  {"type": "string"},
+              "insertion_hint": {"type": "string"}
+            },
+            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["gaps"],
+      "additionalProperties": false
+    }`),
 }
 
 // DocPage is one fetched documentation page.
@@ -218,19 +238,19 @@ func DetectScreenshotGaps(
 		refs := extractImages(page.Content)
 		coverage := buildCoverageMap(refs)
 		prompt := buildScreenshotPrompt(page.URL, page.Content, coverage)
-		raw, err := client.Complete(ctx, prompt)
+		raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 		if err != nil {
 			return nil, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 		}
-		items, err := parseScreenshotResponse(raw)
-		if err != nil {
-			log.Warnf("screenshot-gaps: skipping %s: %v", page.URL, err)
+		var resp screenshotGapsResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
 			if progress != nil {
 				progress(i+1, total, page.URL)
 			}
 			continue
 		}
-		for _, it := range items {
+		for _, it := range resp.Gaps {
 			gaps = append(gaps, ScreenshotGap{
 				PageURL:       page.URL,
 				PagePath:      page.Path,

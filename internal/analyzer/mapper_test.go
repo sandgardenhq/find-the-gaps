@@ -3,6 +3,7 @@ package analyzer_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -33,8 +34,8 @@ func (s *splitForcingCounter) CountTokens(_ context.Context, text string) (int, 
 }
 
 func TestMapFeaturesToCode_ReturnsMappings(t *testing.T) {
-	c := &fakeClient{responses: []string{
-		`[{"feature":"gap analysis","files":["internal/analyzer/analyzer.go"],"symbols":["AnalyzePage"]},{"feature":"doctor command","files":["internal/cli/doctor.go"],"symbols":["RunDoctor"]}]`,
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"gap analysis","files":["internal/analyzer/analyzer.go"],"symbols":["AnalyzePage"]},{"feature":"doctor command","files":["internal/cli/doctor.go"],"symbols":["RunDoctor"]}]}`),
 	}}
 
 	scan := &scanner.ProjectScan{
@@ -64,10 +65,13 @@ func TestMapFeaturesToCode_ReturnsMappings(t *testing.T) {
 	if len(got[0].Files) == 0 {
 		t.Error("Files must not be empty for gap analysis")
 	}
+	if len(c.jsonSchemas) != 1 || c.jsonSchemas[0].Name != "map_response" {
+		t.Errorf("expected schema map_response, got %+v", c.jsonSchemas)
+	}
 }
 
 func TestMapFeaturesToCode_EmptyFeatures_ReturnsEmpty(t *testing.T) {
-	c := &fakeClient{responses: []string{`[]`}}
+	c := &fakeClient{}
 	got, err := analyzer.MapFeaturesToCode(context.Background(), &fakeTiering{large: c, largeCounter: analyzer.NewTiktokenCounter()}, []analyzer.CodeFeature{}, &scanner.ProjectScan{}, analyzer.MapperTokenBudget, false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +98,9 @@ func TestMapFeaturesToCode_ClientError_Propagates(t *testing.T) {
 }
 
 func TestMapFeaturesToCode_InvalidJSON_ReturnsError(t *testing.T) {
-	c := &fakeClient{responses: []string{"not json"}}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage("not json"),
+	}}
 	_, err := analyzer.MapFeaturesToCode(context.Background(), &fakeTiering{large: c, largeCounter: analyzer.NewTiktokenCounter()}, []analyzer.CodeFeature{{Name: "f1"}}, &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "Foo"}}},
@@ -105,9 +111,9 @@ func TestMapFeaturesToCode_InvalidJSON_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestMapFeaturesToCode_NilFilesAndSymbols_NormalizedToEmpty(t *testing.T) {
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":null,"symbols":null}]`,
+func TestMapFeaturesToCode_EmptyFilesAndSymbols_NormalizedToEmpty(t *testing.T) {
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":[],"symbols":[]}]}`),
 	}}
 	got, err := analyzer.MapFeaturesToCode(context.Background(), &fakeTiering{large: c, largeCounter: analyzer.NewTiktokenCounter()}, []analyzer.CodeFeature{{Name: "f"}}, &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
@@ -131,9 +137,11 @@ func TestMapFeaturesToCode_NilFilesAndSymbols_NormalizedToEmpty(t *testing.T) {
 func TestMapFeaturesToCode_MultipleBatches_MergesResults(t *testing.T) {
 	// budget=1 forces one sym line per batch (batchSymLines), and fakeCounter always
 	// returns 0 so no split-and-retry occurs. Result: 2 batches, 2 LLM calls.
-	c := &fakeClient{responses: []string{
-		`[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]`,
-		`[{"feature":"auth","files":["session.go"],"symbols":["NewSession"]}]`,
+	c := &fakeClient{jsonResponseQueues: map[string][]json.RawMessage{
+		"map_response": {
+			json.RawMessage(`{"entries":[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]}`),
+			json.RawMessage(`{"entries":[{"feature":"auth","files":["session.go"],"symbols":["NewSession"]}]}`),
+		},
 	}}
 	counter := &fakeCounter{n: 0} // always fits, no retry
 
@@ -160,15 +168,14 @@ func TestMapFeaturesToCode_MultipleBatches_MergesResults(t *testing.T) {
 }
 
 func TestMapFeaturesToCode_CounterOverBudget_SplitsBatch(t *testing.T) {
-	// fakeCounter returns a count over budget, forcing the mapper to split every
-	// 2-line batch into 1-line batches. Verifies split-and-retry logic.
-	c := &fakeClient{responses: []string{
-		`[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]`,
-		`[{"feature":"auth","files":["session.go"],"symbols":["NewSession"]}]`,
+	// splitForcingCounter returns over-budget for multi-line prompts, forcing the
+	// mapper to split every 2-line batch into 1-line batches.
+	c := &fakeClient{jsonResponseQueues: map[string][]json.RawMessage{
+		"map_response": {
+			json.RawMessage(`{"entries":[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]}`),
+			json.RawMessage(`{"entries":[{"feature":"auth","files":["session.go"],"symbols":["NewSession"]}]}`),
+		},
 	}}
-	// Counter always says "over budget" — but the batcher already put 2 lines per batch.
-	// The mapper must split them into 1-line batches and retry.
-	// We use a counter that returns 999999 (always over) until the batch is 1 line.
 	counter := &splitForcingCounter{budget: 80_000}
 
 	scan := &scanner.ProjectScan{
@@ -192,7 +199,7 @@ func TestMapFeaturesToCode_CounterOverBudget_SplitsBatch(t *testing.T) {
 
 func TestMapFeaturesToCode_FilesWithNoSymbols_Skipped(t *testing.T) {
 	// Files with no symbols contribute no sym lines and produce no batches.
-	c := &fakeClient{responses: []string{`[]`}}
+	c := &fakeClient{}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "empty.go", Symbols: nil},
@@ -214,15 +221,9 @@ func TestMapFeaturesToCode_FilesWithNoSymbols_Skipped(t *testing.T) {
 func TestMapFeaturesToCode_AllFilesProcessed_NoneSkipped(t *testing.T) {
 	// budget=1 is below any real featuresTokens, so remaining is negative and every
 	// sym line lands in its own batch → 5 files = 5 LLM calls.
-	// This verifies the batcher processes every file regardless of budget pressure.
-	responses := []string{
-		`[{"feature":"f","files":["a.go"],"symbols":[]}]`,
-		`[{"feature":"f","files":["b.go"],"symbols":[]}]`,
-		`[{"feature":"f","files":["c.go"],"symbols":[]}]`,
-		`[{"feature":"f","files":["d.go"],"symbols":[]}]`,
-		`[{"feature":"f","files":["e.go"],"symbols":[]}]`,
-	}
-	c := &fakeClient{responses: responses}
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":[],"symbols":[]}]}`),
+	}}
 	counter := &fakeCounter{n: 0} // always fits, no split-and-retry
 
 	files := make([]scanner.ScannedFile, 5)
@@ -243,9 +244,11 @@ func TestMapFeaturesToCode_AllFilesProcessed_NoneSkipped(t *testing.T) {
 func TestMapFeaturesToCode_TinyBudget_AllFilesStillCovered(t *testing.T) {
 	// With budget=0, remaining goes negative and every line lands in its own batch.
 	// Verifies that even with extreme fragmentation, all files appear in the merged result.
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
-		`[{"feature":"f","files":["b.go"],"symbols":["B"]}]`,
+	c := &fakeClient{jsonResponseQueues: map[string][]json.RawMessage{
+		"map_response": {
+			json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]}]}`),
+			json.RawMessage(`{"entries":[{"feature":"f","files":["b.go"],"symbols":["B"]}]}`),
+		},
 	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
@@ -266,8 +269,8 @@ func TestMapFeaturesToCode_TinyBudget_AllFilesStillCovered(t *testing.T) {
 func TestMapFeaturesToCode_MixedScan_SymbollessFilesSkippedInCoverageCheck(t *testing.T) {
 	// A scan with both files-with-symbols and files-without-symbols exercises the
 	// len(f.Symbols)==0 continue branch in the post-batch coverage check loop.
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]}]}`),
 	}}
 	counter := &fakeCounter{n: 0}
 	scan := &scanner.ProjectScan{
@@ -290,7 +293,7 @@ func (e *errorCounter) CountTokens(_ context.Context, _ string) (int, error) {
 }
 
 func TestMapFeaturesToCode_CounterError_Propagates(t *testing.T) {
-	c := &fakeClient{responses: []string{}}
+	c := &fakeClient{}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
@@ -304,11 +307,8 @@ func TestMapFeaturesToCode_CounterError_Propagates(t *testing.T) {
 
 func TestMapFeaturesToCode_PathWithColonSpace_Works(t *testing.T) {
 	// Paths containing ": " must not trigger a false coverage-check error.
-	// Previously, strings.SplitN re-parsing of batch lines extracted only the
-	// prefix before ": ", so "a: b.go" was stored as "a" in the batched set,
-	// causing a spurious "was not included in any batch" error.
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a: b.go"],"symbols":["Sym"]}]`,
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":["a: b.go"],"symbols":["Sym"]}]}`),
 	}}
 	counter := &fakeCounter{n: 0}
 	scan := &scanner.ProjectScan{
@@ -328,8 +328,8 @@ func TestMapFeaturesToCode_PathWithColonSpace_Works(t *testing.T) {
 func TestMapFeaturesToCode_UnknownFeatureInResponse_Ignored(t *testing.T) {
 	// LLM returns "unknown-feature" which was not in the input list.
 	// It should be silently skipped; only the known feature appears in output.
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a.go"],"symbols":["A"]},{"feature":"unknown-feature","files":["x.go"],"symbols":[]}]`,
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]},{"feature":"unknown-feature","files":["x.go"],"symbols":[]}]}`),
 	}}
 	counter := &fakeCounter{n: 0}
 	scan := &scanner.ProjectScan{
@@ -358,8 +358,8 @@ func TestMapFeaturesToCode_LogsBatchProgress(t *testing.T) {
 		log.SetLevel(log.InfoLevel)
 	})
 
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]}]}`),
 	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
@@ -378,9 +378,11 @@ func TestMapFeaturesToCode_LogsBatchProgress(t *testing.T) {
 
 func TestMapFeaturesToCode_OnBatchCalled_PerLLMCall(t *testing.T) {
 	callCount := 0
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
-		`[{"feature":"f","files":["b.go"],"symbols":["B"]}]`,
+	c := &fakeClient{jsonResponseQueues: map[string][]json.RawMessage{
+		"map_response": {
+			json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]}]}`),
+			json.RawMessage(`{"entries":[{"feature":"f","files":["b.go"],"symbols":["B"]}]}`),
+		},
 	}}
 	counter := &fakeCounter{n: 0}
 	scan := &scanner.ProjectScan{
@@ -404,9 +406,11 @@ func TestMapFeaturesToCode_OnBatchCalled_PerLLMCall(t *testing.T) {
 }
 
 func TestMapFeaturesToCode_OnBatchError_Aborts(t *testing.T) {
-	c := &fakeClient{responses: []string{
-		`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`,
-		`[{"feature":"f","files":["b.go"],"symbols":["B"]}]`,
+	c := &fakeClient{jsonResponseQueues: map[string][]json.RawMessage{
+		"map_response": {
+			json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]}]}`),
+			json.RawMessage(`{"entries":[{"feature":"f","files":["b.go"],"symbols":["B"]}]}`),
+		},
 	}}
 	counter := &fakeCounter{n: 0}
 	scan := &scanner.ProjectScan{
@@ -431,7 +435,9 @@ func TestMapFeaturesToCode_OnBatchError_Aborts(t *testing.T) {
 }
 
 func TestMapFeaturesToCode_FilesOnly_PromptOmitsSymbolNames(t *testing.T) {
-	client := &fakeClient{responses: []string{`[{"feature":"auth","files":["auth.go"]}]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"auth","files":["auth.go"]}]}`),
+	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Login", Kind: scanner.KindFunc}}},
@@ -455,7 +461,9 @@ func TestMapFeaturesToCode_FilesOnly_PromptOmitsSymbolNames(t *testing.T) {
 
 func TestMapFeaturesToCode_FilesOnly_SymbolsAlwaysEmpty(t *testing.T) {
 	// Even if the LLM incorrectly returns symbols, they must be stripped in filesOnly mode.
-	client := &fakeClient{responses: []string{`[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]`}}
+	client := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"auth","files":["auth.go"],"symbols":["Login"]}]}`),
+	}}
 	scan := &scanner.ProjectScan{
 		Files: []scanner.ScannedFile{
 			{Path: "auth.go", Symbols: []scanner.Symbol{{Name: "Login", Kind: scanner.KindFunc}}},
@@ -487,9 +495,15 @@ func (c *countingCounter) CountTokens(_ context.Context, _ string) (int, error) 
 func TestMapFeaturesToCode_UsesLargeTier(t *testing.T) {
 	// Verifies MapFeaturesToCode dispatches through tiering.Large() and
 	// tiering.LargeCounter(), not Small or Typical.
-	small := &fakeClient{responses: []string{`[]`}}
-	typical := &fakeClient{responses: []string{`[]`}}
-	large := &fakeClient{responses: []string{`[{"feature":"f","files":["a.go"],"symbols":["A"]}]`}}
+	small := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[]}`),
+	}}
+	typical := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[]}`),
+	}}
+	large := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"map_response": json.RawMessage(`{"entries":[{"feature":"f","files":["a.go"],"symbols":["A"]}]}`),
+	}}
 	smallCounter := &countingCounter{}
 	typicalCounter := &countingCounter{}
 	largeCounter := &countingCounter{}

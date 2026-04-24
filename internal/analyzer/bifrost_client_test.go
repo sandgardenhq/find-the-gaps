@@ -628,3 +628,110 @@ func TestBifrostClient_CompleteJSON_Anthropic_SetsMaxCompletionTokens(t *testing
 	require.NotNil(t, fake.lastRequest.Params.MaxCompletionTokens)
 	assert.GreaterOrEqual(t, *fake.lastRequest.Params.MaxCompletionTokens, 16_000)
 }
+
+// --- CompleteJSON tests (OpenAI native response_format=json_schema) ---
+
+func TestBifrostClient_CompleteJSON_OpenAI_SetsJSONSchemaResponseFormat(t *testing.T) {
+	// OpenAI supports structured outputs natively via response_format:
+	// {"type":"json_schema","json_schema":{"name":..., "strict":true, "schema":...}}.
+	// CompleteJSON must set this on the request, NOT use Anthropic-style forced
+	// tool use. The returned content is a JSON string — parse it and return.
+	content := `{"summary":"ok","features":["a","b"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &content}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	got, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+	assert.JSONEq(t, content, string(got))
+
+	req := fake.lastRequest
+	require.NotNil(t, req, "expected request to be captured")
+	require.NotNil(t, req.Params, "expected Params to be set")
+	require.Empty(t, req.Params.Tools, "OpenAI path must not register tools")
+	require.Nil(t, req.Params.ToolChoice, "OpenAI path must not force a tool choice")
+	require.NotNil(t, req.Params.ResponseFormat, "expected response_format to be set")
+
+	rfJSON, err := json.Marshal(*req.Params.ResponseFormat)
+	require.NoError(t, err)
+	var rf struct {
+		Type       string `json:"type"`
+		JSONSchema struct {
+			Name   string          `json:"name"`
+			Strict bool            `json:"strict"`
+			Schema json.RawMessage `json:"schema"`
+		} `json:"json_schema"`
+	}
+	require.NoError(t, json.Unmarshal(rfJSON, &rf))
+	assert.Equal(t, "json_schema", rf.Type)
+	assert.Equal(t, "analyze_response", rf.JSONSchema.Name)
+	assert.True(t, rf.JSONSchema.Strict, "strict mode must be true")
+	assert.JSONEq(t, testAnalyzeSchemaDoc, string(rf.JSONSchema.Schema))
+}
+
+func TestBifrostClient_CompleteJSON_OpenAI_BifrostError(t *testing.T) {
+	fake := &fakeBifrostRequester{
+		bifroErr: &schemas.BifrostError{Error: &schemas.ErrorField{Message: "bad model"}},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bad model")
+}
+
+func TestBifrostClient_CompleteJSON_OpenAI_EmptyChoices(t *testing.T) {
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{Choices: []schemas.BifrostResponseChoice{}},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+}
+
+func TestBifrostClient_CompleteJSON_OpenAI_NilContent_ReturnsError(t *testing.T) {
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{makeChoice(nil)},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+}
+
+func TestBifrostClient_CompleteJSON_OpenAI_ValidatesSchema(t *testing.T) {
+	// Even with strict json_schema, defensively validate — catches mismatches
+	// between our schema definition and whatever the provider honored.
+	bad := `{"features":["a"]}` // missing required "summary"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &bad}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "analyze_response")
+}
+
+func TestBifrostClient_CompleteJSON_OpenAI_SetsMaxCompletionTokens(t *testing.T) {
+	content := `{"summary":"x","features":[]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &content}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest.Params.MaxCompletionTokens)
+	assert.GreaterOrEqual(t, *fake.lastRequest.Params.MaxCompletionTokens, 16_000)
+}
