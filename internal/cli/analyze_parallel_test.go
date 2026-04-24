@@ -180,8 +180,11 @@ func (s *stubLLMClient) Complete(_ context.Context, prompt string) (string, erro
 	return s.docsResp, nil
 }
 
-func (s *stubLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool) (analyzer.ChatMessage, error) {
-	return analyzer.ChatMessage{Role: "assistant", Content: "[]"}, nil
+func (s *stubLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+	return analyzer.AgentResult{
+		FinalMessage: analyzer.ChatMessage{Role: "assistant", Content: "[]"},
+		Rounds:       1,
+	}, nil
 }
 
 func (s *stubLLMClient) CompleteJSON(ctx context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {

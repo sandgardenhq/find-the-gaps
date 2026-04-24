@@ -1,5 +1,7 @@
 package analyzer
 
+import "context"
+
 // CodeFeature is a product feature identified from the codebase.
 type CodeFeature struct {
 	Name        string `json:"name"`
@@ -48,11 +50,20 @@ type ChatMessage struct {
 	ToolCallID string     // set when Role=="tool" (response to a tool call)
 }
 
-// Tool defines a callable function the LLM may invoke during drift detection.
+// ToolHandler runs one tool call. The returned string is sent back to the LLM
+// as the tool result. A non-nil error aborts the agent loop and is propagated
+// to the caller. Errors that should be reported TO the LLM (e.g. "file not
+// found") must be returned as the result string, not as a Go error.
+type ToolHandler func(ctx context.Context, args string) (string, error)
+
+// Tool defines a callable function the LLM may invoke during a tool-use
+// conversation. Execute is invoked by the agent loop when the LLM calls this
+// tool by name; it may be nil for advisory-only declarations.
 type Tool struct {
 	Name        string
 	Description string
 	Parameters  map[string]any // JSON Schema object
+	Execute     ToolHandler
 }
 
 // ToolCall is one tool invocation requested by the LLM.
