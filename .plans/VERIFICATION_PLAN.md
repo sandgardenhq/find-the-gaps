@@ -155,23 +155,26 @@ Before any scenario runs:
 
 ### Scenario 8: Homebrew Install
 
-**Context**: Verify the published Homebrew formula installs cleanly with all dependencies.
+**Context**: Verify the published Homebrew formula installs cleanly. The formula does NOT declare `mdfetch` as a brew dependency; instead, its `post_install` step shells out to `ftg install-deps`, which installs `mdfetch` via `npm`. Brew pulls in `node` automatically because the formula declares `depends_on "node"`.
 
 **Steps**:
-1. On a machine without `find-the-gaps` or `mdfetch` installed (or a fresh VM / clean `brew` test sandbox), run `brew install <tap>/find-the-gaps`.
-2. Observe brew's output.
-3. Run `find-the-gaps --version`.
+1. On a machine without `find-the-gaps` or `mdfetch` installed (or a fresh VM / clean `brew` test sandbox), run `brew install sandgardenhq/tap/find-the-gaps`.
+2. Observe brew's output, including the post-install step and the caveats block.
+3. Run `ftg --version`.
 4. Run `mdfetch --version`.
-5. Run `find-the-gaps doctor`.
+5. Run `ftg doctor`.
+6. Verify both macOS and Linux: repeat steps 1–5 on a Linux machine with Homebrew installed.
 
 **Success Criteria**:
-- [ ] `brew install` completes successfully and installs `mdfetch` as a dependency.
-- [ ] The caveats block about the external tool is printed.
-- [ ] `find-the-gaps --version` returns the installed version.
+- [ ] `brew install` completes successfully on macOS and on Linux.
+- [ ] Brew installs `node` as a dependency (visible in the install plan).
+- [ ] `post_install` runs and prints the same output as `ftg install-deps` (mdfetch installed if missing, or "already present" message if a system Node already had it).
+- [ ] The caveats block prints the `mdfetch` notice — including the `brew uninstall` warning and the `ftg doctor` hint.
+- [ ] `ftg --version` returns the version that matches the formula's declared `version`.
 - [ ] `mdfetch --version` succeeds.
-- [ ] `find-the-gaps doctor` exits `0` and reports `mdfetch` present.
+- [ ] `ftg doctor` exits `0` and reports `mdfetch` present.
 
-**If Blocked**: If brew fails to resolve the `mdfetch` dependency (tap path issue), stop and ask before adjusting the formula live.
+**If Blocked**: If `post_install` fails (for example, Node's `npm` is sandboxed away from the brew shell, or the npm registry is unreachable), capture the full brew install log and ask before adjusting the formula live. Do NOT silently re-add a brew `depends_on "mdfetch"` line — there is no such formula today.
 
 ---
 

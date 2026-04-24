@@ -44,6 +44,16 @@ Run `ftg doctor` at any time to check that it is available and see its detected 
 
 ## Install
 
+### Homebrew (macOS and Linux)
+
+```sh
+brew install sandgardenhq/tap/find-the-gaps
+```
+
+The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs `ftg install-deps` during post-install to fetch `mdfetch` from npm. Run `ftg doctor` after install to confirm everything is wired up.
+
+### Other platforms
+
 ```sh
 go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest
 ```

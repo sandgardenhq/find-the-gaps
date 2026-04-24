@@ -49,3 +49,13 @@ jobs:
             coverage.txt
             coverage.html
           if-no-files-found: error
+
+  homebrew-render:
+    name: Homebrew formula render test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Render formula and diff against golden
+        run: .github/homebrew/test-render.sh
