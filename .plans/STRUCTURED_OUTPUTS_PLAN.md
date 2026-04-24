@@ -32,7 +32,9 @@ Seven JSON-parsing call sites across `internal/analyzer`:
 | 6 | `classifyDriftPages` loop (`drift.go:160`) | Small | `driftIssue[]` |
 | 7 | `DetectScreenshotGaps` (`screenshot_gaps.go`) | Typical | `screenshotGap[]` |
 
-Out of scope: the two tool-use sites — `detectDriftForFeature` (agentic drift detection in `drift.go`) and anything using `CompleteWithTools`. Those already use structured tool calls; this plan is for the plain `Complete`-path sites.
+The agentic tool-use site `detectDriftForFeature` is **in scope as of 2026-04-23**: although it uses `CompleteWithTools` for investigation, its *final* message is free-text JSON, which is what produced the `<response>...</response>`-wrapper bug that kicked this work off. It will be migrated to emit the final answer via a `submit_findings` structured tool call whose arguments match the drift-issue schema.
+
+Out of scope: anything else using `CompleteWithTools` (currently nothing — `detectDriftForFeature` is the only caller).
 
 ## Design
 
@@ -130,9 +132,13 @@ Migrate in risk order (smallest blast radius first):
 
 Each migration: delete the "No markdown code fences. No prose." suffix from the prompt, define the schema, swap `Complete` for `CompleteJSON`, delete the `stripCodeFence` wrapper, update tests to assert the schema is passed through. All existing behavioral tests must continue to pass.
 
+### Phase 3b — Migrate drift tool-use site
+
+14b. **`detectDriftForFeature`** — add a `submit_findings` tool whose `input_schema` matches the drift-issue array. Update the prompt: tell the model to call `submit_findings` with its final findings instead of returning prose. In the agent loop, when the model calls `submit_findings`, treat it as the terminal condition: parse `tc.Arguments` via the schema, return the issues, and do not feed a tool result back. Remove the free-text JSON fallback path and the `extractJSONArray` call entirely.
+
 ### Phase 4 — Cleanup
 
-15. **Delete `stripCodeFence` and `fence_test.go`.** Confirm no call site still uses it (grep). `extractJSONArray` reverts to the pre-`d3b7c91` form (or gets deleted if `screenshot_gaps` no longer needs it). Run full suite; coverage must stay ≥ 90%.
+15. **Delete `stripCodeFence`, `extractJSONArray`, `fence.go`, `fence_test.go`.** Confirm no call site still uses them (grep). Run full suite; coverage must stay ≥ 90%.
 16. **Update CLAUDE.md's "LLM Prompt Conventions" section** — add a `// PROMPT SCHEMA:` rule next to the existing `// PROMPT:` rule.
 
 ### Phase 5 — Verification
@@ -147,7 +153,7 @@ Each migration: delete the "No markdown code fences. No prose." suffix from the 
    - (b) Probe once at startup, cache capability, fall back to `Complete + stripCodeFence` when absent. Messier but forgiving.
    - **Recommendation:** (a). Users on exotic endpoints already sign up for "bring your own reliability"; the failure mode for (b) is what we just shipped a hotfix for.
 
-2. **Anthropic strict schemas.** Anthropic's tool input_schema is advisory — the model usually obeys but isn't guaranteed to. In practice this is reliable with recent Sonnet/Haiku; do we want a JSON-Schema validator on the client side as a belt-and-suspenders check? **Recommendation:** Yes — validate `raw` against the schema in `CompleteJSON` before returning, and return a typed error on mismatch. Cheap, catches model regressions early. Use `github.com/santhosh-tekuri/jsonschema/v5` (already idiomatic in Go).
+2. **Anthropic strict schemas.** Anthropic's tool input_schema is advisory — the model usually obeys but isn't guaranteed to. In practice this is reliable with recent Sonnet/Haiku; do we want a JSON-Schema validator on the client side as a belt-and-suspenders check? **Recommendation:** Yes — validate `raw` against the schema in `CompleteJSON` before returning, and return a typed error on mismatch. Cheap, catches model regressions early. Use `github.com/santhosh-tekuri/jsonschema/v5` (already idiomatic in Go). **Resolved 2026-04-23**: implemented as `JSONSchema.ValidateResponse(raw)` in `internal/analyzer/schema.go`; every `CompleteJSON` branch MUST call it before returning so the guarantee applies uniformly across providers, not just Anthropic.
 
 3. **Schema reuse across prompt variants.** `MapFeaturesToCode` has two prompt variants (`--no-symbols` vs. symbols+files) that share one response shape. One schema, two prompts. No action item — just worth noting.
 

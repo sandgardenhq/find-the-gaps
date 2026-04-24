@@ -97,6 +97,14 @@ func (c *OpenAICompatibleClient) CompleteWithTools(ctx context.Context, messages
 	return ChatMessage{Role: "assistant", Content: out.Choices[0].Message.Content}, nil
 }
 
+// CompleteJSON sends prompt and requests a response conforming to schema. The
+// exact wire format depends on the server's flavor (Ollama top-level `format`,
+// LM Studio / generic OpenAI-compatible `response_format`). Implemented in
+// Phase 2; stub returns not-implemented until then.
+func (c *OpenAICompatibleClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+	return nil, fmt.Errorf("OpenAICompatibleClient.CompleteJSON: not implemented yet")
+}
+
 // Complete sends prompt as a user message and returns the first completion.
 func (c *OpenAICompatibleClient) Complete(ctx context.Context, prompt string) (string, error) {
 	body, err := json.Marshal(oaiRequest{

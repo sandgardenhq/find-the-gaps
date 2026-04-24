@@ -2,10 +2,13 @@ package analyzer
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/maximhq/bifrost/core/schemas"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // White-box tests for bifrost_client.go.
@@ -449,4 +452,179 @@ func TestBifrostClient_CompleteWithTools_ToolCallNilIDAndName(t *testing.T) {
 	if got.ToolCalls[0].Name != "" {
 		t.Errorf("expected empty name, got %q", got.ToolCalls[0].Name)
 	}
+}
+
+// --- CompleteJSON tests (Anthropic forced tool use) ---
+
+const testAnalyzeSchemaDoc = `{"type":"object","properties":{"summary":{"type":"string"},"features":{"type":"array","items":{"type":"string"}}},"required":["summary","features"]}`
+
+func testAnalyzeSchema() JSONSchema {
+	return JSONSchema{Name: "analyze_response", Doc: json.RawMessage(testAnalyzeSchemaDoc)}
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_ForcesRespondTool(t *testing.T) {
+	// When Anthropic is the provider, CompleteJSON must (a) register a single tool
+	// named "respond" whose parameters equal schema.Doc, and (b) set tool_choice to
+	// force that tool. The model's response is then the tool-call arguments — a
+	// parse-guaranteed JSON object, no free-text prose to recover from.
+	respondID := "tc_1"
+	respondName := "respond"
+	expected := `{"summary":"ok","features":["a","b"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &respondID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &respondName,
+							Arguments: expected,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	got, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+	assert.JSONEq(t, expected, string(got))
+
+	req := fake.lastRequest
+	require.NotNil(t, req, "expected request to be captured")
+	require.NotNil(t, req.Params, "expected Params to be set")
+	require.Len(t, req.Params.Tools, 1, "must register exactly one tool")
+	require.NotNil(t, req.Params.Tools[0].Function)
+	assert.Equal(t, "respond", req.Params.Tools[0].Function.Name)
+	require.NotNil(t, req.Params.ToolChoice, "must force tool choice")
+	require.NotNil(t, req.Params.ToolChoice.ChatToolChoiceStruct)
+	assert.Equal(t, schemas.ChatToolChoiceTypeFunction, req.Params.ToolChoice.ChatToolChoiceStruct.Type)
+	require.NotNil(t, req.Params.ToolChoice.ChatToolChoiceStruct.Function)
+	assert.Equal(t, "respond", req.Params.ToolChoice.ChatToolChoiceStruct.Function.Name)
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_BifrostError(t *testing.T) {
+	fake := &fakeBifrostRequester{
+		bifroErr: &schemas.BifrostError{Error: &schemas.ErrorField{Message: "rate limited"}},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rate limited")
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_EmptyChoices(t *testing.T) {
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{Choices: []schemas.BifrostResponseChoice{}},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_NoToolCalls(t *testing.T) {
+	// Model returned free-text content instead of calling the forced tool.
+	// Must surface a clear error — do NOT try to parse the content.
+	text := "I am refusing to use the tool."
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(&schemas.ChatMessageContent{ContentStr: &text}, nil),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool call")
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_WrongToolName(t *testing.T) {
+	// Model called a different tool than the one we forced.
+	otherID := "tc_x"
+	otherName := "some_other_tool"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &otherID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &otherName,
+							Arguments: `{}`,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "respond")
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_RejectsSchemaViolations(t *testing.T) {
+	// Anthropic's tool input_schema is advisory — the model can ignore it and
+	// emit arguments that don't match. The client must validate against the
+	// schema and return a clear error rather than handing malformed data to the
+	// caller. The canary payload is missing the required "summary" field.
+	respondID := "tc_1"
+	respondName := "respond"
+	badArgs := `{"features":["a","b"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &respondID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &respondName,
+							Arguments: badArgs,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	schema := JSONSchema{
+		Name: "analyze_response",
+		Doc: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"summary":  {"type": "string"},
+				"features": {"type": "array", "items": {"type": "string"}}
+			},
+			"required": ["summary", "features"]
+		}`),
+	}
+	_, err := client.CompleteJSON(context.Background(), "x", schema)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "analyze_response")
+}
+
+func TestBifrostClient_CompleteJSON_Anthropic_SetsMaxCompletionTokens(t *testing.T) {
+	respondID := "tc_1"
+	respondName := "respond"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &respondID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &respondName,
+							Arguments: `{"summary":"x","features":[]}`,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest.Params.MaxCompletionTokens)
+	assert.GreaterOrEqual(t, *fake.lastRequest.Params.MaxCompletionTokens, 16_000)
 }
