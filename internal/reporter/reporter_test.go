@@ -435,6 +435,49 @@ func TestWriteGaps_MissingScreenshotsSection(t *testing.T) {
 	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
 }
 
+func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
+	dir := t.TempDir()
+	gaps := []analyzer.ScreenshotGap{
+		{
+			PageURL:       "https://example.com/quickstart",
+			PagePath:      "/cache/quickstart.md",
+			QuotedPassage: "Run the command and see the output.",
+			ShouldShow:    "Terminal showing the analyze summary with findings count.",
+			SuggestedAlt:  "Terminal output of find-the-gaps analyze",
+			InsertionHint: "after the paragraph ending '...see the output.'",
+		},
+		{
+			PageURL:       "https://example.com/quickstart",
+			PagePath:      "/cache/quickstart.md",
+			QuotedPassage: "The dashboard shows open PRs.",
+			ShouldShow:    "Dashboard with two open PRs visible.",
+			SuggestedAlt:  "Dashboard with open PRs",
+			InsertionHint: "after the heading '## Dashboard'",
+		},
+		{
+			PageURL:       "https://example.com/setup",
+			PagePath:      "/cache/setup.md",
+			QuotedPassage: "Configure the CLI.",
+			ShouldShow:    "The config file open in an editor.",
+			SuggestedAlt:  "Configuration file",
+			InsertionHint: "after the code block",
+		},
+	}
+	require.NoError(t, reporter.WriteScreenshots(dir, gaps))
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+	// Root heading is promoted to # (the doc is now its own root).
+	assert.Contains(t, s, "# Missing Screenshots")
+	// Page grouping, first-occurrence order.
+	assert.Regexp(t, `### https://example.com/quickstart[\s\S]*### https://example.com/setup`, s)
+	// Each gap's four fields render.
+	assert.Contains(t, s, "Run the command and see the output.")
+	assert.Contains(t, s, "Terminal showing the analyze summary")
+	assert.Contains(t, s, "Terminal output of find-the-gaps analyze")
+	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
+}
+
 func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, nil))
