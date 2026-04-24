@@ -1,0 +1,52 @@
+class FindTheGaps < Formula
+  desc "Find documentation gaps between a codebase and its docs site"
+  homepage "https://github.com/sandgardenhq/find-the-gaps"
+  version "9.9.9"
+  license "MIT"
+
+  depends_on "node"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/sandgardenhq/find-the-gaps/releases/download/v9.9.9/find-the-gaps_v9.9.9_darwin-arm64.tar.gz"
+      sha256 "aaaa000000000000000000000000000000000000000000000000000000000000"
+    end
+    on_intel do
+      url "https://github.com/sandgardenhq/find-the-gaps/releases/download/v9.9.9/find-the-gaps_v9.9.9_darwin-amd64.tar.gz"
+      sha256 "bbbb000000000000000000000000000000000000000000000000000000000000"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/sandgardenhq/find-the-gaps/releases/download/v9.9.9/find-the-gaps_v9.9.9_linux-arm64.tar.gz"
+      sha256 "cccc000000000000000000000000000000000000000000000000000000000000"
+    end
+    on_intel do
+      url "https://github.com/sandgardenhq/find-the-gaps/releases/download/v9.9.9/find-the-gaps_v9.9.9_linux-amd64.tar.gz"
+      sha256 "dddd000000000000000000000000000000000000000000000000000000000000"
+    end
+  end
+
+  def install
+    bin.install "ftg"
+  end
+
+  def post_install
+    system bin/"ftg", "install-deps"
+  end
+
+  def caveats
+    <<~EOS
+      find-the-gaps also needs `mdfetch` (npm package @sandgarden/mdfetch).
+      It was installed into Node's global prefix during post_install.
+      `brew uninstall find-the-gaps` will NOT remove mdfetch — run
+      `npm uninstall -g @sandgarden/mdfetch` if you want it gone.
+      Verify with: ftg doctor
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/ftg --version")
+  end
+end
