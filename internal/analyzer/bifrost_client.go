@@ -39,10 +39,21 @@ func (a *bifrostAccount) GetConfiguredProviders() ([]schemas.ModelProvider, erro
 	return []schemas.ModelProvider{a.provider}, nil
 }
 
+// localServerPlaceholderKey satisfies Bifrost's per-request key filter
+// (selectKeyFromProviderForModel + utils.go CanProviderKeyValueBeEmpty), which
+// drops empty-value keys for OpenAI. Local OpenAI-compatible servers (LM Studio,
+// keyless proxies) ignore the Authorization header in practice, so a non-empty
+// placeholder bearer is harmless.
+const localServerPlaceholderKey = "local-server-no-auth"
+
 func (a *bifrostAccount) GetKeysForProvider(ctx context.Context, provider schemas.ModelProvider) ([]schemas.Key, error) {
 	if provider == a.provider {
+		keyValue := a.apiKey
+		if a.provider == schemas.OpenAI && keyValue == "" && a.baseURL != "" {
+			keyValue = localServerPlaceholderKey
+		}
 		key := schemas.Key{
-			Value:  *schemas.NewEnvVar(a.apiKey),
+			Value:  *schemas.NewEnvVar(keyValue),
 			Models: schemas.WhiteList{"*"},
 			Weight: 1.0,
 		}
@@ -62,7 +73,7 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 		nc.DefaultRequestTimeoutInSeconds = 300 // 5 minutes — feature mapping batches can be large
 		if a.baseURL != "" && a.provider != schemas.Ollama {
 			// OpenAI / Anthropic honor NetworkConfig.BaseURL for custom endpoints
-			// (lmstudio, openai-compatible). Ollama routes via OllamaKeyConfig instead.
+			// (lmstudio). Ollama routes via OllamaKeyConfig instead.
 			nc.BaseURL = a.baseURL
 		}
 		return &schemas.ProviderConfig{

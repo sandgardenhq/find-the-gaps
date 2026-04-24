@@ -132,8 +132,8 @@ func TestNewBifrostClientWithProvider_Ollama_ReturnsClient(t *testing.T) {
 }
 
 func TestNewBifrostClientWithProvider_OpenAI_WithBaseURL_ReturnsClient(t *testing.T) {
-	// "lmstudio" and "openai-compatible" collapse to schemas.OpenAI at the CLI layer,
-	// so the analyzer must accept a non-empty base URL paired with provider "openai".
+	// "lmstudio" collapses to schemas.OpenAI at the CLI layer, so the analyzer
+	// must accept a non-empty base URL paired with provider "openai".
 	client, err := NewBifrostClientWithProvider("openai", "", "local-model", "http://localhost:1234")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -168,9 +168,9 @@ func TestBifrostAccount_Ollama_GetKeysReturnsOllamaKeyConfig(t *testing.T) {
 }
 
 func TestBifrostAccount_OpenAI_WithBaseURL_SetsNetworkConfigBaseURL(t *testing.T) {
-	// For OpenAI-compatible custom endpoints (LM Studio, generic openai-compatible),
-	// Bifrost honors NetworkConfig.BaseURL — see schemas/provider.go:54.
-	const baseURL = "http://openai-compat.local:1234"
+	// For OpenAI-compatible custom endpoints (LM Studio), Bifrost honors
+	// NetworkConfig.BaseURL — see schemas/provider.go:54.
+	const baseURL = "http://lmstudio.local:1234"
 	acc := &bifrostAccount{provider: schemas.OpenAI, apiKey: "", baseURL: baseURL}
 	cfg, err := acc.GetConfigForProvider(schemas.OpenAI)
 	if err != nil {
@@ -191,6 +191,53 @@ func TestBifrostAccount_EmptyBaseURL_LeavesNetworkConfigBaseURLEmpty(t *testing.
 	}
 	if cfg.NetworkConfig.BaseURL != "" {
 		t.Errorf("NetworkConfig.BaseURL = %q, want empty", cfg.NetworkConfig.BaseURL)
+	}
+}
+
+func TestBifrostAccount_OpenAI_EmptyKeyWithBaseURL_UsesPlaceholder(t *testing.T) {
+	// Bifrost's per-request key filter (selectKeyFromProviderForModel + utils.go
+	// CanProviderKeyValueBeEmpty) drops keys whose Value is empty unless the
+	// provider is in {Vertex, Bedrock, VLLM, Azure, Ollama, SGL}. OpenAI is not
+	// in that set, so a literally-empty key is filtered out and every chat
+	// request fails with "no keys found that support model: <model>". For local
+	// OpenAI-compatible servers (LM Studio) we substitute a non-empty placeholder
+	// so the filter passes; the local server ignores the bogus bearer.
+	acc := &bifrostAccount{provider: schemas.OpenAI, apiKey: "", baseURL: "http://localhost:1234"}
+	keys, err := acc.GetKeysForProvider(context.Background(), schemas.OpenAI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(keys))
+	}
+	if keys[0].Value.GetValue() == "" {
+		t.Error("expected non-empty placeholder key value to bypass Bifrost's empty-key filter")
+	}
+}
+
+func TestBifrostAccount_OpenAI_EmptyKeyNoBaseURL_LeavesValueEmpty(t *testing.T) {
+	// Hosted OpenAI without an API key is a user error — surface it via Bifrost's
+	// standard "no keys found" path rather than masking it with a placeholder.
+	acc := &bifrostAccount{provider: schemas.OpenAI, apiKey: "", baseURL: ""}
+	keys, err := acc.GetKeysForProvider(context.Background(), schemas.OpenAI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := keys[0].Value.GetValue(); got != "" {
+		t.Errorf("expected empty key value for hosted OpenAI without API key, got %q", got)
+	}
+}
+
+func TestBifrostAccount_OpenAI_NonEmptyKey_PreservesKeyValue(t *testing.T) {
+	// The placeholder path must not clobber a user-supplied API key.
+	const key = "sk-real-key"
+	acc := &bifrostAccount{provider: schemas.OpenAI, apiKey: key, baseURL: "http://proxy.local"}
+	keys, err := acc.GetKeysForProvider(context.Background(), schemas.OpenAI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := keys[0].Value.GetValue(); got != key {
+		t.Errorf("key value = %q, want %q", got, key)
 	}
 }
 

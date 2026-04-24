@@ -125,13 +125,12 @@ Configure tiers via flag or environment variable:
 - `OPENAI_API_KEY` — required when any tier points at an OpenAI model
 - `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
 - `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
-- `OPENAI_COMPATIBLE_BASE_URL` — required when any tier uses the `openai-compatible` provider
 
 > **Breaking change.** The old `--llm-provider`, `--llm-model`, and
 > `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`
 > with `--llm-typical X/Y` (or the tier that matches your use case). Base URLs
-> for `ollama`, `lmstudio`, and `openai-compatible` are now set via the
-> `*_BASE_URL` env vars listed above.
+> for `ollama` and `lmstudio` are now set via the `*_BASE_URL` env vars listed
+> above.
 
 ### doctor
 

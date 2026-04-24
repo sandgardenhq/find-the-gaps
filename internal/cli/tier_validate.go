@@ -31,7 +31,7 @@ func validateTierConfigs(small, typical, large string) error {
 			return fmt.Errorf("tier %q: %w", tc.name, err)
 		}
 		if !isKnownProvider(provider) {
-			return fmt.Errorf("tier %q: unknown provider %q (valid: anthropic, openai, ollama, lmstudio, openai-compatible)", tc.name, provider)
+			return fmt.Errorf("tier %q: unknown provider %q (valid: anthropic, openai, ollama, lmstudio)", tc.name, provider)
 		}
 		if tc.needsTool && !providerSupportsToolUse(provider) {
 			return fmt.Errorf("tier %q: provider %q does not support tool use; drift detection requires anthropic or openai", tc.name, provider)
@@ -42,7 +42,7 @@ func validateTierConfigs(small, typical, large string) error {
 
 func isKnownProvider(p string) bool {
 	switch p {
-	case "anthropic", "openai", "ollama", "lmstudio", "openai-compatible":
+	case "anthropic", "openai", "ollama", "lmstudio":
 		return true
 	default:
 		return false

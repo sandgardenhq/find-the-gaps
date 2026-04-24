@@ -62,8 +62,8 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 
 // buildTierClient constructs a single (LLMClient, TokenCounter) for one (provider, model).
 //
-// lmstudio and openai-compatible collapse to Bifrost's schemas.OpenAI provider
-// with a NetworkConfig.BaseURL override — Bifrost honors BaseURL for OpenAI
+// lmstudio collapses to Bifrost's schemas.OpenAI provider with a
+// NetworkConfig.BaseURL override — Bifrost honors BaseURL for OpenAI
 // (see bifrost core schemas/provider.go:54). ollama uses the dedicated Bifrost
 // Ollama provider, which threads the server URL through Key.OllamaKeyConfig.
 func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.TokenCounter, error) {
@@ -99,14 +99,6 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 		if baseURL == "" {
 			baseURL = "http://localhost:1234"
 		}
-		bifrostProvider = "openai"
-		counter = analyzer.NewTiktokenCounter()
-	case "openai-compatible":
-		baseURL = os.Getenv("OPENAI_COMPATIBLE_BASE_URL")
-		if baseURL == "" {
-			return nil, nil, fmt.Errorf("OPENAI_COMPATIBLE_BASE_URL env var required for openai-compatible")
-		}
-		apiKey = os.Getenv("OPENAI_API_KEY")
 		bifrostProvider = "openai"
 		counter = analyzer.NewTiktokenCounter()
 	default:

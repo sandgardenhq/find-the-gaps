@@ -40,11 +40,10 @@ func TestParseTierString(t *testing.T) {
 
 func TestProviderSupportsToolUse(t *testing.T) {
 	cases := map[string]bool{
-		"anthropic":         true,
-		"openai":            true,
-		"ollama":            false,
-		"lmstudio":          false,
-		"openai-compatible": false,
+		"anthropic": true,
+		"openai":    true,
+		"ollama":    false,
+		"lmstudio":  false,
 	}
 	for provider, want := range cases {
 		if got := providerSupportsToolUse(provider); got != want {

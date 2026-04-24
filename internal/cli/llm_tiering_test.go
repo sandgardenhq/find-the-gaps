@@ -115,25 +115,12 @@ func TestBuildTierClient_LMStudio(t *testing.T) {
 	}
 }
 
-func TestBuildTierClient_OpenAICompatible_MissingBaseURL(t *testing.T) {
-	t.Setenv("OPENAI_COMPATIBLE_BASE_URL", "")
-	_, _, err := buildTierClient("openai-compatible", "local-model")
-	if err == nil || !strings.Contains(err.Error(), "OPENAI_COMPATIBLE_BASE_URL") {
-		t.Fatalf("expected OPENAI_COMPATIBLE_BASE_URL error, got %v", err)
-	}
-}
-
-func TestBuildTierClient_OpenAICompatible_Success(t *testing.T) {
+func TestBuildTierClient_OpenAICompatible_Removed(t *testing.T) {
+	// openai-compatible was removed in favor of lmstudio for the local-server use case.
 	t.Setenv("OPENAI_COMPATIBLE_BASE_URL", "http://example.local")
-	client, counter, err := buildTierClient("openai-compatible", "local-model")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if client == nil || counter == nil {
-		t.Fatal("openai-compatible path must return non-nil client and counter")
-	}
-	if _, ok := client.(*analyzer.BifrostClient); !ok {
-		t.Fatalf("openai-compatible must be served by *analyzer.BifrostClient, got %T", client)
+	_, _, err := buildTierClient("openai-compatible", "local-model")
+	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
+		t.Fatalf("expected unknown provider error, got %v", err)
 	}
 }
 

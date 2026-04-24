@@ -1,5 +1,15 @@
 # Progress
 
+## Fix lmstudio empty-key regression; remove openai-compatible - COMPLETE
+- Started: 2026-04-23
+- Summary: Code-review of the Bifrost consolidation surfaced a regression: lmstudio (and the now-removed openai-compatible) routed through Bifrost's OpenAI provider with an empty API key, but Bifrost's per-request key filter (`bifrost.go selectKeyFromProviderForModel` + `utils.go CanProviderKeyValueBeEmpty`) drops empty-value keys for OpenAI, causing every request to fail with "no keys found that support model: …". Fixed inside `bifrostAccount.GetKeysForProvider`: when `provider == OpenAI && apiKey == "" && baseURL != ""`, substitute a non-empty placeholder bearer (`local-server-no-auth`). LM Studio ignores the Authorization header, so the placeholder is harmless. Also removed the `openai-compatible` CLI provider entirely (per direction) — references gone from `buildTierClient`, `tier_validate.go`, `tier_parse_test.go`, `llm_tiering_test.go`, `README.md`, `CHANGELOG.md`. Replaced the two openai-compatible tests with a single removal-assertion test.
+- Tests: all packages green; new RED/GREEN tests `TestBifrostAccount_OpenAI_EmptyKeyWithBaseURL_UsesPlaceholder`, `TestBifrostAccount_OpenAI_EmptyKeyNoBaseURL_LeavesValueEmpty`, `TestBifrostAccount_OpenAI_NonEmptyKey_PreservesKeyValue`, and `TestBuildTierClient_OpenAICompatible_Removed`
+- Coverage: analyzer 94.9%, cli 90.6% (both above the 90% gate)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-23
+- Notes: Hosted OpenAI without a key still surfaces Bifrost's standard "no keys found" error — the placeholder only kicks in when a custom baseURL is set, signalling intent to hit a local server.
+
 ## Consolidate OpenAICompatibleClient into BifrostClient - COMPLETE
 - Started: 2026-04-23
 - Plan: `.plans/BIFROST_CONSOLIDATION_PLAN.md`
