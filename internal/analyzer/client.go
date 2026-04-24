@@ -18,10 +18,12 @@ type LLMClient interface {
 }
 
 // ToolLLMClient extends LLMClient with a multi-turn tool-use conversation.
-// The caller sends messages and tool definitions; the LLM may request tool
-// calls; the caller executes them and continues the conversation until the
-// LLM returns a final non-tool response.
+// CompleteWithTools runs an agent loop: it sends messages and tool definitions
+// to the LLM, dispatches any tool calls the LLM requests through Tool.Execute,
+// feeds the results back, and repeats until the LLM returns a plain-text
+// response (no tool calls) or the round limit is reached. Callers configure
+// the loop via AgentOption values (e.g. WithMaxRounds).
 type ToolLLMClient interface {
 	LLMClient
-	CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error)
+	CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []Tool, opts ...AgentOption) (AgentResult, error)
 }

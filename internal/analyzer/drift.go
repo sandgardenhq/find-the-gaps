@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,7 +53,6 @@ func DetectDrift(
 		}
 	}
 
-	tools := driftTools()
 	var findings []DriftFinding
 
 	for _, entry := range featureMap {
@@ -73,7 +73,7 @@ func DetectDrift(
 		}
 
 		log.Infof("  checking drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
-		issues, err := detectDriftForFeature(ctx, toolClient, tools, entry, pages, pageReader, repoRoot)
+		issues, err := detectDriftForFeature(ctx, toolClient, entry, pages, pageReader, repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
@@ -93,7 +93,6 @@ func DetectDrift(
 func detectDriftForFeature(
 	ctx context.Context,
 	client ToolLLMClient,
-	tools []Tool,
 	entry FeatureEntry,
 	pages []string,
 	pageReader func(url string) (string, error),
@@ -105,7 +104,14 @@ func detectDriftForFeature(
 		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
 	}
 
-	// PROMPT: Reviews documentation accuracy for one feature using tool calls to read source files and cached doc pages. Invokes the submit_findings tool with a structured list of inaccuracies when done.
+	var findings []DriftIssue
+	tools := []Tool{
+		readFileTool(repoRoot),
+		readPageTool(pageReader),
+		addFindingTool(&findings),
+	}
+
+	// PROMPT: Reviews documentation accuracy for one feature using tool calls to read source files and cached doc pages. The agent reports each issue as it finds it via add_finding, then ends the conversation with a plain-text confirmation.
 	systemPrompt := fmt.Sprintf(`You are reviewing documentation accuracy for a software feature.
 
 Feature: %s
@@ -132,10 +138,11 @@ within documentation that already exists for this feature.
 Express each finding as documentation feedback — describe what is wrong or
 missing in the docs, not what the code does. One finding per specific issue.
 
-When you are done investigating, call the submit_findings tool with the list of
-findings. Each finding has a "page" (URL or empty string) and an "issue"
-(one or two sentences). If no issues are found, call submit_findings with an
-empty findings array.`,
+Each time you identify a documentation issue, call the add_finding tool with the
+"page" (URL or empty string) and "issue" (one or two sentences). Call
+add_finding once per issue. When you have no more issues to report, reply with
+plain text confirming you are done (e.g. "done"). If you find no issues, reply
+with plain text immediately without calling add_finding at all.`,
 		entry.Feature.Name,
 		entry.Feature.Description,
 		strings.Join(entry.Files, ", "),
@@ -145,152 +152,113 @@ empty findings array.`,
 
 	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
 
-	for round := 0; round < driftMaxRounds; round++ {
-		resp, err := client.CompleteWithTools(ctx, messages, tools)
-		if err != nil {
-			return nil, err
-		}
-		messages = append(messages, resp)
+	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(driftMaxRounds))
+	if errors.Is(err, ErrMaxRounds) {
+		log.Warnf("drift agent exceeded %d rounds for feature %q; returning %d accumulated findings", driftMaxRounds, entry.Feature.Name, len(findings))
+		return findings, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return findings, nil
+}
 
-		// submit_findings is the terminal tool — when the LLM calls it, we return.
-		for _, tc := range resp.ToolCalls {
-			if tc.Name == "submit_findings" {
-				var payload struct {
-					Findings []DriftIssue `json:"findings"`
-				}
-				if err := json.Unmarshal([]byte(tc.Arguments), &payload); err != nil {
-					return nil, fmt.Errorf("invalid submit_findings arguments: %w (raw: %q)", err, tc.Arguments)
-				}
-				return payload.Findings, nil
+// readFileTool returns a Tool that reads files within repoRoot. The Execute
+// closure rejects paths that escape the root.
+func readFileTool(repoRoot string) Tool {
+	return Tool{
+		Name:        "read_file",
+		Description: "Read the full source content of a file in the repository. Use this to inspect implementation details before assessing documentation accuracy.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Repository-relative file path, e.g. internal/auth/login.go",
+				},
+			},
+			"required": []string{"path"},
+		},
+		Execute: func(_ context.Context, rawArgs string) (string, error) {
+			var args struct {
+				Path string `json:"path"`
 			}
-		}
-
-		if len(resp.ToolCalls) == 0 {
-			// No tool calls AND no submit_findings — the model ignored the protocol.
-			return nil, fmt.Errorf("drift agent returned text response instead of calling submit_findings: %q", resp.Content)
-		}
-
-		// Execute each tool call and append results.
-		for _, tc := range resp.ToolCalls {
-			result := executeTool(tc, pageReader, repoRoot)
-			messages = append(messages, ChatMessage{
-				Role:       "tool",
-				Content:    result,
-				ToolCallID: tc.ID,
-			})
-		}
-	}
-
-	log.Warnf("drift agent exceeded %d rounds for feature %q without calling submit_findings; declaring done with no findings and moving on", driftMaxRounds, entry.Feature.Name)
-	return nil, nil
-}
-
-// executeTool runs one tool call and returns the result string to feed back to the LLM.
-func executeTool(tc ToolCall, pageReader func(url string) (string, error), repoRoot string) string {
-	switch tc.Name {
-	case "read_file":
-		return executeReadFile(tc.Arguments, repoRoot)
-	case "read_page":
-		return executeReadPage(tc.Arguments, pageReader)
-	default:
-		return fmt.Sprintf("unknown tool: %q", tc.Name)
-	}
-}
-
-func executeReadFile(rawArgs, repoRoot string) string {
-	var args struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
-		return fmt.Sprintf("error parsing arguments: %v", err)
-	}
-	// Resolve to absolute path and verify it stays within repoRoot.
-	abs := filepath.Join(repoRoot, args.Path)
-	rel, err := filepath.Rel(repoRoot, abs)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return "access denied: path is outside the repository root"
-	}
-	content, err := os.ReadFile(abs)
-	if err != nil {
-		return fmt.Sprintf("error reading file: %v", err)
-	}
-	return string(content)
-}
-
-func executeReadPage(rawArgs string, pageReader func(url string) (string, error)) string {
-	var args struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
-		return fmt.Sprintf("error parsing arguments: %v", err)
-	}
-	content, err := pageReader(args.URL)
-	if err != nil {
-		return fmt.Sprintf("page not available: %v", err)
-	}
-	return content
-}
-
-// driftTools returns the tool definitions available during drift detection.
-// read_file and read_page are investigation tools; submit_findings is the
-// terminal tool — calling it ends the agent loop and returns the findings.
-func driftTools() []Tool {
-	return []Tool{
-		{
-			Name:        "read_file",
-			Description: "Read the full source content of a file in the repository. Use this to inspect implementation details before assessing documentation accuracy.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path": map[string]any{
-						"type":        "string",
-						"description": "Repository-relative file path, e.g. internal/auth/login.go",
-					},
-				},
-				"required": []string{"path"},
-			},
+			if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+				return fmt.Sprintf("error parsing arguments: %v", err), nil
+			}
+			abs := filepath.Join(repoRoot, args.Path)
+			rel, err := filepath.Rel(repoRoot, abs)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				return "access denied: path is outside the repository root", nil
+			}
+			content, err := os.ReadFile(abs)
+			if err != nil {
+				return fmt.Sprintf("error reading file: %v", err), nil
+			}
+			return string(content), nil
 		},
-		{
-			Name:        "read_page",
-			Description: "Read the full cached content of a documentation page. Use this to inspect what the docs currently say before comparing against the code.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"url": map[string]any{
-						"type":        "string",
-						"description": "The full URL of the documentation page.",
-					},
+	}
+}
+
+// readPageTool returns a Tool that reads cached documentation pages via pageReader.
+func readPageTool(pageReader func(url string) (string, error)) Tool {
+	return Tool{
+		Name:        "read_page",
+		Description: "Read the full cached content of a documentation page. Use this to inspect what the docs currently say before comparing against the code.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url": map[string]any{
+					"type":        "string",
+					"description": "The full URL of the documentation page.",
 				},
-				"required": []string{"url"},
 			},
+			"required": []string{"url"},
 		},
-		{
-			Name:        "submit_findings",
-			Description: "Submit the final list of documentation accuracy findings for this feature. Call this exactly once when you are done investigating. Pass an empty findings array if no issues were found.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"findings": map[string]any{
-						"type":        "array",
-						"description": "List of documentation accuracy issues.",
-						"items": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"page": map[string]any{
-									"type":        "string",
-									"description": "URL of the doc page the issue refers to, or empty string if page-agnostic.",
-								},
-								"issue": map[string]any{
-									"type":        "string",
-									"description": "One or two sentences describing the documentation issue.",
-								},
-							},
-							"required": []string{"page", "issue"},
-						},
-					},
+		Execute: func(_ context.Context, rawArgs string) (string, error) {
+			var args struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+				return fmt.Sprintf("error parsing arguments: %v", err), nil
+			}
+			content, err := pageReader(args.URL)
+			if err != nil {
+				return fmt.Sprintf("page not available: %v", err), nil
+			}
+			return content, nil
+		},
+	}
+}
+
+// addFindingTool returns a Tool that appends each LLM-reported drift issue to
+// out. Bad arguments are reported back to the LLM as a tool result string so
+// the loop continues; only catastrophic errors would abort.
+func addFindingTool(out *[]DriftIssue) Tool {
+	return Tool{
+		Name:        "add_finding",
+		Description: "Record one documentation accuracy issue. Call once per distinct issue. When you have no more issues to report, reply with plain text instead of calling this tool.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"page": map[string]any{
+					"type":        "string",
+					"description": "URL of the doc page the issue refers to, or empty string if page-agnostic.",
 				},
-				"required": []string{"findings"},
+				"issue": map[string]any{
+					"type":        "string",
+					"description": "One or two sentences describing the documentation issue.",
+				},
 			},
+			"required": []string{"page", "issue"},
+		},
+		Execute: func(_ context.Context, rawArgs string) (string, error) {
+			var f DriftIssue
+			if err := json.Unmarshal([]byte(rawArgs), &f); err != nil {
+				return fmt.Sprintf("invalid arguments: %v", err), nil
+			}
+			*out = append(*out, f)
+			return "recorded", nil
 		},
 	}
 }
@@ -372,4 +340,3 @@ Content preview:
 	}
 	return strings.Contains(strings.ToLower(resp), "yes")
 }
-

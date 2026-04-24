@@ -897,3 +897,21 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Linting: ✅ Clean
 - Completed: 2026-04-24
 - Notes: `gaps.md` no longer contains a Missing Screenshots section; new `screenshots.md` written whenever the screenshot pass runs (including zero-findings case). Skipped pass writes no file and is annotated in the CLI reports block.
+
+## Task: Refactor — push agent loop into CompleteWithTools - COMPLETE
+- Started: 2026-04-24
+- Tests: full repo green; analyzer package green (95.1%); cli green (90.5%)
+- Coverage: total 92.4%; analyzer 95.1%, cli 90.5%, reporter 98.0%, scanner 93.8%, spider 94.4%, cmd 100.0%, doctor 98.4%
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-24
+- Notes:
+  - Plan: `.plans/REFACTOR_COMPLETE_WITH_TOOLS.md`
+  - New: `Tool.Execute` (ToolHandler), `AgentResult`, `ErrMaxRounds`, `AgentOption`/`WithMaxRounds`, `RunAgentLoop` driver, `TurnFunc` type
+  - `ToolLLMClient.CompleteWithTools` now runs the multi-turn loop internally; `BifrostClient` provides `completeOneTurn` as the per-turn TurnFunc
+  - Drift rewritten to accumulator pattern: `add_finding` tool with closure capturing local `findings []DriftIssue`. Old `submit_findings` terminal tool deleted; `executeTool`/`executeReadFile`/`executeReadPage` free funcs replaced with `readFileTool`/`readPageTool`/`addFindingTool` builder helpers that return Tools with Execute closures.
+  - On `ErrMaxRounds`, drift returns whatever findings were accumulated before exhaustion (partial-progress recovery), then continues processing the next feature.
+  - 7 new agent-loop primitive tests (`agent_loop_test.go`) cover: text-on-first-turn, tool dispatch + result feedback, unknown tool, handler error, turn error, max-rounds exceeded, max-rounds allows completion.
+  - Drift test rewrite: `submitFindings` helper deleted; replaced with `addFinding(issue)` + `driftDone()` helpers. `TestDetectDrift_TextResponseWithoutSubmitFindings_ReturnsError` deleted (text without prior add_finding is the empty-findings case). `TestDetectDrift_SubmitFindingsBadJSON_ReturnsError` replaced with `TestDetectDrift_AddFindingBadJSON_FedBackToLLM`. `TestDetectDrift_MaxRoundsExceeded_*` now asserts that findings accumulated before exhaustion ARE returned alongside the next feature's findings.
+  - Existing schema-translation tests in `bifrost_client_test.go` retargeted at `completeOneTurn` (white-box, same package); a new `TestBifrostClient_CompleteWithTools_AdaptsRunAgentLoop` exercises the public adapter end-to-end.
+  - Test-double signature changes: `stubToolClient`, `stubLLMClient`, `driftStubClient`, `driftStubClientWithErr` updated to `(ctx, msgs, tools, opts ...AgentOption) (AgentResult, error)`. `driftStubClient` drives `RunAgentLoop` with its scripted responses as the TurnFunc, so loop behavior is shared between production and tests.

@@ -33,11 +33,29 @@ func WithMaxRounds(n int) AgentOption {
 }
 
 // turnFunc returns the LLM's next message for one round. It is the single-turn
-// boundary that runAgentLoop drives in a loop.
+// boundary that runAgentLoop drives in a loop. ToolLLMClient implementations
+// wrap a single LLM call as a turnFunc and pass it to runAgentLoop.
 type turnFunc func(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error)
 
 const defaultAgentMaxRounds = 30
 
+// runAgentLoop drives the multi-turn tool-use conversation behind
+// ToolLLMClient.CompleteWithTools. It repeatedly calls next, dispatches any
+// tool calls in the response to handlers attached to each Tool.Execute, and
+// feeds the results back as tool-role messages. It terminates when the LLM
+// produces a response with no tool calls (returning nil) or when max rounds is
+// reached (returning ErrMaxRounds with the rounds completed in the
+// AgentResult).
+//
+// Tool handlers that return a non-nil error abort the loop. Errors that should
+// be visible TO the LLM (e.g. "file not found") must be returned as the result
+// string instead. Tool calls referencing a name with no registered handler are
+// fed back as `unknown tool: "X"` and the loop continues.
+//
+// The loop primitive is unexported; production callers go through
+// ToolLLMClient.CompleteWithTools. A test-only export (see
+// agent_loop_export_test.go) makes it reachable from package analyzer_test
+// stubs that need to share dispatch semantics without reimplementing them.
 func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, tools []Tool, opts ...AgentOption) (AgentResult, error) {
 	cfg := agentConfig{maxRounds: defaultAgentMaxRounds}
 	for _, opt := range opts {

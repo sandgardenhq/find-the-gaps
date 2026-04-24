@@ -358,7 +358,7 @@ func TestBifrostClient_Complete_SetsMaxCompletionTokens(t *testing.T) {
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_SetsMaxCompletionTokens(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_SetsMaxCompletionTokens(t *testing.T) {
 	// Same reasoning as Complete: must prevent bifrost's 4096 default from truncating
 	// tool-driven responses (drift agent can produce long final messages).
 	text := "done"
@@ -370,7 +370,7 @@ func TestBifrostClient_CompleteWithTools_SetsMaxCompletionTokens(t *testing.T) {
 		},
 	}
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-opus-4-7")
-	_, err := client.CompleteWithTools(context.Background(),
+	_, err := client.completeOneTurn(context.Background(),
 		[]ChatMessage{{Role: "user", Content: "hi"}}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -414,7 +414,7 @@ func makeToolChoice(content *schemas.ChatMessageContent, toolCalls []schemas.Cha
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_ReturnsFinalContent(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_ReturnsFinalContent(t *testing.T) {
 	// Simulate LLM returning a non-tool final answer directly.
 	text := `[{"page":"https://x.com","issue":"Missing param."}]`
 	fake := &fakeBifrostRequester{
@@ -427,7 +427,7 @@ func TestBifrostClient_CompleteWithTools_ReturnsFinalContent(t *testing.T) {
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
 	msgs := []ChatMessage{{Role: "user", Content: "check this"}}
 	tools := []Tool{{Name: "read_file", Description: "reads a file", Parameters: map[string]any{"type": "object"}}}
-	got, err := client.CompleteWithTools(context.Background(), msgs, tools)
+	got, err := client.completeOneTurn(context.Background(), msgs, tools)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +439,7 @@ func TestBifrostClient_CompleteWithTools_ReturnsFinalContent(t *testing.T) {
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_ReturnsToolCalls(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_ReturnsToolCalls(t *testing.T) {
 	// Simulate LLM requesting a tool call.
 	id := "call_1"
 	name := "read_file"
@@ -461,7 +461,7 @@ func TestBifrostClient_CompleteWithTools_ReturnsToolCalls(t *testing.T) {
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
 	msgs := []ChatMessage{{Role: "user", Content: "check this"}}
 	tools := []Tool{{Name: "read_file", Description: "reads a file", Parameters: map[string]any{"type": "object"}}}
-	got, err := client.CompleteWithTools(context.Background(), msgs, tools)
+	got, err := client.completeOneTurn(context.Background(), msgs, tools)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestBifrostClient_CompleteWithTools_ReturnsToolCalls(t *testing.T) {
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_BifrostError_WithMessage(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_BifrostError_WithMessage(t *testing.T) {
 	fake := &fakeBifrostRequester{
 		bifroErr: &schemas.BifrostError{
 			Error: &schemas.ErrorField{Message: "rate limited"},
@@ -484,7 +484,7 @@ func TestBifrostClient_CompleteWithTools_BifrostError_WithMessage(t *testing.T) 
 	}
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
 	msgs := []ChatMessage{{Role: "user", Content: "check"}}
-	_, err := client.CompleteWithTools(context.Background(), msgs, nil)
+	_, err := client.completeOneTurn(context.Background(), msgs, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -493,31 +493,31 @@ func TestBifrostClient_CompleteWithTools_BifrostError_WithMessage(t *testing.T) 
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_BifrostError_NoErrorField(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_BifrostError_NoErrorField(t *testing.T) {
 	fake := &fakeBifrostRequester{
 		bifroErr: &schemas.BifrostError{Error: nil},
 	}
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
 	msgs := []ChatMessage{{Role: "user", Content: "check"}}
-	_, err := client.CompleteWithTools(context.Background(), msgs, nil)
+	_, err := client.completeOneTurn(context.Background(), msgs, nil)
 	if err == nil {
 		t.Fatal("expected error for nil ErrorField")
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_EmptyChoices_ReturnsError(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_EmptyChoices_ReturnsError(t *testing.T) {
 	fake := &fakeBifrostRequester{
 		resp: &schemas.BifrostChatResponse{Choices: []schemas.BifrostResponseChoice{}},
 	}
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
 	msgs := []ChatMessage{{Role: "user", Content: "check"}}
-	_, err := client.CompleteWithTools(context.Background(), msgs, nil)
+	_, err := client.completeOneTurn(context.Background(), msgs, nil)
 	if err == nil {
 		t.Fatal("expected error for empty choices")
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_MultiTurnMessages(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_MultiTurnMessages(t *testing.T) {
 	// Exercise assistant+tool_calls and tool-role branches in message conversion.
 	text := "done"
 	fake := &fakeBifrostRequester{
@@ -534,7 +534,7 @@ func TestBifrostClient_CompleteWithTools_MultiTurnMessages(t *testing.T) {
 		{Role: "tool", Content: "file contents", ToolCallID: "c1"},
 	}
 	tools := []Tool{{Name: "read_file", Description: "reads a file", Parameters: map[string]any{"type": "object"}}}
-	got, err := client.CompleteWithTools(context.Background(), msgs, tools)
+	got, err := client.completeOneTurn(context.Background(), msgs, tools)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func TestBifrostClient_CompleteWithTools_MultiTurnMessages(t *testing.T) {
 	}
 }
 
-func TestBifrostClient_CompleteWithTools_ToolCallNilIDAndName(t *testing.T) {
+func TestBifrostClient_CompleteOneTurn_ToolCallNilIDAndName(t *testing.T) {
 	// Simulate a tool call response where ID and Name are nil pointers.
 	fake := &fakeBifrostRequester{
 		resp: &schemas.BifrostChatResponse{
@@ -562,7 +562,7 @@ func TestBifrostClient_CompleteWithTools_ToolCallNilIDAndName(t *testing.T) {
 	}
 	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
 	msgs := []ChatMessage{{Role: "user", Content: "check"}}
-	got, err := client.CompleteWithTools(context.Background(), msgs, nil)
+	got, err := client.completeOneTurn(context.Background(), msgs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,6 +575,26 @@ func TestBifrostClient_CompleteWithTools_ToolCallNilIDAndName(t *testing.T) {
 	if got.ToolCalls[0].Name != "" {
 		t.Errorf("expected empty name, got %q", got.ToolCalls[0].Name)
 	}
+}
+
+// TestBifrostClient_CompleteWithTools_AdaptsRunAgentLoop verifies the public
+// method routes through RunAgentLoop. A single text response from the fake
+// must terminate the loop after one round.
+func TestBifrostClient_CompleteWithTools_AdaptsRunAgentLoop(t *testing.T) {
+	text := "all done"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(&schemas.ChatMessageContent{ContentStr: &text}, nil),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
+	msgs := []ChatMessage{{Role: "user", Content: "go"}}
+	got, err := client.CompleteWithTools(context.Background(), msgs, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.Rounds)
+	assert.Equal(t, "all done", got.FinalMessage.Content)
 }
 
 // --- CompleteJSON tests (Anthropic forced tool use) ---

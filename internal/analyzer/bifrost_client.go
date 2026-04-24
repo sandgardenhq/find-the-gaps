@@ -112,10 +112,18 @@ func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string) (
 	return &BifrostClient{client: client, provider: provider, model: model}, nil
 }
 
-// CompleteWithTools sends a multi-turn conversation with tool definitions and
-// returns the LLM's next message (which may contain tool call requests or a
-// final text response).
-func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error) {
+// CompleteWithTools runs a multi-turn tool-use conversation. It dispatches
+// tool calls through Tool.Execute handlers and feeds the results back to the
+// LLM until the model returns a plain-text response or the round limit is
+// reached. See runAgentLoop for the loop semantics; this method is a thin
+// adapter that wires Bifrost as the per-turn turnFunc.
+func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []Tool, opts ...AgentOption) (AgentResult, error) {
+	return runAgentLoop(ctx, c.completeOneTurn, messages, tools, opts...)
+}
+
+// completeOneTurn issues a single Bifrost chat completion and translates the
+// result back to a ChatMessage. It is the turnFunc passed to runAgentLoop.
+func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error) {
 	// Convert our ChatMessage slice to Bifrost schema messages.
 	bifrostMsgs := make([]schemas.ChatMessage, 0, len(messages))
 	for _, m := range messages {
