@@ -1,6 +1,7 @@
 package lang
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner/types"
@@ -153,21 +154,60 @@ func TestJavaExtractor_docComment_captured(t *testing.T) {
 		t.Errorf("DocComment still includes /** */ markers: %q", method.DocComment)
 	}
 	// Check that the trimmed form contains the text.
-	if !contains(method.DocComment, "Adds two numbers.") {
+	if !strings.Contains(method.DocComment, "Adds two numbers.") {
 		t.Errorf("DocComment missing expected text: %q", method.DocComment)
 	}
 }
 
-// tiny helper to avoid importing strings in the test file's top section;
-// kept local to this test file's scope.
-func contains(haystack, needle string) bool {
-	if len(needle) == 0 {
-		return true
+// --- public interface emits KindInterface ---
+
+func TestJavaExtractor_interface_extracted(t *testing.T) {
+	src := []byte(`public interface Repo {
+}
+`)
+	e := &JavaExtractor{}
+	syms, _, err := e.Extract("Repo.java", src)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
 	}
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
+	var iface *types.Symbol
+	for i := range syms {
+		if syms[i].Name == "Repo" {
+			iface = &syms[i]
+			break
 		}
 	}
-	return false
+	if iface == nil {
+		t.Fatalf("expected a symbol named 'Repo', got: %v", syms)
+	}
+	if iface.Kind != types.KindInterface {
+		t.Errorf("kind: got %q, want interface", iface.Kind)
+	}
+}
+
+// --- public enum emits KindType ---
+
+func TestJavaExtractor_enum_extracted(t *testing.T) {
+	src := []byte(`public enum Status {
+  ACTIVE, INACTIVE
+}
+`)
+	e := &JavaExtractor{}
+	syms, _, err := e.Extract("Status.java", src)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	var enum *types.Symbol
+	for i := range syms {
+		if syms[i].Name == "Status" {
+			enum = &syms[i]
+			break
+		}
+	}
+	if enum == nil {
+		t.Fatalf("expected a symbol named 'Status', got: %v", syms)
+	}
+	if enum.Kind != types.KindType {
+		t.Errorf("kind: got %q, want type", enum.Kind)
+	}
 }
