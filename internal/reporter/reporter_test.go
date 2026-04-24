@@ -514,3 +514,17 @@ func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(body), "## Missing Screenshots")
 }
+
+func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
+	}
+	// New 4-arg signature — no screenshot argument at all.
+	require.NoError(t, reporter.WriteGaps(dir, mapping, []string{"search"}, nil))
+
+	body, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	require.NoError(t, err)
+	s := string(body)
+	assert.NotContains(t, s, "Missing Screenshots")
+}
