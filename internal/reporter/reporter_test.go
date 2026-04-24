@@ -492,6 +492,21 @@ func TestWriteScreenshots_Empty_WritesNoneFound(t *testing.T) {
 	assert.NotContains(t, s, "### ")
 }
 
+func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
+	dir := t.TempDir()
+	gaps := []analyzer.ScreenshotGap{
+		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage."},
+		{PageURL: "https://example.com/first", QuotedPassage: "first-page passage."},
+		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage 2."},
+	}
+	require.NoError(t, reporter.WriteScreenshots(dir, gaps))
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+	// /second appears first because it shows up first in the input.
+	assert.Regexp(t, `### https://example.com/second[\s\S]*### https://example.com/first`, s)
+}
+
 func TestWriteGaps_MissingScreenshotsEmpty_OmitsSection(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, reporter.WriteGaps(dir, nil, nil, nil, nil))
