@@ -75,6 +75,20 @@ func TestDetect_swiftFile_returnsSwiftExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_scalaFile_returnsScalaExtractor(t *testing.T) {
+	e := Detect("src/main/scala/Main.scala")
+	if e == nil || e.Language() != "Scala" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_scFile_returnsScalaExtractor(t *testing.T) {
+	e := Detect("scripts/build.sc")
+	if e == nil || e.Language() != "Scala" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {
