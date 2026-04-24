@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -187,6 +188,14 @@ func (f *fakeLLMClient) Complete(_ context.Context, prompt string) (string, erro
 		return f.responses[i], nil
 	}
 	return "[]", nil
+}
+
+func (f *fakeLLMClient) CompleteJSON(ctx context.Context, prompt string, _ JSONSchema) (json.RawMessage, error) {
+	raw, err := f.Complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
 }
 
 func TestDetectScreenshotGaps_NoPages(t *testing.T) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -181,6 +182,14 @@ func (s *stubLLMClient) Complete(_ context.Context, prompt string) (string, erro
 
 func (s *stubLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool) (analyzer.ChatMessage, error) {
 	return analyzer.ChatMessage{Role: "assistant", Content: "[]"}, nil
+}
+
+func (s *stubLLMClient) CompleteJSON(ctx context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	raw, err := s.Complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
 }
 
 func stubScan() *scanner.ProjectScan {

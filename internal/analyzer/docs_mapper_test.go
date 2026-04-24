@@ -28,6 +28,15 @@ func (f *fakeDynamicClient) Complete(_ context.Context, prompt string) (string, 
 	return `[]`, nil
 }
 
+func (f *fakeDynamicClient) CompleteJSON(_ context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	for url, resp := range f.responses {
+		if strings.Contains(prompt, url) {
+			return json.RawMessage(resp), nil
+		}
+	}
+	return json.RawMessage(`[]`), nil
+}
+
 // --- mapPageToFeatures tests ---
 
 func TestMapPageToFeatures_HappyPath(t *testing.T) {

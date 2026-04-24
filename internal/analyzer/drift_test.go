@@ -2,6 +2,7 @@ package analyzer_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -37,6 +38,14 @@ func (s *driftStubClient) CompleteWithTools(_ context.Context, _ []analyzer.Chat
 	return s.responses[idx], nil
 }
 
+func (s *driftStubClient) CompleteJSON(ctx context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	raw, err := s.Complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
 // driftStubClientWithErr always returns err from CompleteWithTools.
 type driftStubClientWithErr struct {
 	err error
@@ -48,6 +57,10 @@ func (s *driftStubClientWithErr) Complete(_ context.Context, _ string) (string, 
 
 func (s *driftStubClientWithErr) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool) (analyzer.ChatMessage, error) {
 	return analyzer.ChatMessage{}, s.err
+}
+
+func (s *driftStubClientWithErr) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, s.err
 }
 
 func TestDetectDrift_NoDocumentedFeatures_ReturnsEmpty(t *testing.T) {
@@ -569,6 +582,10 @@ func TestDetectDrift_UsesLargeAndSmall(t *testing.T) {
 type fakeNonToolClient struct{}
 
 func (fakeNonToolClient) Complete(_ context.Context, _ string) (string, error) { return "", nil }
+
+func (fakeNonToolClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
 
 func TestDetectDrift_LargeWithoutToolSupport_Errors(t *testing.T) {
 	// When tiering.Large() does not implement ToolLLMClient, DetectDrift must
