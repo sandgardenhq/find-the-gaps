@@ -92,14 +92,14 @@ func TestBifrostAccount_GetConfigForProvider_WrongProvider_ReturnsError(t *testi
 }
 
 func TestNewBifrostClientWithProvider_UnsupportedProvider_ReturnsError(t *testing.T) {
-	_, err := NewBifrostClientWithProvider("grok", "fake-key", "some-model")
+	_, err := NewBifrostClientWithProvider("grok", "fake-key", "some-model", "")
 	if err == nil {
 		t.Fatal("expected error for unsupported provider")
 	}
 }
 
 func TestNewBifrostClientWithProvider_Anthropic_ReturnsClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022")
+	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestNewBifrostClientWithProvider_Anthropic_ReturnsClient(t *testing.T) {
 }
 
 func TestNewBifrostClientWithProvider_OpenAI_ReturnsClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("openai", "fake-key", "gpt-4o-mini")
+	client, err := NewBifrostClientWithProvider("openai", "fake-key", "gpt-4o-mini", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,8 +118,84 @@ func TestNewBifrostClientWithProvider_OpenAI_ReturnsClient(t *testing.T) {
 	}
 }
 
+func TestNewBifrostClientWithProvider_Ollama_ReturnsClient(t *testing.T) {
+	client, err := NewBifrostClientWithProvider("ollama", "", "llama3.1", "http://localhost:11434")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.provider != schemas.Ollama {
+		t.Fatalf("expected provider schemas.Ollama, got %q", client.provider)
+	}
+}
+
+func TestNewBifrostClientWithProvider_OpenAI_WithBaseURL_ReturnsClient(t *testing.T) {
+	// "lmstudio" and "openai-compatible" collapse to schemas.OpenAI at the CLI layer,
+	// so the analyzer must accept a non-empty base URL paired with provider "openai".
+	client, err := NewBifrostClientWithProvider("openai", "", "local-model", "http://localhost:1234")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.provider != schemas.OpenAI {
+		t.Fatalf("expected provider schemas.OpenAI, got %q", client.provider)
+	}
+}
+
+func TestBifrostAccount_Ollama_GetKeysReturnsOllamaKeyConfig(t *testing.T) {
+	// Bifrost's Ollama provider targets its server URL via Key.OllamaKeyConfig.URL
+	// (see /maximhq/bifrost/core@v1.5.2/providers/ollama/ollama.go), NOT via
+	// NetworkConfig.BaseURL. The account must plumb baseURL into the per-key config.
+	const baseURL = "http://ollama.local:11434"
+	acc := &bifrostAccount{provider: schemas.Ollama, apiKey: "", baseURL: baseURL}
+	keys, err := acc.GetKeysForProvider(context.Background(), schemas.Ollama)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(keys))
+	}
+	if keys[0].OllamaKeyConfig == nil {
+		t.Fatal("expected OllamaKeyConfig to be set for Ollama provider")
+	}
+	if got := keys[0].OllamaKeyConfig.URL.GetValue(); got != baseURL {
+		t.Errorf("OllamaKeyConfig.URL = %q, want %q", got, baseURL)
+	}
+}
+
+func TestBifrostAccount_OpenAI_WithBaseURL_SetsNetworkConfigBaseURL(t *testing.T) {
+	// For OpenAI-compatible custom endpoints (LM Studio, generic openai-compatible),
+	// Bifrost honors NetworkConfig.BaseURL — see schemas/provider.go:54.
+	const baseURL = "http://openai-compat.local:1234"
+	acc := &bifrostAccount{provider: schemas.OpenAI, apiKey: "", baseURL: baseURL}
+	cfg, err := acc.GetConfigForProvider(schemas.OpenAI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NetworkConfig.BaseURL != baseURL {
+		t.Errorf("NetworkConfig.BaseURL = %q, want %q", cfg.NetworkConfig.BaseURL, baseURL)
+	}
+}
+
+func TestBifrostAccount_EmptyBaseURL_LeavesNetworkConfigBaseURLEmpty(t *testing.T) {
+	// Regression: hosted providers (anthropic, openai with default endpoint) must
+	// not have a stray BaseURL that would redirect traffic away from the real API.
+	acc := &bifrostAccount{provider: schemas.Anthropic, apiKey: "test-key", baseURL: ""}
+	cfg, err := acc.GetConfigForProvider(schemas.Anthropic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NetworkConfig.BaseURL != "" {
+		t.Errorf("NetworkConfig.BaseURL = %q, want empty", cfg.NetworkConfig.BaseURL)
+	}
+}
+
 func TestBifrostClient_ImplementsLLMClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022")
+	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -671,6 +747,31 @@ func TestBifrostClient_CompleteJSON_OpenAI_SetsJSONSchemaResponseFormat(t *testi
 	assert.Equal(t, "analyze_response", rf.JSONSchema.Name)
 	assert.True(t, rf.JSONSchema.Strict, "strict mode must be true")
 	assert.JSONEq(t, testAnalyzeSchemaDoc, string(rf.JSONSchema.Schema))
+}
+
+func TestBifrostClient_CompleteJSON_Ollama_UsesOpenAIJSONSchemaPath(t *testing.T) {
+	// Bifrost's Ollama provider delegates chat completions to OpenAI's handler
+	// (providers/ollama/ollama.go:136 → openai.HandleOpenAIChatCompletionRequest),
+	// so response_format=json_schema passes through untouched. CompleteJSON must
+	// therefore route Ollama through the same structured-outputs path as OpenAI:
+	// set ResponseFormat, parse msg.Content.ContentStr as JSON, validate.
+	content := `{"summary":"ok","features":["a"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &content}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Ollama, "llama3.1")
+	got, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+	assert.JSONEq(t, content, string(got))
+
+	req := fake.lastRequest
+	require.NotNil(t, req, "expected request to be captured")
+	require.NotNil(t, req.Params, "expected Params to be set")
+	require.NotNil(t, req.Params.ResponseFormat, "expected response_format to be set for ollama (OpenAI-compat path)")
 }
 
 func TestBifrostClient_CompleteJSON_OpenAI_BifrostError(t *testing.T) {

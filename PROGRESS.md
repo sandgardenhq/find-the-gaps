@@ -1,5 +1,16 @@
 # Progress
 
+## Consolidate OpenAICompatibleClient into BifrostClient - COMPLETE
+- Started: 2026-04-23
+- Plan: `.plans/BIFROST_CONSOLIDATION_PLAN.md`
+- Summary: Deleted `internal/analyzer/openai_compatible_client{,_test}.go`. All five CLI provider names (`anthropic`, `openai`, `ollama`, `lmstudio`, `openai-compatible`) now route through `analyzer.BifrostClient`. `NewBifrostClientWithProvider` gained a `baseURL` argument; Ollama threads it through `Key.OllamaKeyConfig.URL` (Bifrost's Ollama provider reads the server URL from the key config, not `NetworkConfig.BaseURL`), while OpenAI/Anthropic honor `NetworkConfig.BaseURL`. Extended `BifrostClient.CompleteJSON` dispatch to include Ollama (Bifrost delegates Ollama chat to the OpenAI handler, so `response_format=json_schema` passes through). `buildTierClient` refactored to a single `NewBifrostClientWithProvider` call site, collapsing duplication.
+- Tests: all packages green; new RED/GREEN tests for Ollama `CompleteJSON` dispatch, Ollama key URL plumbing, OpenAI `NetworkConfig.BaseURL` plumbing, and CLI type-assertions that each provider returns `*analyzer.BifrostClient`
+- Coverage: analyzer 94.9%, cli 90.7% (both above the 90% gate)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-04-23
+- Notes: No behavior change for users — `ftg.config` provider names unchanged. The dead branch `// PROMPT:` lines in the deleted file are gone; structured-output implementations (Anthropic forced tool use; OpenAI / Ollama `response_format=json_schema`) now live in exactly one place.
+
 ## Missing Screenshots Detection - COMPLETE
 - Started: 2026-04-23
 - Design: `.plans/2026-04-23-missing-screenshots-design.md`

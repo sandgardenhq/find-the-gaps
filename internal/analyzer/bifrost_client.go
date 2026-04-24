@@ -32,6 +32,7 @@ type BifrostClient struct {
 type bifrostAccount struct {
 	provider schemas.ModelProvider
 	apiKey   string
+	baseURL  string
 }
 
 func (a *bifrostAccount) GetConfiguredProviders() ([]schemas.ModelProvider, error) {
@@ -40,11 +41,17 @@ func (a *bifrostAccount) GetConfiguredProviders() ([]schemas.ModelProvider, erro
 
 func (a *bifrostAccount) GetKeysForProvider(ctx context.Context, provider schemas.ModelProvider) ([]schemas.Key, error) {
 	if provider == a.provider {
-		return []schemas.Key{{
+		key := schemas.Key{
 			Value:  *schemas.NewEnvVar(a.apiKey),
 			Models: schemas.WhiteList{"*"},
 			Weight: 1.0,
-		}}, nil
+		}
+		if a.provider == schemas.Ollama {
+			// Bifrost's Ollama provider reads the server URL from Key.OllamaKeyConfig.URL,
+			// not NetworkConfig.BaseURL. See /maximhq/bifrost/core providers/ollama/ollama.go.
+			key.OllamaKeyConfig = &schemas.OllamaKeyConfig{URL: *schemas.NewEnvVar(a.baseURL)}
+		}
+		return []schemas.Key{key}, nil
 	}
 	return nil, fmt.Errorf("unsupported provider: %s", provider)
 }
@@ -53,6 +60,11 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 	if provider == a.provider {
 		nc := schemas.DefaultNetworkConfig
 		nc.DefaultRequestTimeoutInSeconds = 300 // 5 minutes — feature mapping batches can be large
+		if a.baseURL != "" && a.provider != schemas.Ollama {
+			// OpenAI / Anthropic honor NetworkConfig.BaseURL for custom endpoints
+			// (lmstudio, openai-compatible). Ollama routes via OllamaKeyConfig instead.
+			nc.BaseURL = a.baseURL
+		}
 		return &schemas.ProviderConfig{
 			NetworkConfig:            nc,
 			ConcurrencyAndBufferSize: schemas.DefaultConcurrencyAndBufferSize,
@@ -62,19 +74,26 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 }
 
 // NewBifrostClientWithProvider creates a BifrostClient for the named provider.
-// providerName must be "anthropic" or "openai".
-func NewBifrostClientWithProvider(providerName, apiKey, model string) (*BifrostClient, error) {
+// providerName must be "anthropic", "openai", or "ollama". baseURL overrides the
+// provider's default endpoint — required for "ollama", optional for the others
+// (empty string means use the provider's default hosted endpoint).
+func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string) (*BifrostClient, error) {
 	var provider schemas.ModelProvider
 	switch providerName {
 	case "anthropic":
 		provider = schemas.Anthropic
 	case "openai":
 		provider = schemas.OpenAI
+	case "ollama":
+		provider = schemas.Ollama
+		if baseURL == "" {
+			return nil, fmt.Errorf("ollama provider requires a baseURL")
+		}
 	default:
 		return nil, fmt.Errorf("unsupported Bifrost provider: %q", providerName)
 	}
 
-	account := &bifrostAccount{provider: provider, apiKey: apiKey}
+	account := &bifrostAccount{provider: provider, apiKey: apiKey, baseURL: baseURL}
 	client, err := bifrost.Init(context.Background(), schemas.BifrostConfig{Account: account})
 	if err != nil {
 		return nil, fmt.Errorf("bifrost init: %w", err)
@@ -198,7 +217,10 @@ func (c *BifrostClient) CompleteJSON(ctx context.Context, prompt string, schema 
 	switch c.provider {
 	case schemas.Anthropic:
 		return c.completeJSONAnthropic(ctx, prompt, schema)
-	case schemas.OpenAI:
+	case schemas.OpenAI, schemas.Ollama:
+		// Bifrost's Ollama provider delegates chat completions to the OpenAI handler
+		// (providers/ollama/ollama.go → openai.HandleOpenAIChatCompletionRequest),
+		// so response_format=json_schema passes through unchanged.
 		return c.completeJSONOpenAI(ctx, prompt, schema)
 	default:
 		return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)
