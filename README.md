@@ -164,13 +164,13 @@ Global Flags:
 
 ## Output
 
-`ftg analyze` writes two reports to `.find-the-gaps/<project>/`:
+`ftg analyze` writes these reports to `.find-the-gaps/<project>/`:
 
-- **`gaps.md`** — documentation issues in up to four sections:
+- **`gaps.md`** — documentation issues in three sections:
   - *Undocumented Code* — features implemented in code but absent from docs
   - *Unmapped Features* — features mentioned in docs with no matching code
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
-  - *Missing Screenshots* — passages describing user-facing moments with no nearby screenshot (omitted when `--skip-screenshot-check` is passed)
+- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. Written whenever the screenshot pass runs (zero findings produces a `_None found._` body). Not written when `--skip-screenshot-check` is passed.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
 ## Development
