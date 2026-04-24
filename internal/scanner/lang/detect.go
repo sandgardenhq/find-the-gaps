@@ -21,6 +21,15 @@ func init() {
 		&PythonExtractor{},
 		&TypeScriptExtractor{},
 		&RustExtractor{},
+		&JavaExtractor{},
+		&CSharpExtractor{},
+		&KotlinExtractor{},
+		&SwiftExtractor{},
+		&ScalaExtractor{},
+		&PHPExtractor{},
+		&RubyExtractor{},
+		&CExtractor{},
+		&CPPExtractor{},
 	}
 }
 

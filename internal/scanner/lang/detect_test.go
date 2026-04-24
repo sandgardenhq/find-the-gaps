@@ -40,6 +40,125 @@ func TestDetect_rsFile_returnsRustExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_javaFile_returnsJavaExtractor(t *testing.T) {
+	e := Detect("src/Main.java")
+	if e == nil || e.Language() != "Java" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_csFile_returnsCSharpExtractor(t *testing.T) {
+	e := Detect("src/Main.cs")
+	if e == nil || e.Language() != "C#" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_ktFile_returnsKotlinExtractor(t *testing.T) {
+	e := Detect("src/Main.kt")
+	if e == nil || e.Language() != "Kotlin" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_ktsFile_returnsKotlinExtractor(t *testing.T) {
+	e := Detect("build.gradle.kts")
+	if e == nil || e.Language() != "Kotlin" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_swiftFile_returnsSwiftExtractor(t *testing.T) {
+	e := Detect("Sources/App/Main.swift")
+	if e == nil || e.Language() != "Swift" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_scalaFile_returnsScalaExtractor(t *testing.T) {
+	e := Detect("src/main/scala/Main.scala")
+	if e == nil || e.Language() != "Scala" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_scFile_returnsScalaExtractor(t *testing.T) {
+	e := Detect("scripts/build.sc")
+	if e == nil || e.Language() != "Scala" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_phpFile_returnsPHPExtractor(t *testing.T) {
+	e := Detect("src/index.php")
+	if e == nil || e.Language() != "PHP" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_rbFile_returnsRubyExtractor(t *testing.T) {
+	e := Detect("lib/foo.rb")
+	if e == nil || e.Language() != "Ruby" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_cFile_returnsCExtractor(t *testing.T) {
+	e := Detect("src/impl.c")
+	if e == nil || e.Language() != "C" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hFile_returnsCExtractor(t *testing.T) {
+	e := Detect("include/api.h")
+	if e == nil || e.Language() != "C" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_ccFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("src/impl.cc")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_cppFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("src/impl.cpp")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_cxxFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("src/impl.cxx")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hhFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("include/api.hh")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hppFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("include/api.hpp")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hxxFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("include/api.hxx")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {
