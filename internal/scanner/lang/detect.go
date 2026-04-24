@@ -23,6 +23,7 @@ func init() {
 		&RustExtractor{},
 		&JavaExtractor{},
 		&CSharpExtractor{},
+		&KotlinExtractor{},
 	}
 }
 

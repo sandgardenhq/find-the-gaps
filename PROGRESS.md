@@ -1,5 +1,19 @@
 # Progress
 
+## Task 3 (multi-lang-support): Kotlin extractor - COMPLETE
+- Started: 2026-04-24
+- Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 3), design `.plans/2026-04-24-multi-lang-support-design.md`
+- Summary: Added `KotlinExtractor` in `internal/scanner/lang/kotlin.go` implementing the existing `Extractor` interface on top of `github.com/smacker/go-tree-sitter/kotlin`. Kotlin is public-by-default: a top-level declaration is emitted unless its `modifiers` child contains a `visibility_modifier` whose content is `private`, `internal`, or `protected` (explicit `public` and no modifier are both public — opposite of Java/C#). Handles `class_declaration` / `object_declaration` (→ `KindClass`), `function_declaration` (→ `KindFunc`), `property_declaration` (→ `KindVar`, no `val`/`var` distinction per plan). KDoc `/** */` blocks immediately preceding a declaration become `DocComment` with markers stripped. Imports live under an `import_list` parent; the `import_header` is parsed for path (its `identifier` dotted child) and optional `import_alias` (populates `Alias` when `import foo.Bar as Baz` is used). Registered in `detect.go` with both `.kt` and `.kts`, covered by two new rows in `detect_test.go`, and README's supported-languages table gains a Kotlin row (`Kotlin | .kt, .kts`).
+- Tree-sitter node types used (confirmed via temporary debug test before deletion): `import_list` (wraps all `import_header` entries — they are NOT direct children of `source_file`), `import_header`, `import_alias` (wraps a `type_identifier` for the alias), `identifier` (the dotted path inside an `import_header`), `class_declaration` / `object_declaration` (with a `type_identifier` child for the name), `function_declaration` / `property_declaration` (with `simple_identifier` / `variable_declaration { simple_identifier }` for the name), `modifiers`, `visibility_modifier` (whose single child is a `private` / `internal` / `protected` / `public` token — text check sufficient), `multiline_comment` (KDoc block — NOT `block_comment` as Java uses). The grammar exposes zero field names (`FIELD_COUNT = 0` in parser.c), so `ChildByFieldName` is unusable — names are found by scanning child node types instead.
+- RED: wrote 8 tests in `kotlin_test.go` — `publicDefault_emitted` (bare `fun foo`), `privateSkipped`, `internalSkipped`, `class_extracted` (`class Greeter { }`), `object_extracted` (`object Singleton { }`), `property_extracted` (`val MaxRetries = 3` → `KindVar`), `imports_extracted` (plain + `import foo.Baz as Renamed` with `Alias = "Renamed"`), `docComment_captured` (KDoc markers stripped). First run failed with `undefined: KotlinExtractor`; after stub, runtime failures reported "expected a symbol named …, got: []" — RED confirmed for the right reasons.
+- GREEN: implemented `Extract` + helpers (`kotlinExtractDecl`, `kotlinIsNonPublic`, `kotlinDeclName`, `kotlinDeclSignature`, `kotlinPrecedingComment`, `kotlinExtractImport`) to the minimum needed to pass each test in order.
+- Tests: all 8 Kotlin tests pass, full `./...` suite green.
+- Coverage: `internal/scanner/lang` 91.0% of statements (≥ 90% gate).
+- Build: OK (`go build ./...`).
+- Linting: OK (`golangci-lint run` — 0 issues).
+- Completed: 2026-04-24
+- Notes: One staticcheck regression surfaced on the initial GREEN pass (`SA4008` / `SA4004`: `kotlinPrecedingComment`'s for-loop unconditionally returned on the first iteration) — refactored to a plain `if idx <= 0 { return "" }` guard + single child lookup. Temporary `kotlin_debug_test.go` deleted before commit (verified via `ls internal/scanner/lang/*_debug_test.go` returning "no matches").
+
 ## Task 2 (multi-lang-support): C# extractor - COMPLETE
 - Started: 2026-04-24
 - Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 2), design `.plans/2026-04-24-multi-lang-support-design.md`

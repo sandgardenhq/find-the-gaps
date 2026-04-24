@@ -54,6 +54,20 @@ func TestDetect_csFile_returnsCSharpExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_ktFile_returnsKotlinExtractor(t *testing.T) {
+	e := Detect("src/Main.kt")
+	if e == nil || e.Language() != "Kotlin" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_ktsFile_returnsKotlinExtractor(t *testing.T) {
+	e := Detect("build.gradle.kts")
+	if e == nil || e.Language() != "Kotlin" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {
