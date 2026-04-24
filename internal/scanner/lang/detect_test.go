@@ -117,6 +117,48 @@ func TestDetect_hFile_returnsCExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_ccFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("src/impl.cc")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_cppFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("src/impl.cpp")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_cxxFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("src/impl.cxx")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hhFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("include/api.hh")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hppFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("include/api.hpp")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
+func TestDetect_hxxFile_returnsCPPExtractor(t *testing.T) {
+	e := Detect("include/api.hxx")
+	if e == nil || e.Language() != "C++" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {

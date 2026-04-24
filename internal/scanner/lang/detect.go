@@ -29,6 +29,7 @@ func init() {
 		&PHPExtractor{},
 		&RubyExtractor{},
 		&CExtractor{},
+		&CPPExtractor{},
 	}
 }
 
