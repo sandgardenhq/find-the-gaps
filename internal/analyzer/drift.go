@@ -181,7 +181,8 @@ empty findings array.`,
 		}
 	}
 
-	return nil, fmt.Errorf("drift agent loop exceeded %d rounds without calling submit_findings", driftMaxRounds)
+	log.Warnf("drift agent exceeded %d rounds for feature %q without calling submit_findings; declaring done with no findings and moving on", driftMaxRounds, entry.Feature.Name)
+	return nil, nil
 }
 
 // executeTool runs one tool call and returns the result string to feed back to the LLM.

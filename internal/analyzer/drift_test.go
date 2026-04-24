@@ -508,24 +508,38 @@ func TestDetectDrift_OnFinding_ErrorPropagated(t *testing.T) {
 	assert.Contains(t, err.Error(), "disk full")
 }
 
-func TestDetectDrift_MaxRoundsExceeded_ReturnsError(t *testing.T) {
-	// LLM keeps requesting tool calls; loop should terminate with an error.
+func TestDetectDrift_MaxRoundsExceeded_DeclaresDoneAndContinues(t *testing.T) {
+	// Feature "auth": LLM loops forever without calling submit_findings.
+	// Feature "search": LLM calls submit_findings immediately.
+	// DetectDrift must NOT error when feature "auth" hits max rounds — it must
+	// treat the feature as done with no findings and continue to "search".
 	toolCallResponse := analyzer.ChatMessage{
 		Role:      "assistant",
 		ToolCalls: []analyzer.ToolCall{{ID: "call_inf", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
 	}
-	client := &driftStubClient{
-		responses: []analyzer.ChatMessage{toolCallResponse},
+	// 30 tool-call responses for feature "auth" (one per round, exhausting the
+	// max-rounds budget), then one submit_findings response for "search".
+	responses := make([]analyzer.ChatMessage, 0, 31)
+	for i := 0; i < 30; i++ {
+		responses = append(responses, toolCallResponse)
 	}
+	responses = append(responses, submitFindings(analyzer.DriftIssue{Page: "", Issue: "issue for search"}))
+	client := &driftStubClient{responses: responses}
 	featureMap := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
 	}
-	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
-	pageReader := func(url string) (string, error) { return "# Auth", nil }
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/search"}},
+	}
+	pageReader := func(url string) (string, error) { return "# Docs", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exceeded")
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	require.NoError(t, err, "max-rounds exhaustion must not terminate DetectDrift")
+	require.Len(t, findings, 1, "feature after timed-out feature must still be processed")
+	assert.Equal(t, "search", findings[0].Feature)
+	assert.Contains(t, findings[0].Issues[0].Issue, "issue for search")
 }
 
 func TestDetectDrift_UsesLargeAndSmall(t *testing.T) {
