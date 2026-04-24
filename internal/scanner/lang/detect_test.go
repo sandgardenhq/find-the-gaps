@@ -96,6 +96,13 @@ func TestDetect_phpFile_returnsPHPExtractor(t *testing.T) {
 	}
 }
 
+func TestDetect_rbFile_returnsRubyExtractor(t *testing.T) {
+	e := Detect("lib/foo.rb")
+	if e == nil || e.Language() != "Ruby" {
+		t.Errorf("got %v", e)
+	}
+}
+
 func TestDetect_unknownExtension_returnsGeneric(t *testing.T) {
 	e := Detect("Makefile")
 	if e == nil {
