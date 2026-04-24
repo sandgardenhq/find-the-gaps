@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
@@ -52,7 +51,7 @@ func (s JSONSchema) ValidateResponse(raw json.RawMessage) error {
 	}
 
 	var payload any
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber() // jsonschema/v5 requires json.Number for numeric validation
 	if err := dec.Decode(&payload); err != nil {
 		return fmt.Errorf("JSONSchema %q: response is not valid JSON: %w", s.Name, err)
