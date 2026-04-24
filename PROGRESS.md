@@ -897,3 +897,18 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Linting: ✅ Clean
 - Completed: 2026-04-24
 - Notes: `gaps.md` no longer contains a Missing Screenshots section; new `screenshots.md` written whenever the screenshot pass runs (including zero-findings case). Skipped pass writes no file and is annotated in the CLI reports block.
+
+## Task: Semver versioning + GitHub release workflow - COMPLETE
+- Started: 2026-04-24
+- Tests: full repo green; cli package adds TestResolveVersion (8 sub-cases)
+- Coverage: cli 90.7% of statements (go test -cover)
+- Build: ✅ Successful (go build ./...)
+- Linting: ✅ Clean (golangci-lint run; actionlint clean on .github/workflows/release.yml)
+- Completed: 2026-04-24
+- Notes:
+  - RED → GREEN per CLAUDE.md TDD: TestResolveVersion failed with "undefined: resolveVersion" before implementation.
+  - `internal/cli/root.go` adds `resolveVersion(ldflagsVersion, buildInfoVersion)` with precedence ldflags > BuildInfo > "dev"; cobra `Version` is now `currentVersion()` which reads `runtime/debug.ReadBuildInfo()`.
+  - End-to-end verified: `go build -ldflags "-X .../internal/cli.version=v0.1.0-test"` → `ftg version v0.1.0-test`; default build → `ftg version dev`.
+  - `.github/workflows/release.yml`: tag-push trigger; native-runner build matrix (macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm); CGO=1 (required by go-tree-sitter); ldflags injection of `${{ github.ref_name }}`; SLSA provenance via `actions/attest-build-provenance@v2`; release job creates tagged GitHub Release with tarballs + sha256 checksums and `--generate-notes`.
+  - Goreleaser intentionally NOT used: CGO_ENABLED=0 snapshot build failed because go-tree-sitter requires CGO; cross-compiling CGO needs goreleaser-cross (heavy Docker pull) — matrix of native runners is simpler.
+  - Homebrew tap deferred: no tap repo currently exists; revisit when one is set up.
