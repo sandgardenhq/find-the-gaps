@@ -5,6 +5,10 @@
 # Outputs: full markdown body to stdout.
 set -euo pipefail
 
+: "${RUN_URL:?RUN_URL must be set in env}"
+: "${COMMIT_SHA:?COMMIT_SHA must be set in env}"
+: "${RUN_TIMESTAMP:?RUN_TIMESTAMP must be set in env}"
+
 gaps_path="${1:-}"
 shots_path="${2:-}"
 
