@@ -1,0 +1,24 @@
+name: Action self-test
+on:
+  pull_request:
+    paths:
+      - 'action.yml'
+      - 'internal/action/**'
+      - '.github/workflows/action-self-test.yml'
+  workflow_dispatch:
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run the action against this repo's checkout
+        uses: ./
+        with:
+          docs-url: ${{ vars.SELF_TEST_DOCS_URL }}
+          bifrost-api-key: ${{ secrets.BIFROST_API_KEY }}
+          create-issue: 'false'   # don't spam the issues tracker on every PR
+          skip-screenshot-check: 'true'
