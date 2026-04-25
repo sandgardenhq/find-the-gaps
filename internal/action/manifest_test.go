@@ -42,3 +42,36 @@ func TestActionManifest_DeclaresExpectedInputs(t *testing.T) {
 		require.True(t, ok, "input %q missing", k)
 	}
 }
+
+func TestActionManifest_StepsWired(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "action.yml"))
+	require.NoError(t, err)
+
+	var manifest struct {
+		Runs struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				If   string `yaml:"if"`
+			} `yaml:"steps"`
+		} `yaml:"runs"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &manifest))
+
+	names := []string{}
+	for _, s := range manifest.Runs.Steps {
+		names = append(names, s.Name)
+	}
+	for _, want := range []string{
+		"Resolve find-the-gaps version",
+		"Install find-the-gaps",
+		"Install mdfetch",
+		"Run analyze",
+		"Upload report artifact",
+		"Update tracking issue",
+	} {
+		require.Contains(t, names, want, "missing step %q", want)
+	}
+}

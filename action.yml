@@ -21,6 +21,108 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Placeholder
+    - name: Verify Linux runner
       shell: bash
-      run: echo "action.yml skeleton; steps wired in Task 5"
+      run: |
+        if [[ "${RUNNER_OS}" != "Linux" ]]; then
+          echo "::error::find-the-gaps action supports linux runners only (got ${RUNNER_OS})"
+          exit 1
+        fi
+
+    - name: Verify Bifrost API key
+      shell: bash
+      env:
+        BIFROST_API_KEY: ${{ inputs.bifrost-api-key }}
+      run: |
+        if [[ -z "${BIFROST_API_KEY}" ]]; then
+          echo "::error::bifrost-api-key input is empty; provide via secrets.BIFROST_API_KEY"
+          exit 1
+        fi
+
+    - name: Resolve find-the-gaps version
+      id: ftg-version
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        version=$("${GITHUB_ACTION_PATH}/internal/action/scripts/resolve-version.sh" "${ACTION_REF}")
+        echo "Resolved version: ${version}"
+        echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+    - name: Install find-the-gaps
+      shell: bash
+      env:
+        VERSION: ${{ steps.ftg-version.outputs.version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [[ "${VERSION}" == "latest" ]]; then
+          tag=$(gh release view --repo sandgardenhq/find-the-gaps --json tagName --jq .tagName)
+        else
+          tag="${VERSION}"
+        fi
+        url="https://github.com/sandgardenhq/find-the-gaps/releases/download/${tag}/find-the-gaps_${tag}_linux-amd64.tar.gz"
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/install-binary.sh" "${url}" "${RUNNER_TEMP}/ftg"
+        echo "${RUNNER_TEMP}/ftg" >> "${GITHUB_PATH}"
+
+    - name: Install mdfetch
+      shell: bash
+      run: npm install -g @sandgarden/mdfetch
+
+    - name: Run analyze
+      id: analyze
+      shell: bash
+      env:
+        DOCS_URL: ${{ inputs.docs-url }}
+        BIFROST_API_KEY: ${{ inputs.bifrost-api-key }}
+        SKIP_SHOTS: ${{ inputs.skip-screenshot-check }}
+      run: |
+        cache_dir="${RUNNER_TEMP}/ftg-cache"
+        mkdir -p "${cache_dir}"
+        repo_abs="$(pwd)"
+        project_name="$(basename "${repo_abs}")"
+        out_dir="${cache_dir}/${project_name}"
+        flags=()
+        if [[ "${SKIP_SHOTS}" == "true" ]]; then flags+=("--skip-screenshot-check"); fi
+        ftg analyze --repo "${repo_abs}" --docs-url "${DOCS_URL}" --cache-dir "${cache_dir}" "${flags[@]}"
+        echo "out_dir=${out_dir}" >> "${GITHUB_OUTPUT}"
+        if [[ -s "${out_dir}/gaps.md" || -s "${out_dir}/screenshots.md" ]]; then
+          echo "findings=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "findings=false" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Upload report artifact
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: find-the-gaps-report-${{ github.run_id }}
+        path: ${{ steps.analyze.outputs.out_dir }}
+        if-no-files-found: warn
+
+    - name: Build issue body
+      id: body
+      if: ${{ inputs.create-issue == 'true' }}
+      shell: bash
+      env:
+        RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        COMMIT_SHA: ${{ github.sha }}
+        RUN_TIMESTAMP: ${{ github.event.repository.updated_at }}
+      run: |
+        body_file="${RUNNER_TEMP}/ftg-issue-body.md"
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/build-issue-body.sh" \
+          "${{ steps.analyze.outputs.out_dir }}/gaps.md" \
+          "${{ steps.analyze.outputs.out_dir }}/screenshots.md" \
+          > "${body_file}"
+        echo "body_file=${body_file}" >> "${GITHUB_OUTPUT}"
+
+    - name: Update tracking issue
+      if: ${{ inputs.create-issue == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        FINDINGS: ${{ steps.analyze.outputs.findings }}
+      run: |
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/update-issue.sh" \
+          "${{ steps.body.outputs.body_file }}" \
+          "${FINDINGS}"
