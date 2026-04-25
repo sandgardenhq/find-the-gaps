@@ -13,13 +13,17 @@ set -euo pipefail
 body_file="${1:?body file required}"
 findings_present="${2:?true/false required}"
 
+[[ -f "$body_file" ]] || { echo "update-issue.sh: body file not found: $body_file" >&2; exit 1; }
+
 : "${GH_TOKEN:?GH_TOKEN must be set in env}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set in env}"
 
 label="find-the-gaps"
 title="Documentation gaps detected by find-the-gaps"
 
-existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number --jq '.[0].number // empty')
+# --limit 1 + default sort (created-desc) picks the most recently created open
+# issue deterministically when multiple exist (race conditions, manual creation).
+existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --limit 1 --json number --jq '.[0].number // empty')
 
 if [[ -n "$existing" ]]; then
   if [[ "$findings_present" == "true" ]]; then
