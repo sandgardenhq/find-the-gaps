@@ -2,6 +2,7 @@
 package site
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -32,4 +33,28 @@ func featureSlug(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// resolveSlugs returns a name → slug map for the given names. Collisions are
+// resolved by appending -2, -3, ... in input order so that the first appearance
+// of a slug keeps the unsuffixed form. Names that produce empty slugs map to
+// the empty string and are not deduplicated.
+func resolveSlugs(names []string) map[string]string {
+	out := make(map[string]string, len(names))
+	used := make(map[string]int)
+	for _, n := range names {
+		base := featureSlug(n)
+		if base == "" {
+			out[n] = ""
+			continue
+		}
+		count := used[base]
+		used[base] = count + 1
+		if count == 0 {
+			out[n] = base
+		} else {
+			out[n] = base + "-" + strconv.Itoa(count+1)
+		}
+	}
+	return out
 }
