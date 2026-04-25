@@ -196,6 +196,33 @@ Before any scenario runs:
 
 ---
 
+### Scenario 10: GitHub Action
+
+**Context**: Verify the composite action installs binaries, runs analysis, uploads the artifact, and manages the tracking issue per spec.
+
+**Steps**:
+1. Tag a release of this repo (or use the most recent published tag).
+2. In a fixture GitHub repository, add a workflow that calls `sandgardenhq/find-the-gaps@<tag>` with a real `docs-url`, `BIFROST_API_KEY` secret, `create-issue: 'true'`.
+3. Trigger the workflow via `workflow_dispatch`.
+4. Wait for completion. Inspect: artifact, issues tab, run logs.
+5. Manually edit the fixture repo to introduce a new exported function (mirrors Scenario 2).
+6. Re-trigger the workflow.
+7. Inspect the issue (should be edited, not duplicated).
+8. Close the issue manually.
+9. Re-trigger the workflow.
+10. Inspect: a new issue should NOT be created if findings are unchanged from step 7.
+11. Re-run with `create-issue: 'false'`. Confirm artifact only.
+
+**Success Criteria**:
+- [ ] Step 4: artifact `find-the-gaps-report-<run_id>` is uploaded; issue exists with label `find-the-gaps` and the expected title; run exits `0`.
+- [ ] Step 7: same issue number as step 4, body updated to reflect step-5 change.
+- [ ] Step 10: no new issue created — closed issues stay dismissed.
+- [ ] Step 11: no issue created or modified; only the artifact is produced.
+
+**If Blocked**: If the action fails to download the release binary, capture the URL it tried and ask the developer — the asset-naming convention may have drifted.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
