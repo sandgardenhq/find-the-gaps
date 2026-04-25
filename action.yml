@@ -78,7 +78,7 @@ runs:
       run: |
         cache_dir="${RUNNER_TEMP}/ftg-cache"
         mkdir -p "${cache_dir}"
-        repo_abs="$(pwd)"
+        repo_abs="${{ github.workspace }}"
         project_name="$(basename "${repo_abs}")"
         out_dir="${cache_dir}/${project_name}"
         flags=()
@@ -96,7 +96,9 @@ runs:
       uses: actions/upload-artifact@v7
       with:
         name: find-the-gaps-report-${{ github.run_id }}
-        path: ${{ steps.analyze.outputs.out_dir }}
+        path: |
+          ${{ steps.analyze.outputs.out_dir }}/gaps.md
+          ${{ steps.analyze.outputs.out_dir }}/screenshots.md
         if-no-files-found: warn
 
     - name: Build issue body
@@ -106,8 +108,8 @@ runs:
       env:
         RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         COMMIT_SHA: ${{ github.sha }}
-        RUN_TIMESTAMP: ${{ github.event.repository.updated_at }}
       run: |
+        export RUN_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         body_file="${RUNNER_TEMP}/ftg-issue-body.md"
         "${GITHUB_ACTION_PATH}/internal/action/scripts/build-issue-body.sh" \
           "${{ steps.analyze.outputs.out_dir }}/gaps.md" \

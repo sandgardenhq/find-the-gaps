@@ -70,6 +70,7 @@ func TestActionManifest_StepsWired(t *testing.T) {
 		"Install mdfetch",
 		"Run analyze",
 		"Upload report artifact",
+		"Build issue body",
 		"Update tracking issue",
 	} {
 		require.Contains(t, names, want, "missing step %q", want)
