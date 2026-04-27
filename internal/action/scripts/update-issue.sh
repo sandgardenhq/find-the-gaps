@@ -35,6 +35,7 @@ if [[ -n "$existing" ]]; then
   fi
 else
   if [[ "$findings_present" == "true" ]]; then
+    gh label create "$label" --repo "$GITHUB_REPOSITORY" --color "0075ca" --description "Documentation gap tracking by find-the-gaps" 2>/dev/null || true
     gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$label" --body-file "$body_file"
     echo "Created tracking issue"
   else

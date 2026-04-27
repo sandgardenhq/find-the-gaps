@@ -75,10 +75,11 @@ runs:
         DOCS_URL: ${{ inputs.docs-url }}
         BIFROST_API_KEY: ${{ inputs.bifrost-api-key }}
         SKIP_SHOTS: ${{ inputs.skip-screenshot-check }}
+        REPO_ABS: ${{ github.workspace }}
       run: |
         cache_dir="${RUNNER_TEMP}/ftg-cache"
         mkdir -p "${cache_dir}"
-        repo_abs="${{ github.workspace }}"
+        repo_abs="${REPO_ABS}"
         project_name="$(basename "${repo_abs}")"
         out_dir="${cache_dir}/${project_name}"
         flags=()
@@ -89,6 +90,10 @@ runs:
           echo "findings=true" >> "${GITHUB_OUTPUT}"
         else
           echo "findings=false" >> "${GITHUB_OUTPUT}"
+        fi
+        if [[ ! -f "${out_dir}/gaps.md" && ! -f "${out_dir}/screenshots.md" ]]; then
+          echo "::error::find-the-gaps action: expected report files at ${out_dir} but found none. The CLI's output convention may have changed; check internal/cli/analyze.go and update action.yml's out_dir computation."
+          exit 1
         fi
 
     - name: Upload report artifact
