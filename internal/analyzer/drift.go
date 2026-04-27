@@ -344,6 +344,86 @@ calling note_observation at all.`,
 	return observations, nil
 }
 
+// judgeSchema is the structured-output contract for judgeFeatureDrift. The
+// judge returns an "issues" array of {page, issue} objects (the DriftIssue
+// shape); an empty array means "every observation was a false alarm".
+var judgeSchema = JSONSchema{
+	Name: "drift_judge_issues",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page":  {"type": "string"},
+              "issue": {"type": "string"}
+            },
+            "required": ["page", "issue"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["issues"],
+      "additionalProperties": false
+    }`),
+}
+
+// judgeResponse mirrors judgeSchema for unmarshaling.
+type judgeResponse struct {
+	Issues []DriftIssue `json:"issues"`
+}
+
+// judgeFeatureDrift adjudicates the investigator's observations for one feature
+// in a single non-tool CompleteJSON call. With zero observations it short-
+// circuits and returns nil without calling the LLM.
+func judgeFeatureDrift(
+	ctx context.Context,
+	client LLMClient,
+	feature CodeFeature,
+	observations []driftObservation,
+) ([]DriftIssue, error) {
+	if len(observations) == 0 {
+		return nil, nil
+	}
+
+	var b strings.Builder
+	for i, o := range observations {
+		fmt.Fprintf(&b, "[%d] page: %s\n    docs say: %q\n    code shows: %q\n    concern: %s\n",
+			i+1, o.Page, o.DocQuote, o.CodeQuote, o.Concern)
+	}
+
+	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, merging duplicates, and emitting actionable documentation feedback as DriftIssues.
+	prompt := fmt.Sprintf(`You are reviewing candidate documentation drift observations for one software feature.
+
+Feature: %s
+Description: %s
+
+Candidate drift observations from investigation:
+%s
+
+For each observation, decide: real drift, false alarm, or duplicate of another.
+Emit one DriftIssue per real drift. Merge duplicates into a single issue.
+Drop false alarms entirely.
+
+Each emitted issue must be actionable documentation feedback — describe what
+is wrong or missing in the docs, not what the code does. One or two sentences.
+
+If every observation is a false alarm, emit an empty "issues" array.`,
+		feature.Name, feature.Description, b.String())
+
+	raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
+	if err != nil {
+		return nil, fmt.Errorf("judgeFeatureDrift %q: %w", feature.Name, err)
+	}
+	var resp judgeResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("judgeFeatureDrift %q: invalid JSON response: %w", feature.Name, err)
+	}
+	return resp.Issues, nil
+}
+
 // addFindingTool returns a Tool that appends each LLM-reported drift issue to
 // out. Bad arguments are reported back to the LLM as a tool result string so
 // the loop continues; only catastrophic errors would abort.

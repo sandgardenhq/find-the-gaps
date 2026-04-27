@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -649,6 +650,40 @@ func TestInvestigateFeatureDrift_RecordsObservations(t *testing.T) {
 	assert.Equal(t, "doc says A", obs[0].DocQuote)
 	assert.Equal(t, "code says B", obs[0].CodeQuote)
 	assert.Equal(t, "mismatch on A vs B", obs[0].Concern)
+}
+
+func TestJudgeFeatureDrift_NoObservations_SkipsLLM(t *testing.T) {
+	client := &driftStubClient{} // any call increments completeCalls
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, nil)
+	require.NoError(t, err)
+	assert.Nil(t, issues)
+	assert.Equal(t, 0, client.completeCalls, "Judge must not call the LLM with zero observations")
+}
+
+func TestJudgeFeatureDrift_ProducesIssues(t *testing.T) {
+	// driftStubClient.CompleteJSON dispatches to Complete; set a completeFunc
+	// that returns canned JSON.
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, prompt string) (string, error) {
+			// Sanity: dossier must mention the feature name and an observation quote.
+			if !strings.Contains(prompt, "auth") || !strings.Contains(prompt, "doc says X") {
+				return "", fmt.Errorf("prompt missing expected fields: %s", prompt)
+			}
+			return `{"issues":[{"page":"https://docs/x","issue":"docs claim X but code does Y"}]}`, nil
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, obs)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "https://docs/x", issues[0].Page)
+	assert.Contains(t, issues[0].Issue, "docs claim X but code does Y")
 }
 
 func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
