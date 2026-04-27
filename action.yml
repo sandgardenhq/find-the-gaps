@@ -86,15 +86,14 @@ runs:
         if [[ "${SKIP_SHOTS}" == "true" ]]; then flags+=("--skip-screenshot-check"); fi
         ftg analyze --repo "${repo_abs}" --docs-url "${DOCS_URL}" --cache-dir "${cache_dir}" "${flags[@]}"
         echo "out_dir=${out_dir}" >> "${GITHUB_OUTPUT}"
-        if [[ -s "${out_dir}/gaps.md" || -s "${out_dir}/screenshots.md" ]]; then
-          echo "findings=true" >> "${GITHUB_OUTPUT}"
-        else
-          echo "findings=false" >> "${GITHUB_OUTPUT}"
-        fi
         if [[ ! -f "${out_dir}/gaps.md" && ! -f "${out_dir}/screenshots.md" ]]; then
           echo "::error::find-the-gaps action: expected report files at ${out_dir} but found none. The CLI's output convention may have changed; check internal/cli/analyze.go and update action.yml's out_dir computation."
           exit 1
         fi
+        findings=$("${GITHUB_ACTION_PATH}/internal/action/scripts/has-findings.sh" \
+          "${out_dir}/gaps.md" \
+          "${out_dir}/screenshots.md")
+        echo "findings=${findings}" >> "${GITHUB_OUTPUT}"
 
     - name: Upload report artifact
       if: always()
