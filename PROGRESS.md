@@ -37,6 +37,18 @@
 - Completed: 2026-04-27
 - Notes: Two deferrals remain (Tasks 7.3, 8.1–8.5) — both presume prerequisite infrastructure that does not exist in the repo (a first-run banner subsystem; a fake-LLM harness for testscripts). Building either is its own feature. The Hugo functionality itself is complete and exercised end-to-end by the `internal/site` integration tests; the deferrals only affect auxiliary surfaces (banner copy, testscript harness). Task 7.4 was originally deferred but was completed in a follow-up commit (`267be3d`) that creates `.goreleaser.yaml` from scratch — the active release workflow remains the hand-rolled `.github/workflows/release.yml` until a future migration wires goreleaser in. Branch is ready for PR.
 
+## Task: Dynamic Turn Budget for Drift Detection - COMPLETE
+- Started: 2026-04-27
+- Plan: `.plans/DYNAMIC_TURN_BUDGET_PLAN.md`, design `.plans/DYNAMIC_TURN_BUDGET_DESIGN.md`
+- Summary: Replaced hardcoded `driftMaxRounds = 30` in `internal/analyzer/drift.go` with a per-feature dynamic budget computed from `len(entry.Files) + len(pages) + driftBudgetExpectedFindings(5) + driftBudgetSlack(3)`, clamped at `driftBudgetCeiling(100)`. Big features (>22 inputs) now get more rounds than the old cap and stop hitting `ErrMaxRounds` prematurely; small features (1 file + 1 page) drop from 30 to 10 rounds of headroom. Per-feature `Infof` and the `ErrMaxRounds` `Warnf` now log files, pages, and budget for observability. `driftMaxRounds` constant removed. One existing test fixture (`TestDetectDrift_MaxRoundsExceeded_PartialFindingsReturnedAndContinues`) had its stub-response queue scaled from 30 to 10 messages to exhaust the new budget for a (1 file, 1 page) feature; the test's outcome assertions are unchanged.
+- Tests: `go test ./... -count=1` — all 9 packages green. New `TestBudgetForFeature` table test (7 subcases: minimum, mid-range, growth past old cap, large-uncapped, three clamp-boundary cases).
+- Coverage: `budgetForFeature` 100%; `internal/analyzer` total 95.2% (above 90% gate).
+- Build: OK (`go build ./...`).
+- Linting: OK (`golangci-lint run` — 0 issues).
+- Commits on branch `dynamic-turn-budget`: design + plan, RED, GREEN, wire+fixture, logs, cleanup. Six implementation commits beyond the plan docs.
+- Completed: 2026-04-27
+- Notes: One in-flight plan amendment — the plan claimed "existing drift tests do NOT assert on round counts," but the max-rounds-exhaustion test structurally assumed `driftMaxRounds = 30` via a hand-sized stub queue. Resolved by scaling the queue to match the new per-feature budget (preserves test intent). Future-resilience suggestion (out of scope, deferred): make the queue length formula-driven by reading `analyzer.ExportedBudgetForFeature(1, 1)` so the test tracks the constants instead of a magic number.
+
 ## Task 10 (multi-lang-support): End-to-end verification & milestone close-out - COMPLETE
 - Started: 2026-04-24
 - Plan: `.plans/MULTI_LANG_SUPPORT_PLAN.md` (Task 10), design `.plans/2026-04-24-multi-lang-support-design.md`

@@ -518,12 +518,13 @@ func TestDetectDrift_MaxRoundsExceeded_PartialFindingsReturnedAndContinues(t *te
 		Role:      "assistant",
 		ToolCalls: []analyzer.ToolCall{{ID: "call_inf", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
 	}
-	// Feature "auth": 1 add_finding (round 1) + 29 tool calls (rounds 2..30),
-	// exhausting the max-rounds budget after round 30 with one accumulated finding.
+	// Feature "auth": 1 add_finding (round 1) + 9 tool calls (rounds 2..10),
+	// exhausting the budget for a (1 file, 1 page) feature
+	// (1 + 1 + 5 + 3 = 10) with one accumulated finding.
 	// Feature "search": 1 add_finding + 1 driftDone (loop exits cleanly).
-	responses := make([]analyzer.ChatMessage, 0, 32)
+	responses := make([]analyzer.ChatMessage, 0, 12)
 	responses = append(responses, addFinding(analyzer.DriftIssue{Page: "", Issue: "partial auth issue"}))
-	for i := 0; i < 29; i++ {
+	for i := 0; i < 9; i++ {
 		responses = append(responses, toolCallResponse)
 	}
 	responses = append(responses, addFinding(analyzer.DriftIssue{Page: "", Issue: "issue for search"}))
@@ -609,4 +610,27 @@ func TestDetectDrift_LargeWithoutToolSupport_Errors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool use")
 	assert.Contains(t, err.Error(), "large")
+}
+
+func TestBudgetForFeature(t *testing.T) {
+	cases := []struct {
+		name         string
+		files, pages int
+		want         int
+	}{
+		{"minimum", 1, 1, 10},
+		{"medium", 8, 4, 20},
+		{"grows past old cap", 15, 10, 33},
+		{"large but uncapped", 40, 30, 78},
+		{"one below ceiling", 45, 46, 99},
+		{"exactly at ceiling", 46, 46, 100},
+		{"clamped above ceiling", 60, 50, 100},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := analyzer.ExportedBudgetForFeature(tc.files, tc.pages)
+			assert.Equal(t, tc.want, got, "budgetForFeature(%d, %d)", tc.files, tc.pages)
+		})
+	}
 }

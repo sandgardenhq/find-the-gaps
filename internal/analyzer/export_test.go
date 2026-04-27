@@ -17,3 +17,8 @@ func ExportedMapPageToFeatures(
 ) ([]string, error) {
 	return mapPageToFeatures(ctx, client, featuresJSON, featureTokens, tokenBudget, pageURL, content)
 }
+
+// ExportedBudgetForFeature exposes budgetForFeature for black-box tests.
+func ExportedBudgetForFeature(files, pages int) int {
+	return budgetForFeature(files, pages)
+}
