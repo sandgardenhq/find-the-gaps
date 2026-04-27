@@ -39,10 +39,11 @@ func DetectDrift(
 	repoRoot string,
 	onFinding DriftProgressFunc,
 ) ([]DriftFinding, error) {
-	toolClient, ok := tiering.Large().(ToolLLMClient)
+	investigator, ok := tiering.Typical().(ToolLLMClient)
 	if !ok {
-		return nil, fmt.Errorf("DetectDrift: large tier does not support tool use (required for drift detection); configure --llm-large with a tool-use-capable provider (anthropic or openai)")
+		return nil, fmt.Errorf("DetectDrift: typical tier does not support tool use (required for the drift investigator); configure --llm-typical with a tool-use-capable provider (anthropic or openai)")
 	}
+	judge := tiering.Large()
 	classifier := tiering.Small()
 
 	// Index docsMap by feature name for fast lookup.
@@ -72,8 +73,12 @@ func DetectDrift(
 			continue
 		}
 
-		log.Infof("  checking drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
-		issues, err := detectDriftForFeature(ctx, toolClient, entry, pages, pageReader, repoRoot)
+		log.Infof("  investigating drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
+		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
+		}
+		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
@@ -90,6 +95,12 @@ func DetectDrift(
 	return findings, nil
 }
 
+// detectDriftForFeature is the legacy single-stage drift agent. It is no longer
+// wired into DetectDrift (Task 4 replaced it with investigateFeatureDrift +
+// judgeFeatureDrift) but remains in the file until Task 5 deletes it, to keep
+// the wiring change isolated and trivially revertible.
+//
+//nolint:unused // scheduled for deletion in the next refactor task
 func detectDriftForFeature(
 	ctx context.Context,
 	client ToolLLMClient,
@@ -427,6 +438,8 @@ If every observation is a false alarm, emit an empty "issues" array.`,
 // addFindingTool returns a Tool that appends each LLM-reported drift issue to
 // out. Bad arguments are reported back to the LLM as a tool result string so
 // the loop continues; only catastrophic errors would abort.
+//
+//nolint:unused // paired with detectDriftForFeature; deleted in the next refactor task
 func addFindingTool(out *[]DriftIssue) Tool {
 	return Tool{
 		Name:        "add_finding",
