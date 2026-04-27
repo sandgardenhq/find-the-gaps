@@ -953,6 +953,60 @@ func TestCompleteOneTurn_CacheBreakpoint_RendersContentBlockWithCacheControl(t *
 	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
 }
 
+// TestCompleteJSONAnthropic_UserPromptHasCacheControl asserts that the
+// Anthropic branch of CompleteJSON promotes the user prompt to a one-element
+// ContentBlocks slice carrying ephemeral cache_control. Includes a guardrail:
+// the respond tool definition must NOT carry cache_control — Bifrost v1.5.2's
+// tool-level cache_control path is non-deterministic (see design doc's Bifrost
+// API Findings), so we deliberately leave Tools[0].CacheControl nil.
+func TestCompleteJSONAnthropic_UserPromptHasCacheControl(t *testing.T) {
+	respondID := "tc_1"
+	respondName := "respond"
+	args := `{"summary":"x","features":[]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &respondID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &respondName,
+							Arguments: args,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
+
+	_, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+
+	// Guardrail: the respond tool MUST NOT carry cache_control. Bifrost's
+	// tool-level cache_control path is non-deterministic in v1.5.2.
+	require.NotNil(t, fake.lastRequest.Params)
+	require.Len(t, fake.lastRequest.Params.Tools, 1)
+	assert.Nil(t, fake.lastRequest.Params.Tools[0].CacheControl,
+		"tool-level cache_control is broken in Bifrost v1.5.2; this must remain nil")
+
+	// The user prompt is promoted to a one-element content-blocks slice
+	// carrying ephemeral cache_control.
+	require.Len(t, fake.lastRequest.Input, 1)
+	msg := fake.lastRequest.Input[0]
+	require.NotNil(t, msg.Content)
+	assert.Nil(t, msg.Content.ContentStr,
+		"user prompt should be promoted to ContentBlocks; ContentStr must be nil")
+	require.Len(t, msg.Content.ContentBlocks, 1)
+	block := msg.Content.ContentBlocks[0]
+	assert.Equal(t, schemas.ChatContentBlockTypeText, block.Type)
+	require.NotNil(t, block.Text)
+	assert.Equal(t, "summarize this", *block.Text)
+	require.NotNil(t, block.CacheControl, "user prompt block must carry cache_control")
+	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
+}
+
 // TestCompleteOneTurn_CacheBreakpoint_NotAnthropic_NoOp asserts that on
 // non-Anthropic providers (OpenAI, Ollama), the CacheBreakpoint flag is
 // silently ignored — the message comes through as ContentStr unchanged. We

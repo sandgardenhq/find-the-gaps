@@ -361,8 +361,13 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 		Model:    c.model,
 		Input: []schemas.ChatMessage{
 			{
-				Role:    schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
+				Role: schemas.ChatMessageRoleUser,
+				// Promote the user prompt to a content block carrying ephemeral
+				// cache_control so retries (and any deterministic re-send within
+				// the 5m TTL) read from cache. The respond tool deliberately
+				// does NOT carry CacheControl — Bifrost v1.5.2's tool-level path
+				// is non-deterministic; see design doc's Bifrost API Findings.
+				Content: anthropicCachedContent(prompt),
 			},
 		},
 		Params: &schemas.ChatParameters{
