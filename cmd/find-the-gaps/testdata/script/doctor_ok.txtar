@@ -1,11 +1,16 @@
-# doctor exits zero and reports the version from a fake mdfetch on PATH.
-# PATH prepends $WORK/bin so the fake shadows any real binary on the system.
+# doctor exits zero and reports the version from fake mdfetch + hugo on PATH.
+# PATH prepends $WORK/bin so the fakes shadow any real binary on the system.
 chmod 755 bin/mdfetch
+chmod 755 bin/hugo
 env PATH=$WORK/bin:$PATH
 exec ftg doctor
 stdout 'mdfetch 42\.0\.0'
+stdout 'hugo v0\.154\.5'
 ! stderr .
 
 -- bin/mdfetch --
 #!/bin/sh
 echo "mdfetch 42.0.0"
+-- bin/hugo --
+#!/bin/sh
+echo "hugo v0.154.5+extended linux/amd64 BuildDate=unknown"

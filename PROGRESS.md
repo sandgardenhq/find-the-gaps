@@ -1,5 +1,15 @@
 # Progress
 
+## Task: Post-review fixes for PR #21 - COMPLETE
+- Started: 2026-04-27
+- Tests: full suite green; new `TestResolveSlugsAvoidsLiteralSuffixCollision` covers the slug-collision regression
+- Build: ✅ Successful
+- Linting: ✅ Clean
+- Completed: 2026-04-27
+- Notes:
+  - Fix 1 (slug collision): `resolveSlugs` was tracking the un-suffixed `base` only, so an input like `["Foo", "FOO", "foo-2"]` mapped both `"FOO"` (via the `-2` collision suffix) and `"foo-2"` (literal) to the same slug `foo-2`, silently overwriting one feature page on disk. RED → GREEN per CLAUDE.md TDD: new test reproduced the collision before the fix. Fix tracks resulting slugs in a `taken` set and bumps the counter until a free slug is found. Existing `TestResolveSlugs` and `TestResolveSlugsDeterministic` still pass.
+  - Fix 2 (CI breakage): three analyze tests (`TestAnalyze_screenshotCheck_exercisesPath`, `TestAnalyze_allCached_noLLMCalls`, `TestAnalyze_anthropicProvider_usesAnthropicTokenCounter`) reached the new unconditional `site.Build()` call without `--no-site`, and CI's `ubuntu-latest` runner has no `hugo` on PATH, so they failed with `ErrHugoMissing`. Added `--no-site` to each. Same root cause hit `cmd/find-the-gaps/testdata/script/doctor_ok.txtar` because the new doctor checks hugo too — added a fake hugo to the testscript's `$WORK/bin`. Verified by re-running the affected tests with `hugo` removed from PATH locally.
+
 ## Hugo Site Publishing (feat/hugo-site-output) - COMPLETE
 - Started: 2026-04-25
 - Plan: `.plans/HUGO_SITE_PUBLISHING_IMPLEMENTATION.md`, design `.plans/HUGO_SITE_PUBLISHING_DESIGN.md`

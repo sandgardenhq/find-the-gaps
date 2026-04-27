@@ -296,6 +296,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "ollama/test-model",
 		"--llm-large", "anthropic/claude-test",
+		"--no-site",
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -406,6 +407,7 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"--llm-typical", "ollama/test-model",
 		"--llm-large", "anthropic/claude-test",
 		"--skip-screenshot-check",
+		"--no-site",
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -474,6 +476,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"--docs-url", docsURL,
 		"--llm-large", "anthropic/claude-test",
 		"--skip-screenshot-check",
+		"--no-site",
 	})
 	if code != 0 {
 		t.Fatalf("analyze with anthropic provider failed (code=%d): stdout=%q stderr=%q",
