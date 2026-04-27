@@ -34,6 +34,15 @@ var RequiredTools = []Tool{
 			"windows": {"npm", "install", "-g", "@sandgarden/mdfetch"},
 		},
 	},
+	{
+		Name:        "hugo",
+		Binary:      "hugo",
+		VersionArg:  "version",
+		InstallHint: "brew install hugo (or see https://github.com/gohugoio/hugo/releases)",
+		InstallCmds: map[string][]string{
+			"darwin": {"brew", "install", "hugo"},
+		},
+	},
 }
 
 type result struct {

@@ -12,6 +12,7 @@ import (
 func TestRun_AllPresent_ReturnsZero(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
 	t.Setenv("PATH", dir)
 
 	var stdout, stderr bytes.Buffer
@@ -62,6 +63,45 @@ func TestRun_VersionCommandFails_ReturnsOne(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "mdfetch") {
 		t.Errorf("stderr should mention mdfetch failure, got %q", stderr.String())
+	}
+}
+
+func TestDoctorReportsHugo(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended+withdeploy darwin/arm64 BuildDate=unknown")
+	t.Setenv("PATH", dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), &stdout, &stderr)
+
+	if code != 0 {
+		t.Errorf("code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hugo") {
+		t.Errorf("stdout should mention hugo; got %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "v0.154.5") {
+		t.Errorf("stdout should include hugo version; got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr should be empty on success, got %q", stderr.String())
+	}
+}
+
+func TestDoctorReportsHugoMissing(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
+	t.Setenv("PATH", dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), &stdout, &stderr)
+
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "hugo") {
+		t.Errorf("stderr should mention hugo when missing, got %q", stderr.String())
 	}
 }
 

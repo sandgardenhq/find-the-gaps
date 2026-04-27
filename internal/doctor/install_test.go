@@ -115,6 +115,7 @@ func TestRunInstall_InstallFails_ReturnsOne(t *testing.T) {
 func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.0.0")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
 	t.Setenv("PATH", dir)
 
 	var stdout, stderr bytes.Buffer
@@ -137,4 +138,3 @@ func TestDefaultRunner_RunsCommand(t *testing.T) {
 		t.Errorf("expected stdout to contain 'hello', got %q", stdout.String())
 	}
 }
-

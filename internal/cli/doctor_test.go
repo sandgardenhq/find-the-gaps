@@ -11,6 +11,7 @@ import (
 func TestRun_Doctor_AllPresent_ReturnsZero(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
 	t.Setenv("PATH", dir)
 
 	var stdout, stderr bytes.Buffer
