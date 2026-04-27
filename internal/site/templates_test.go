@@ -238,6 +238,113 @@ func TestRenderFeatureUndocumentedCallout(t *testing.T) {
 	}
 }
 
+func TestRenderMappingPageNoFeatureMapH1(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo product",
+		Features: []mappingFeature{
+			{Name: "Alpha", Layer: "ui", UserFacing: true, Documented: true,
+				Files: []string{"a.go"}, Symbols: []string{"A"}, DocURLs: []string{"https://example.com/a"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "# Feature Map") {
+		t.Errorf("mapping page must not contain `# Feature Map` H1; got:\n%s", got)
+	}
+}
+
+func TestRenderMappingPageSubHeadingLists(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo product",
+		Features: []mappingFeature{
+			{
+				Name:        "User Auth",
+				Description: "Login and session management.",
+				Layer:       "service",
+				UserFacing:  true,
+				Documented:  true,
+				Files:       []string{"internal/auth/login.go", "internal/auth/session.go"},
+				Symbols:     []string{"Login", "Logout"},
+				DocURLs:     []string{"https://example.com/docs/auth"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"## Product Summary",
+		"demo product",
+		"## Features",
+		"### User Auth",
+		"> Login and session management.",
+		"- **Layer:** service",
+		"- **User-facing:** yes",
+		"- **Documentation status:** documented",
+		"#### Implemented in",
+		"- `internal/auth/login.go`",
+		"- `internal/auth/session.go`",
+		"#### Symbols",
+		"- `Login`",
+		"- `Logout`",
+		"#### Documented on",
+		"- [https://example.com/docs/auth](https://example.com/docs/auth)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderMappingPageEmptyDocURLsRendersNone(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo",
+		Features: []mappingFeature{
+			{
+				Name:       "Orphan",
+				Layer:      "service",
+				UserFacing: false,
+				Documented: false,
+				Files:      []string{"orphan.go"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "#### Documented on") {
+		t.Errorf("expected '#### Documented on' heading even when empty; got:\n%s", got)
+	}
+	if !strings.Contains(got, "_(none)_") {
+		t.Errorf("expected '_(none)_' marker for empty DocURLs; got:\n%s", got)
+	}
+}
+
+func TestRenderMappingPageOmitsEmptyFilesAndSymbols(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo",
+		Features: []mappingFeature{
+			{
+				Name:       "Bare",
+				Layer:      "ui",
+				UserFacing: true,
+				Documented: true,
+				DocURLs:    []string{"https://example.com/bare"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "#### Implemented in") {
+		t.Errorf("Implemented in should be omitted when Files is empty; got:\n%s", got)
+	}
+	if strings.Contains(got, "#### Symbols") {
+		t.Errorf("Symbols should be omitted when Symbols is empty; got:\n%s", got)
+	}
+}
+
 func TestRenderScreenshotPage(t *testing.T) {
 	got, err := renderScreenshotPage(screenshotPageData{
 		PageURL: "https://example.com/docs/start",

@@ -324,11 +324,13 @@ func TestMaterializeExpandedWithScreenshots(t *testing.T) {
 }
 
 // TestMaterializeMirrorMissingReportFile exercises the error branch when a
-// required report markdown file is absent from ProjectDir.
+// required report markdown file is absent from ProjectDir. mapping.md is now
+// rendered from structured data and need not exist on disk; gaps.md is still
+// read and wrapped, so this test asserts the missing-gaps.md path.
 func TestMaterializeMirrorMissingReportFile(t *testing.T) {
 	srcDir := t.TempDir()
 	projectDir := t.TempDir()
-	// Intentionally do NOT write mapping.md / gaps.md.
+	// Intentionally do NOT write gaps.md.
 
 	err := materialize(srcDir, Inputs{}, BuildOptions{
 		ProjectDir:  projectDir,
@@ -337,10 +339,77 @@ func TestMaterializeMirrorMissingReportFile(t *testing.T) {
 		GeneratedAt: time.Now(),
 	})
 	if err == nil {
-		t.Fatal("expected error when mapping.md is missing")
+		t.Fatal("expected error when gaps.md is missing")
 	}
-	if !contains(err.Error(), "mapping.md") {
-		t.Errorf("expected error to name mapping.md, got %v", err)
+	if !contains(err.Error(), "gaps.md") {
+		t.Errorf("expected error to name gaps.md, got %v", err)
+	}
+}
+
+// TestMaterializeMirrorMappingHasNoFeatureMapH1 asserts the mirror-mode
+// content/mapping.md is rendered from data and does not contain the duplicate
+// `# Feature Map` H1 (the frontmatter title supplies the heading).
+func TestMaterializeMirrorMappingHasNoFeatureMapH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps Found\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		Summary: analyzer.ProductSummary{Description: "A demo CLI."},
+		Mapping: analyzer.FeatureMap{
+			{
+				Feature: analyzer.CodeFeature{
+					Name: "User Auth", Description: "Login and session management.",
+					Layer: "service", UserFacing: true,
+				},
+				Files:   []string{"internal/auth/login.go", "internal/auth/session.go"},
+				Symbols: []string{"Login", "Logout"},
+			},
+		},
+		AllDocFeatures: []string{"User Auth"},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "User Auth", Pages: []string{"https://example.com/docs/auth"}},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "mapping.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Feature Map") {
+		t.Errorf("content/mapping.md must not contain `# Feature Map`; got:\n%s", s)
+	}
+	if !contains(s, `title = "Mapping"`) {
+		t.Errorf("content/mapping.md missing frontmatter title; got:\n%s", s)
+	}
+	for _, want := range []string{
+		"## Product Summary",
+		"A demo CLI.",
+		"### User Auth",
+		"#### Implemented in",
+		"- `internal/auth/login.go`",
+		"- `internal/auth/session.go`",
+		"#### Symbols",
+		"- `Login`",
+		"- `Logout`",
+		"#### Documented on",
+		"- [https://example.com/docs/auth](https://example.com/docs/auth)",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in content/mapping.md:\n%s", want, s)
+		}
 	}
 }
 

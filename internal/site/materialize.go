@@ -206,28 +206,70 @@ func linkFeatureNames(body string, slugs map[string]string) string {
 }
 
 func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) error {
-	type sec struct {
-		src, dst, title string
-		weight          int
+	_ = srcDir // reserved for future per-mode assets
+
+	// mapping.md — rendered from structured Inputs so the website's mapping
+	// page can use sub-heading lists without disturbing the standalone
+	// reporter output at <projectDir>/mapping.md.
+	mappingBody, err := renderMappingPage(buildMappingPageData(in))
+	if err != nil {
+		return err
 	}
-	secs := []sec{
-		{"mapping.md", "mapping.md", "Mapping", 10},
-		{"gaps.md", "gaps.md", "Gaps", 20},
+	mappingFM := "+++\ntitle = \"Mapping\"\nweight = 10\n+++\n\n"
+	if err := os.WriteFile(filepath.Join(contentDir, "mapping.md"), []byte(mappingFM+mappingBody), 0o644); err != nil {
+		return err
 	}
+
+	// gaps.md — read raw and wrap (still managed by the reporter).
+	gapsBody, err := os.ReadFile(filepath.Join(opts.ProjectDir, "gaps.md"))
+	if err != nil {
+		return fmt.Errorf("read gaps.md: %w", err)
+	}
+	gapsFM := "+++\ntitle = \"Gaps\"\nweight = 20\n+++\n\n"
+	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), append([]byte(gapsFM), gapsBody...), 0o644); err != nil {
+		return err
+	}
+
 	if in.ScreenshotsRan {
-		secs = append(secs, sec{"screenshots.md", "screenshots.md", "Screenshots", 30})
-	}
-	for _, s := range secs {
-		body, err := os.ReadFile(filepath.Join(opts.ProjectDir, s.src))
+		ssBody, err := os.ReadFile(filepath.Join(opts.ProjectDir, "screenshots.md"))
 		if err != nil {
-			return fmt.Errorf("read %s: %w", s.src, err)
+			return fmt.Errorf("read screenshots.md: %w", err)
 		}
-		fm := fmt.Sprintf("+++\ntitle = %q\nweight = %d\n+++\n\n", s.title, s.weight)
-		if err := os.WriteFile(filepath.Join(contentDir, s.dst), []byte(fm+string(body)), 0o644); err != nil {
+		ssFM := "+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n\n"
+		if err := os.WriteFile(filepath.Join(contentDir, "screenshots.md"), append([]byte(ssFM), ssBody...), 0o644); err != nil {
 			return err
 		}
 	}
+
 	return nil
+}
+
+// buildMappingPageData converts analyzer Inputs into the view shape consumed
+// by the mapping_page template. The DocsMap is the source of truth for
+// "Documented on" — per-feature names from AnalyzePage are not used.
+func buildMappingPageData(in Inputs) mappingPageData {
+	docPagesByFeature := map[string][]string{}
+	for _, e := range in.DocsMap {
+		docPagesByFeature[e.Feature] = e.Pages
+	}
+	features := make([]mappingFeature, 0, len(in.Mapping))
+	for _, e := range in.Mapping {
+		pages := docPagesByFeature[e.Feature.Name]
+		features = append(features, mappingFeature{
+			Name:        e.Feature.Name,
+			Description: e.Feature.Description,
+			Layer:       e.Feature.Layer,
+			UserFacing:  e.Feature.UserFacing,
+			Documented:  len(pages) > 0,
+			Files:       e.Files,
+			Symbols:     e.Symbols,
+			DocURLs:     pages,
+		})
+	}
+	return mappingPageData{
+		Summary:  in.Summary.Description,
+		Features: features,
+	}
 }
 
 func buildHomeData(in Inputs, opts BuildOptions) homeData {

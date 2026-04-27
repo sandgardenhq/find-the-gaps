@@ -162,6 +162,31 @@ func renderFeaturesIndex(d featuresIndexData) (string, error) {
 	return buf.String(), nil
 }
 
+// mappingFeature is one row in the mirror-mode mapping page.
+type mappingFeature struct {
+	Name        string
+	Description string
+	Layer       string
+	UserFacing  bool
+	Documented  bool
+	Files       []string
+	Symbols     []string
+	DocURLs     []string
+}
+
+type mappingPageData struct {
+	Summary  string
+	Features []mappingFeature
+}
+
+func renderMappingPage(d mappingPageData) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "mapping_page.md.tmpl", d); err != nil {
+		return "", fmt.Errorf("render mapping_page: %w", err)
+	}
+	return buf.String(), nil
+}
+
 type screenshotGap struct {
 	Quoted     string
 	ShouldShow string
