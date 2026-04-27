@@ -295,7 +295,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "ollama/test-model",
+		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
 		"--no-site",
 	})
@@ -405,7 +405,7 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "ollama/test-model",
+		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
 		"--skip-screenshot-check",
 		"--no-site",
@@ -503,7 +503,7 @@ func TestAnalyze_writesSiteAfterReports(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "ollama/test-model",
+		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
 		"--skip-screenshot-check",
 	})
@@ -626,7 +626,7 @@ func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "ollama/test-model",
+		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
 	})
 	if code != 0 {

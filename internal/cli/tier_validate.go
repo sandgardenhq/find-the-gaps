@@ -10,8 +10,9 @@ const (
 )
 
 // validateTierConfigs parses each tier string, applies defaults for empties,
-// and enforces that the large tier's provider supports tool use.
-// Returns typed errors naming the offending tier.
+// and enforces that the typical tier's provider supports tool use (it runs
+// the drift investigator's tool-use loop). Returns typed errors naming the
+// offending tier.
 func validateTierConfigs(small, typical, large string) error {
 	for _, tc := range []struct {
 		name, raw string
@@ -19,8 +20,8 @@ func validateTierConfigs(small, typical, large string) error {
 		needsTool bool
 	}{
 		{"small", small, defaultSmallTier, false},
-		{"typical", typical, defaultTypicalTier, false},
-		{"large", large, defaultLargeTier, true},
+		{"typical", typical, defaultTypicalTier, true},
+		{"large", large, defaultLargeTier, false},
 	} {
 		s := tc.raw
 		if s == "" {
@@ -34,7 +35,7 @@ func validateTierConfigs(small, typical, large string) error {
 			return fmt.Errorf("tier %q: unknown provider %q (valid: anthropic, openai, ollama, lmstudio)", tc.name, provider)
 		}
 		if tc.needsTool && !providerSupportsToolUse(provider) {
-			return fmt.Errorf("tier %q: provider %q does not support tool use; drift detection requires anthropic or openai", tc.name, provider)
+			return fmt.Errorf("tier %q: provider %q does not support tool use; the drift investigator requires anthropic or openai", tc.name, provider)
 		}
 	}
 	return nil

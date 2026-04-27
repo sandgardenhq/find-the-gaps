@@ -37,6 +37,19 @@
 - Completed: 2026-04-27
 - Notes: Two deferrals remain (Tasks 7.3, 8.1–8.5) — both presume prerequisite infrastructure that does not exist in the repo (a first-run banner subsystem; a fake-LLM harness for testscripts). Building either is its own feature. The Hugo functionality itself is complete and exercised end-to-end by the `internal/site` integration tests; the deferrals only affect auxiliary surfaces (banner copy, testscript harness). Task 7.4 was originally deferred but was completed in a follow-up commit (`267be3d`) that creates `.goreleaser.yaml` from scratch — the active release workflow remains the hand-rolled `.github/workflows/release.yml` until a future migration wires goreleaser in. Branch is ready for PR.
 
+## Drift Decomposition (2026-04-27): two-stage investigator + judge - COMPLETE
+- Started: 2026-04-27
+- Plan: `.plans/DRIFT_DECOMPOSITION_PLAN.md`, design `.plans/DRIFT_DECOMPOSITION_DESIGN.md`
+- Summary: Split the per-feature drift agent into a Typical-tier (Sonnet) investigator that runs the adaptive tool-use loop and gathers evidence via a new `note_observation` tool, plus a Large-tier (Opus) judge that adjudicates via a single non-tool `CompleteJSON` call. Goal: cut Opus tokens and per-feature latency. Investigator round budget is dynamic (`budgetForFeature` from the merged-in main commit `9e4ffc5`): `files + pages + 5 + 3` clamped at 100 — replaces the original plan's flat 30 → 50 bump. The "0 findings on cap-hit" failure mode is structurally absent — accumulated observations always flow to the judge, including across cap hits. Empty-observation features short-circuit without an Opus call. Tier validation's tool-use requirement moved from `--llm-large` to `--llm-typical`; error wording references "the drift investigator". Old `detectDriftForFeature` and `addFindingTool` deleted.
+- Commits on `cape-town-v1`: `388305c` Task 2 (investigator + note_observation), `a29a43c` Task 3 (judge), `9712865` Task 4 (DetectDrift wiring + test migration), `7ac12af` Task 5 (delete old code, cap → 50), `5135f74` Task 6 (CLI tier-validate flip + README/CHANGELOG), plus a merge commit folding in main's dynamic-budget refactor (`budgetForFeature` now drives the investigator's `WithMaxRounds`).
+- Tests: `go test ./...` — all packages green. 22 `TestDetectDrift_*` cases migrated to the new contract; new `TestInvestigateFeatureDrift_*` and `TestJudgeFeatureDrift_*` suites; new `TestDetectDrift_NoObservations_SkipsJudge`; renamed Typical-tool-support tests; flipped txtar fixture `analyze_tier_reject_ollama_typical.txtar`. `TestDetectDrift_MaxRoundsExceeded_*` re-scaled to the dynamic budget (10 rounds for 1 file + 1 page).
+- Coverage: `internal/analyzer` ≥ 94% statements (gate 90%).
+- Build: OK (`go build ./...`).
+- Linting: OK (`golangci-lint run` — 0 issues).
+- Per-task code reviews via `superpowers:code-reviewer`: zero Critical or Important issues across all five implementation commits. Final cross-cutting review confirms architectural coherence and verifies the cost-shape claim (judge prompt contains only observation quotes, no file contents).
+- Completed: 2026-04-27
+- Notes: Real-LLM verification per `.plans/VERIFICATION_PLAN.md` Scenario 3 not run from this session (requires user's Bifrost credentials and fixture). Watch points for live runs: Sonnet quote-fidelity (the investigator must quote verbatim — paraphrasing would lose ground truth), and the doubled error-fan-out per feature (two LLM calls instead of one means ~2× transient-failure rate; status quo per design, retries deferred).
+
 ## Task: Dynamic Turn Budget for Drift Detection - COMPLETE
 - Started: 2026-04-27
 - Plan: `.plans/DYNAMIC_TURN_BUDGET_PLAN.md`, design `.plans/DYNAMIC_TURN_BUDGET_DESIGN.md`
