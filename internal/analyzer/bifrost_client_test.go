@@ -1100,3 +1100,36 @@ func TestCompleteOneTurn_CacheBreakpoint_NotAnthropic_NoOp(t *testing.T) {
 	assert.Empty(t, got.Content.ContentBlocks,
 		"non-Anthropic providers must not promote to ContentBlocks")
 }
+
+// formatUsage tests — the helper renders Bifrost usage info into a single
+// string suitable for verbose-debug logging. The test asserts on the returned
+// string directly so the helper has no logging-framework dependency. Production
+// call sites pass the result to log.Debugf.
+
+func TestFormatUsage_IncludesCacheTokens(t *testing.T) {
+	got := formatUsage(&schemas.BifrostLLMUsage{
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		PromptTokensDetails: &schemas.ChatPromptTokensDetails{
+			CachedWriteTokens: 1024,
+			CachedReadTokens:  2048,
+		},
+	})
+	assert.Contains(t, got, "prompt=100")
+	assert.Contains(t, got, "completion=50")
+	assert.Contains(t, got, "cache_write=1024")
+	assert.Contains(t, got, "cache_read=2048")
+}
+
+func TestFormatUsage_NilDetails_ReportsZeroes(t *testing.T) {
+	got := formatUsage(&schemas.BifrostLLMUsage{
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	assert.Contains(t, got, "cache_write=0")
+	assert.Contains(t, got, "cache_read=0")
+}
+
+func TestFormatUsage_NilUsage_EmptyString(t *testing.T) {
+	assert.Equal(t, "", formatUsage(nil))
+}

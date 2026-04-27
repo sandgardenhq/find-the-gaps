@@ -5,9 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/charmbracelet/log"
 	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
 )
+
+// formatUsage renders Bifrost token-usage info as a single human-readable line
+// for verbose debug logging. Returns "" for a nil usage so call sites can pass
+// the result to log.Debugf unconditionally without emitting empty lines on
+// providers that do not return usage. Cache-token fields default to 0 when
+// PromptTokensDetails is absent (the common case for non-Anthropic providers).
+func formatUsage(u *schemas.BifrostLLMUsage) string {
+	if u == nil {
+		return ""
+	}
+	var cw, cr int
+	if u.PromptTokensDetails != nil {
+		cw = u.PromptTokensDetails.CachedWriteTokens
+		cr = u.PromptTokensDetails.CachedReadTokens
+	}
+	return fmt.Sprintf("usage: prompt=%d completion=%d cache_write=%d cache_read=%d",
+		u.PromptTokens, u.CompletionTokens, cw, cr)
+}
 
 // bifrostRequester is the subset of the Bifrost SDK used by BifrostClient.
 // It allows injection of a test double without modifying production code paths.
@@ -228,6 +247,9 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 	if len(resp.Choices) == 0 {
 		return ChatMessage{}, fmt.Errorf("bifrost tool completion: no choices returned")
 	}
+	if msg := formatUsage(resp.Usage); msg != "" {
+		log.Debugf("%s", msg)
+	}
 
 	choice := resp.Choices[0]
 	result := ChatMessage{Role: "assistant"}
@@ -317,6 +339,9 @@ func (c *BifrostClient) completeJSONOpenAI(ctx context.Context, prompt string, s
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
 	}
+	if logMsg := formatUsage(resp.Usage); logMsg != "" {
+		log.Debugf("%s", logMsg)
+	}
 	msg := resp.Choices[0].Message
 	if msg == nil || msg.Content == nil || msg.Content.ContentStr == nil {
 		return nil, fmt.Errorf("bifrost CompleteJSON: nil content; schema=%q", schema.Name)
@@ -385,6 +410,9 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
 	}
+	if logMsg := formatUsage(resp.Usage); logMsg != "" {
+		log.Debugf("%s", logMsg)
+	}
 
 	msg := resp.Choices[0].Message
 	if msg == nil || msg.ChatAssistantMessage == nil || len(msg.ToolCalls) == 0 {
@@ -439,6 +467,9 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 	}
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("bifrost completion: no choices returned")
+	}
+	if msg := formatUsage(resp.Usage); msg != "" {
+		log.Debugf("%s", msg)
 	}
 	respContent := resp.Choices[0].Message.Content
 	if respContent == nil || respContent.ContentStr == nil {
