@@ -1,6 +1,7 @@
 package site
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -175,6 +176,49 @@ func TestRenderFeatureFull(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderFeatureFrontmatterIsValidTOML(t *testing.T) {
+	in := featureData{
+		Slug:       "user-auth",
+		Name:       "User Auth",
+		Layer:      "service",
+		UserFacing: true,
+		Documented: true,
+		Files:      []string{"internal/auth/login.go"},
+		Symbols:    []string{"Login"},
+	}
+	got, err := renderFeature(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Extract the +++...+++ frontmatter block.
+	fmRe := regexp.MustCompile(`(?s)\A\+\+\+\n(.*?)\n\+\+\+`)
+	m := fmRe.FindStringSubmatch(got)
+	if m == nil {
+		t.Fatalf("no +++...+++ frontmatter block found in:\n%s", got)
+	}
+	frontmatter := m[1]
+
+	// Bug regression check: title and tags MUST be on separate lines.
+	// The previous template trimmed the newline after `title = "..."`,
+	// producing `title = "X"tags = [...]` and breaking Hugo's TOML parser.
+	titleLineRe := regexp.MustCompile(`(?m)^title = "User Auth"\s*$`)
+	if !titleLineRe.MatchString(frontmatter) {
+		t.Errorf("title line not isolated on its own line; frontmatter:\n%s", frontmatter)
+	}
+	tagsLineRe := regexp.MustCompile(`(?m)^tags = \["layer:service", "status:documented", "user-facing:yes"\]\s*$`)
+	if !tagsLineRe.MatchString(frontmatter) {
+		t.Errorf("tags line not isolated on its own line; frontmatter:\n%s", frontmatter)
+	}
+
+	// Belt-and-suspenders: assert there is no `"tags` substring (i.e., a closing
+	// quote of the title immediately followed by `tags`), which is the exact
+	// shape of the bug.
+	if strings.Contains(frontmatter, `"tags`) {
+		t.Errorf("title and tags collapsed onto one line; frontmatter:\n%s", frontmatter)
 	}
 }
 

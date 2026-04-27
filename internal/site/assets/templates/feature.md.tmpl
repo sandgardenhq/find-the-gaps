@@ -1,7 +1,7 @@
 +++
 title = {{ .Name | printf "%q" }}
-{{- $status := "undocumented" }}{{ if .Documented }}{{ $status = "documented" }}{{ end -}}
-{{- $uf := "no" }}{{ if .UserFacing }}{{ $uf = "yes" }}{{ end -}}
+{{ $status := "undocumented" }}{{ if .Documented }}{{ $status = "documented" }}{{ end -}}
+{{ $uf := "no" }}{{ if .UserFacing }}{{ $uf = "yes" }}{{ end -}}
 tags = ["layer:{{ .Layer }}", "status:{{ $status }}", "user-facing:{{ $uf }}"]
 +++
 
