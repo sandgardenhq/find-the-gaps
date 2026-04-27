@@ -1,0 +1,36 @@
++++
+title = {{ .Name | printf "%q" }}
+{{ $status := "undocumented" }}{{ if .Documented }}{{ $status = "documented" }}{{ end -}}
+{{ $uf := "no" }}{{ if .UserFacing }}{{ $uf = "yes" }}{{ end -}}
+tags = ["layer:{{ .Layer }}", "status:{{ $status }}", "user-facing:{{ $uf }}"]
++++
+
+# {{ .Name }}
+
+{{ if .Description }}{{ .Description }}{{ end }}
+
+{{ if not .Documented }}> **Undocumented** — this feature has code but no documentation page.{{ end }}
+
+- **Layer:** {{ .Layer }}
+- **User-facing:** {{ if .UserFacing }}yes{{ else }}no{{ end }}
+- **Documentation status:** {{ if .Documented }}documented{{ else }}undocumented{{ end }}
+
+{{ if .Files }}
+## Implemented in
+{{ range .Files }}- `{{ . }}`
+{{ end }}{{ end }}
+
+{{ if .Symbols }}
+## Symbols
+{{ range .Symbols }}- `{{ . }}`
+{{ end }}{{ end }}
+
+{{ if .DocURLs }}
+## Documented on
+{{ range .DocURLs }}- [{{ . }}]({{ . }})
+{{ end }}{{ end }}
+
+{{ if .Drift }}
+## Drift findings
+{{ range .Drift }}- {{ if .Page }}[{{ .Page }}]({{ .Page }}) — {{ end }}{{ .Issue }}
+{{ end }}{{ end }}

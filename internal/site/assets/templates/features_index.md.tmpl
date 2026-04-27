@@ -1,0 +1,28 @@
++++
+title = "Features"
++++
+
+# Features
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Layer</th>
+      <th>User-facing</th>
+      <th>Doc status</th>
+      <th>Files</th>
+      <th>Drift</th>
+    </tr>
+  </thead>
+  <tbody>
+{{ range .Rows }}    <tr>
+      <td><a href="/features/{{ .Slug }}/">{{ .Name }}</a></td>
+      <td>{{ .Layer }}</td>
+      <td>{{ if .UserFacing }}yes{{ else }}no{{ end }}</td>
+      <td>{{ if .Documented }}documented{{ else }}undocumented{{ end }}</td>
+      <td>{{ .FileCount }}</td>
+      <td>{{ .DriftCount }}</td>
+    </tr>
+{{ end }}  </tbody>
+</table>

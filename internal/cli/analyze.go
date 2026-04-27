@@ -2,15 +2,18 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 	"github.com/spf13/cobra"
 )
@@ -82,6 +85,9 @@ func newAnalyzeCmd() *cobra.Command {
 		llmTypical          string
 		llmLarge            string
 		skipScreenshotCheck bool
+		siteMode            string
+		noSite              bool
+		keepSiteSource      bool
 	)
 
 	cmd := &cobra.Command{
@@ -89,6 +95,16 @@ func newAnalyzeCmd() *cobra.Command {
 		Short: "Analyze a codebase against its documentation site for gaps.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := context.Background()
+
+			var siteModeVal site.Mode
+			switch siteMode {
+			case "mirror":
+				siteModeVal = site.ModeMirror
+			case "expanded":
+				siteModeVal = site.ModeExpanded
+			default:
+				return fmt.Errorf("invalid --site-mode %q (want \"mirror\" or \"expanded\")", siteMode)
+			}
 
 			projectName := filepath.Base(filepath.Clean(repoPath))
 			projectDir := filepath.Join(cacheDir, projectName)
@@ -365,14 +381,49 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			// Build the Hugo site unless --no-site.
+			if !noSite {
+				err := site.Build(ctx,
+					site.Inputs{
+						Summary:        productSummary,
+						Mapping:        featureMap,
+						DocsMap:        docsFeatureMap,
+						AllDocFeatures: docCoveredFeatures,
+						Drift:          driftFindings,
+						Screenshots:    screenshotGaps,
+						ScreenshotsRan: !skipScreenshotCheck,
+					},
+					site.BuildOptions{
+						ProjectDir:  projectDir,
+						ProjectName: projectName,
+						KeepSource:  keepSiteSource,
+						Mode:        siteModeVal,
+						GeneratedAt: time.Now(),
+					})
+				if err != nil {
+					if errors.Is(err, site.ErrHugoMissing) {
+						return fmt.Errorf("hugo not found on PATH; install via `find-the-gaps install-deps` or `brew install hugo`, or pass --no-site to skip site generation")
+					}
+					return fmt.Errorf("build site: %w", err)
+				}
+			}
+
 			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
 			if skipScreenshotCheck {
 				screenshotsLine += " (skipped)"
 			}
+			siteLine := "  " + projectDir + "/site/"
+			if noSite {
+				siteLine += " (skipped)"
+			}
+			extraLine := ""
+			if keepSiteSource && !noSite {
+				extraLine = "\n  " + projectDir + "/site-src/"
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n  %s/gaps.md\n%s\n",
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n  %s/gaps.md\n%s\n%s%s\n",
 				len(scan.Files), len(pages), len(featureMap),
-				projectDir, projectDir, screenshotsLine)
+				projectDir, projectDir, screenshotsLine, siteLine, extraLine)
 
 			return nil
 		},
@@ -392,6 +443,9 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
 	cmd.Flags().BoolVar(&skipScreenshotCheck, "skip-screenshot-check", false,
 		"skip the missing-screenshot detection pass")
+	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
+	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
+	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", false, "preserve generated Hugo source at <projectDir>/site-src/")
 
 	return cmd
 }

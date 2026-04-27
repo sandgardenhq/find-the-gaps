@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -296,6 +297,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
+		"--no-site",
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -406,6 +408,7 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
 		"--skip-screenshot-check",
+		"--no-site",
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -421,6 +424,101 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 	// Stdout lists it as (skipped).
 	if !strings.Contains(combined, "screenshots.md (skipped)") {
 		t.Errorf("expected '(skipped)' annotation in output; got: %s", combined)
+	}
+}
+
+func TestAnalyze_writesSiteAfterReports(t *testing.T) {
+	// End-to-end: with hugo on PATH and no --no-site, the analyze pipeline must
+	// produce <projectDir>/site/index.html alongside the markdown reports. This
+	// covers the gap that the existing analyze tests dodge by passing --no-site.
+	if _, err := exec.LookPath("hugo"); err != nil {
+		t.Skip("hugo not on PATH; skipping site integration test")
+	}
+
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	projectDir := filepath.Join(cacheBase, projectName)
+
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	docsDir := filepath.Join(projectDir, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := spider.LoadIndex(docsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := spider.URLToFilename(docsURL)
+	if err := os.WriteFile(filepath.Join(docsDir, filename), []byte("# Doc page\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Record(docsURL, filename); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.SetProductSummary("A test product.", []string{"feature-one"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codeFeatures := []analyzer.CodeFeature{
+		{Name: "feature-one", Description: "Does feature one.", Layer: "cli", UserFacing: true},
+	}
+	scanForCache := &scanner.ProjectScan{Files: []scanner.ScannedFile{{Path: "main.go"}}}
+	if err := saveCodeFeaturesCache(filepath.Join(projectDir, "codefeatures.json"), scanForCache, codeFeatures); err != nil {
+		t.Fatal(err)
+	}
+	fmCache := analyzer.FeatureMap{
+		{Feature: codeFeatures[0], Files: []string{"main.go"}, Symbols: []string{"Run"}},
+	}
+	if err := saveFeatureMapCache(filepath.Join(projectDir, "featuremap.json"), codeFeatures, fmCache); err != nil {
+		t.Fatal(err)
+	}
+	docsFM := analyzer.DocsFeatureMap{{Feature: "feature-one", Pages: nil}}
+	if err := saveDocsFeatureMapCache(filepath.Join(projectDir, "docsfeaturemap.json"), []string{"feature-one"}, docsFM); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("unexpected LLM request: all steps should hit cache")
+		http.Error(w, "unexpected", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	t.Setenv("OLLAMA_BASE_URL", srv.URL)
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--llm-small", "ollama/test-model",
+		"--llm-typical", "anthropic/claude-test",
+		"--llm-large", "anthropic/claude-test",
+		"--skip-screenshot-check",
+	})
+	if code != 0 {
+		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	siteIndex := filepath.Join(projectDir, "site", "index.html")
+	if _, err := os.Stat(siteIndex); err != nil {
+		t.Fatalf("expected rendered site at %s; Stat err=%v\nstdout=%s\nstderr=%s",
+			siteIndex, err, stdout.String(), stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "/site/") {
+		t.Errorf("expected stdout reports block to mention /site/; got: %s", combined)
 	}
 }
 
@@ -474,6 +572,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"--docs-url", docsURL,
 		"--llm-large", "anthropic/claude-test",
 		"--skip-screenshot-check",
+		"--no-site",
 	})
 	if code != 0 {
 		t.Fatalf("analyze with anthropic provider failed (code=%d): stdout=%q stderr=%q",
