@@ -159,6 +159,243 @@ func TestMaterializeExpandedWritesFeaturePages(t *testing.T) {
 	}
 }
 
+// TestMaterializeExpandedWithDriftAndDocsMap exercises the driftByFeature and
+// docPagesByFeature loops plus the per-feature DocURLs/Drift rendering path
+// that TestMaterializeExpandedWritesFeaturePages leaves uncovered.
+func TestMaterializeExpandedWithDriftAndDocsMap(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n\n\"Login\" has drift.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{
+				Feature: analyzer.CodeFeature{Name: "Login", Layer: "service", UserFacing: true},
+				Files:   []string{"internal/auth/login.go"},
+				Symbols: []string{"Login"},
+			},
+		},
+		AllDocFeatures: []string{"Login"},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "Login", Pages: []string{"https://example.com/docs/login"}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{
+				Feature: "Login",
+				Issues: []analyzer.DriftIssue{
+					{Page: "https://example.com/docs/login", Issue: "old signature"},
+					{Page: "https://example.com/docs/login", Issue: "removed parameter"},
+				},
+			},
+		},
+	}
+	err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := os.ReadFile(filepath.Join(srcDir, "content", "features", "login.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(page)
+	if !contains(body, "old signature") {
+		t.Errorf("feature page missing drift issue:\n%s", body)
+	}
+	if !contains(body, "https://example.com/docs/login") {
+		t.Errorf("feature page missing DocURL:\n%s", body)
+	}
+}
+
+// TestMaterializeExpandedSkipsEmptySlugFeature exercises the
+// `if slug == "" { continue }` branch in materializeExpanded.
+func TestMaterializeExpandedSkipsEmptySlugFeature(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			// Name reduces to empty slug — featureSlug strips all symbols.
+			{Feature: analyzer.CodeFeature{Name: "!!!", Layer: "ui", UserFacing: true}, Files: []string{"a.go"}},
+			// Real one so the index isn't empty.
+			{Feature: analyzer.CodeFeature{Name: "Real", Layer: "ui", UserFacing: true}, Files: []string{"b.go"}},
+		},
+	}
+	err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The empty-slug feature must NOT have a page.
+	entries, err := os.ReadDir(filepath.Join(srcDir, "content", "features"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	for _, n := range names {
+		if n == ".md" {
+			t.Errorf("found page for empty-slug feature: %v", names)
+		}
+	}
+	// Real one must exist.
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "features", "real.md")); err != nil {
+		t.Errorf("real feature page missing: %v", err)
+	}
+}
+
+// TestMaterializeExpandedWithScreenshots exercises the entire screenshots
+// branch in materializeExpanded — multiple gaps per page and gaps spread
+// across multiple pages, with one whose URL slugifies to empty.
+func TestMaterializeExpandedWithScreenshots(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		Mapping:        analyzer.FeatureMap{},
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{PageURL: "https://example.com/docs/start", QuotedPassage: "open dashboard", ShouldShow: "dashboard view", SuggestedAlt: "dashboard", InsertionHint: "after intro"},
+			{PageURL: "https://example.com/docs/start", QuotedPassage: "click save", ShouldShow: "save button", SuggestedAlt: "save button", InsertionHint: "next to button"},
+			{PageURL: "https://example.com/docs/admin", QuotedPassage: "settings page", ShouldShow: "settings UI", SuggestedAlt: "settings", InsertionHint: "top of page"},
+			// URL that slugifies to "" — exercises slug == "" → "page" branch.
+			{PageURL: "!!!", QuotedPassage: "weird", ShouldShow: "weird thing", SuggestedAlt: "weird", InsertionHint: "weird"},
+		},
+	}
+	err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// _index.md and per-page slugs exist
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "screenshots", "_index.md")); err != nil {
+		t.Errorf("screenshots/_index.md missing: %v", err)
+	}
+	// Two distinct pages → two slugged files (start and admin).
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "screenshots", "https-example-com-docs-start.md")); err != nil {
+		t.Errorf("screenshots/start.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "screenshots", "https-example-com-docs-admin.md")); err != nil {
+		t.Errorf("screenshots/admin.md missing: %v", err)
+	}
+	// Empty-slug URL fell back to "page".
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "screenshots", "page.md")); err != nil {
+		t.Errorf("screenshots/page.md (empty-slug fallback) missing: %v", err)
+	}
+	// First page should contain both gaps.
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "https-example-com-docs-start.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(body), "open dashboard") || !contains(string(body), "click save") {
+		t.Errorf("multi-gap page missing one of the gaps:\n%s", body)
+	}
+}
+
+// TestMaterializeMirrorMissingReportFile exercises the error branch when a
+// required report markdown file is absent from ProjectDir.
+func TestMaterializeMirrorMissingReportFile(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	// Intentionally do NOT write mapping.md / gaps.md.
+
+	err := materialize(srcDir, Inputs{}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected error when mapping.md is missing")
+	}
+	if !contains(err.Error(), "mapping.md") {
+		t.Errorf("expected error to name mapping.md, got %v", err)
+	}
+}
+
+// TestMaterializeExpandedMissingGapsFile exercises the error branch when
+// gaps.md is missing in ProjectDir during expanded mode.
+func TestMaterializeExpandedMissingGapsFile(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	// gaps.md intentionally missing.
+
+	err := materialize(srcDir, Inputs{Mapping: analyzer.FeatureMap{}}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected error when gaps.md is missing")
+	}
+	if !contains(err.Error(), "gaps.md") {
+		t.Errorf("expected error to name gaps.md, got %v", err)
+	}
+}
+
+// TestLinkFeatureNamesEmptyEntries asserts that entries with empty name or
+// empty slug in the slugs map are skipped (no rewriting attempted).
+func TestLinkFeatureNamesEmptyEntries(t *testing.T) {
+	body := `"Real" appears here. "" should not be rewritten.`
+	slugs := map[string]string{
+		"Real":  "real",
+		"":      "ignored", // empty name — skip
+		"Empty": "",        // empty slug — skip
+	}
+	got := linkFeatureNames(body, slugs)
+	if !contains(got, `"[Real](/features/real/)"`) {
+		t.Errorf("real should be linked: %s", got)
+	}
+	// Sanity: empty name/slug entries didn't insert anything weird.
+	if contains(got, "/features//") {
+		t.Errorf("empty slug leaked into output: %s", got)
+	}
+}
+
+// TestResolveSlugsEmptyName covers the early-return branch in resolveSlugs
+// where featureSlug returns "".
+func TestResolveSlugsEmptyName(t *testing.T) {
+	got := resolveSlugs([]string{"!!!", "Real"})
+	if got["!!!"] != "" {
+		t.Errorf("expected empty slug for symbols-only name; got %q", got["!!!"])
+	}
+	if got["Real"] != "real" {
+		t.Errorf("expected 'real' for 'Real'; got %q", got["Real"])
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
 }
