@@ -60,8 +60,9 @@ runs:
         else
           tag="${VERSION}"
         fi
-        url="https://github.com/sandgardenhq/find-the-gaps/releases/download/${tag}/find-the-gaps_${tag}_linux-amd64.tar.gz"
-        "${GITHUB_ACTION_PATH}/internal/action/scripts/install-binary.sh" "${url}" "${RUNNER_TEMP}/ftg"
+        asset="find-the-gaps_${tag}_linux-amd64.tar.gz"
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/install-binary.sh" \
+          "sandgardenhq/find-the-gaps" "${tag}" "${asset}" "${RUNNER_TEMP}/ftg"
         echo "${RUNNER_TEMP}/ftg" >> "${GITHUB_PATH}"
 
     - name: Install mdfetch
