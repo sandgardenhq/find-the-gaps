@@ -195,7 +195,7 @@ locally.
 - uses: sandgardenhq/find-the-gaps@v1
   with:
     docs-url: https://docs.example.com
-    bifrost-api-key: ${{ secrets.BIFROST_API_KEY }}
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ### Inputs
@@ -203,7 +203,7 @@ locally.
 | Name | Required | Default | Description |
 |---|---|---|---|
 | `docs-url` | yes | — | URL of the live documentation site |
-| `bifrost-api-key` | yes | — | Bifrost API key (use a repo secret) |
+| `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
 | `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
 | `skip-screenshot-check` | no | `false` | Skip screenshot-gap detection |
 

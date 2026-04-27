@@ -202,7 +202,7 @@ Before any scenario runs:
 
 **Steps**:
 1. Tag a release of this repo (or use the most recent published tag).
-2. In a fixture GitHub repository, add a workflow that calls `sandgardenhq/find-the-gaps@<tag>` with a real `docs-url`, `BIFROST_API_KEY` secret, `create-issue: 'true'`.
+2. In a fixture GitHub repository, add a workflow that calls `sandgardenhq/find-the-gaps@<tag>` with a real `docs-url`, `ANTHROPIC_API_KEY` secret, `create-issue: 'true'`.
 3. Trigger the workflow via `workflow_dispatch`.
 4. Wait for completion. Inspect: artifact, issues tab, run logs.
 5. Manually edit the fixture repo to introduce a new exported function (mirrors Scenario 2).

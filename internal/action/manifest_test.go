@@ -30,7 +30,7 @@ func TestActionManifest_DeclaresExpectedInputs(t *testing.T) {
 
 	require.Equal(t, "composite", manifest.Runs.Using, "must be a composite action")
 
-	required := []string{"docs-url", "bifrost-api-key"}
+	required := []string{"docs-url", "anthropic-api-key"}
 	optional := []string{"create-issue", "skip-screenshot-check"}
 	for _, k := range required {
 		got, ok := manifest.Inputs[k]
