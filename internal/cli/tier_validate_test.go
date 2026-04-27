@@ -19,18 +19,29 @@ func TestValidateTierConfigs_UnknownProvider(t *testing.T) {
 	}
 }
 
-func TestValidateTierConfigs_LargeNeedsToolUse(t *testing.T) {
-	err := validateTierConfigs("", "", "ollama/llama3.1")
+func TestValidateTierConfigs_TypicalNeedsToolUse(t *testing.T) {
+	err := validateTierConfigs("", "ollama/llama3.1", "")
 	if err == nil {
-		t.Fatal("expected error: ollama does not support tool use in large tier")
+		t.Fatal("expected error: ollama does not support tool use in typical tier")
 	}
-	if !strings.Contains(err.Error(), "large") || !strings.Contains(err.Error(), "tool use") {
-		t.Fatalf("error should mention 'large' and 'tool use': %v", err)
+	if !strings.Contains(err.Error(), "typical") || !strings.Contains(err.Error(), "tool use") {
+		t.Fatalf("error should mention 'typical' and 'tool use': %v", err)
+	}
+	if !strings.Contains(err.Error(), "drift investigator") {
+		t.Fatalf("error should mention 'drift investigator': %v", err)
 	}
 }
 
 func TestValidateTierConfigs_SmallCanBeNonToolUse(t *testing.T) {
 	if err := validateTierConfigs("ollama/llama3.1", "", ""); err != nil {
 		t.Fatalf("ollama in small tier should be allowed: %v", err)
+	}
+}
+
+func TestValidateTierConfigs_LargeCanBeNonToolUse(t *testing.T) {
+	// The large tier no longer needs tool use — it only runs a single
+	// non-tool CompleteJSON call (the drift judge).
+	if err := validateTierConfigs("", "", "ollama/llama3.1"); err != nil {
+		t.Fatalf("ollama in large tier should be allowed: %v", err)
 	}
 }

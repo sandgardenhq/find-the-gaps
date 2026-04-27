@@ -36,10 +36,24 @@ func TestNewLLMTiering_RejectsUnknownProvider(t *testing.T) {
 	}
 }
 
-func TestNewLLMTiering_RejectsNonToolUseLarge(t *testing.T) {
-	_, err := newLLMTiering("", "", "ollama/llama3.1")
+func TestNewLLMTiering_RejectsNonToolUseTypical(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	_, err := newLLMTiering("", "ollama/llama3.1", "")
 	if err == nil || !strings.Contains(err.Error(), "tool use") {
 		t.Fatalf("expected error about tool use, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "typical") {
+		t.Fatalf("expected error to mention 'typical' tier, got %v", err)
+	}
+}
+
+func TestNewLLMTiering_AllowsNonToolUseLarge(t *testing.T) {
+	// The large tier only does a single non-tool CompleteJSON call (the drift
+	// judge), so a non-tool-use provider is allowed there.
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	_, err := newLLMTiering("", "", "ollama/llama3.1")
+	if err != nil {
+		t.Fatalf("ollama in large tier should be allowed: %v", err)
 	}
 }
 
