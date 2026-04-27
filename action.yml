@@ -7,7 +7,7 @@ inputs:
     description: URL of the live documentation site to analyze against.
     required: true
   bifrost-api-key:
-    description: Bifrost API key. Provide via `${{ secrets.BIFROST_API_KEY }}`.
+    description: Bifrost API key. Pass the secrets.BIFROST_API_KEY secret from the calling workflow.
     required: true
   create-issue:
     description: When 'true', open or update a tracking issue with findings.
