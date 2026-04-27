@@ -67,6 +67,31 @@ func TestMaterializeMirrorWritesExpectedTree(t *testing.T) {
 	}
 }
 
+func TestMaterializeMirrorWithScreenshots(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+		_ = os.WriteFile(filepath.Join(projectDir, name), []byte("# "+name+"\n"), 0o644)
+	}
+
+	err := materialize(srcDir, Inputs{ScreenshotsRan: true}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "screenshots.md")); err != nil {
+		t.Errorf("screenshots.md should exist: %v", err)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(srcDir, "hugo.toml"))
+	if !contains(string(cfg), `name = "Screenshots"`) {
+		t.Errorf("hugo.toml should declare Screenshots menu:\n%s", cfg)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
 }
