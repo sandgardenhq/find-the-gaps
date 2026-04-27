@@ -192,6 +192,54 @@ Global Flags:
 - **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. Written whenever the screenshot pass runs (zero findings produces a `_None found._` body). Not written when `--skip-screenshot-check` is passed.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
+## Use as a GitHub Action
+
+Find the Gaps ships as a composite GitHub Action so maintainers can run audits
+on a schedule, before a release, or on demand — without installing anything
+locally.
+
+### Quickstart
+
+```yaml
+- uses: actions/checkout@v6
+- uses: sandgardenhq/find-the-gaps@v1
+  with:
+    docs-url: https://docs.example.com
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Inputs
+
+| Name | Required | Default | Description |
+|---|---|---|---|
+| `docs-url` | yes | — | URL of the live documentation site |
+| `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
+| `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
+| `skip-screenshot-check` | no | `false` | Skip screenshot-gap detection |
+
+### Outputs
+
+- **Artifact** (`find-the-gaps-report-<run_id>`): contains `gaps.md` and `screenshots.md`. Always uploaded.
+- **Issue** (when `create-issue=true`): a single open issue labeled `find-the-gaps` is created or updated.
+  - Closed issues are never reopened.
+  - Empty findings: a comment is posted, the issue is not auto-closed.
+
+### Permissions
+
+```yaml
+permissions:
+  contents: read     # for actions/checkout
+  issues: write      # only when create-issue=true
+```
+
+### Runner support
+
+Linux x86_64 only (`runs-on: ubuntu-latest`). The action exits with an error on macOS or Windows runners.
+
+### Examples
+
+See [`docs/examples/`](docs/examples/) for ready-to-copy workflows: schedule, release, manual.
+
 ## Development
 
 See [CLAUDE.md](CLAUDE.md) for project conventions, tech stack, and TDD rules. See [.plans/VERIFICATION_PLAN.md](.plans/VERIFICATION_PLAN.md) for acceptance testing procedures.
