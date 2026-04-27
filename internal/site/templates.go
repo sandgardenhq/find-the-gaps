@@ -162,3 +162,24 @@ func renderFeaturesIndex(d featuresIndexData) (string, error) {
 	}
 	return buf.String(), nil
 }
+
+type screenshotGap struct {
+	Quoted     string
+	ShouldShow string
+	Alt        string
+	Insert     string
+}
+
+type screenshotPageData struct {
+	PageURL string
+	Title   string
+	Gaps    []screenshotGap
+}
+
+func renderScreenshotPage(d screenshotPageData) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "screenshot_page.md.tmpl", d); err != nil {
+		return "", fmt.Errorf("render screenshot_page: %w", err)
+	}
+	return buf.String(), nil
+}

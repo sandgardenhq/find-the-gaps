@@ -197,6 +197,32 @@ func TestRenderFeatureUndocumentedCallout(t *testing.T) {
 	}
 }
 
+func TestRenderScreenshotPage(t *testing.T) {
+	got, err := renderScreenshotPage(screenshotPageData{
+		PageURL: "https://example.com/docs/start",
+		Title:   "Quickstart",
+		Gaps: []screenshotGap{
+			{Quoted: "open the dashboard", ShouldShow: "the dashboard view", Alt: "dashboard", Insert: "after first paragraph"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`title = "Quickstart"`,
+		"# Quickstart",
+		"https://example.com/docs/start",
+		"open the dashboard",
+		"the dashboard view",
+		"after first paragraph",
+		"**Alt text:**",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderFeaturesIndex(t *testing.T) {
 	got, err := renderFeaturesIndex(featuresIndexData{
 		Rows: []featureRow{
