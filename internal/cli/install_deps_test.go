@@ -8,6 +8,16 @@ import (
 	"testing"
 )
 
+func TestInstallDepsCmd_InstallsHugo(t *testing.T) {
+	cmd := newInstallDepsCmd()
+	if !strings.Contains(cmd.Long, "hugo") {
+		t.Errorf("install-deps Long description should mention hugo; got %q", cmd.Long)
+	}
+	if !strings.Contains(cmd.Short, "hugo") {
+		t.Errorf("install-deps Short description should mention hugo; got %q", cmd.Short)
+	}
+}
+
 func TestInstallDepsCmd_AllPresent_ExitsZero(t *testing.T) {
 	// Write fake binaries so RunInstall skips actual installs.
 	dir := t.TempDir()
