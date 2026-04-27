@@ -12,7 +12,37 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const driftMaxRounds = 30
+const (
+	// driftBudgetExpectedFindings is the headroom reserved for add_finding
+	// tool calls when computing a feature's drift agent round budget.
+	driftBudgetExpectedFindings = 5
+
+	// driftBudgetSlack covers re-reads, the closing plain-text turn, and any
+	// other non-read overhead the agent incurs during a drift check.
+	driftBudgetSlack = 3
+
+	// driftBudgetCeiling is the hard upper bound on the per-feature drift
+	// agent round budget. Protects against runaway cost when a feature
+	// mapping has unrealistically many files or pages.
+	driftBudgetCeiling = 100
+
+	// driftMaxRounds is retained as a temporary alias during migration. It
+	// is removed in a later task once all call sites use budgetForFeature.
+	driftMaxRounds = 30
+)
+
+// budgetForFeature returns the agent round budget for a single feature's
+// drift check. Each read_file and read_page tool call costs one round; each
+// add_finding call costs one round; slack covers re-reads and the closing
+// turn. The result is clamped at driftBudgetCeiling to bound runaway cost
+// when a feature has an unrealistic number of inputs.
+func budgetForFeature(files, pages int) int {
+	budget := files + pages + driftBudgetExpectedFindings + driftBudgetSlack
+	if budget > driftBudgetCeiling {
+		return driftBudgetCeiling
+	}
+	return budget
+}
 
 // DriftProgressFunc is called after each feature's findings are appended to the
 // accumulated slice. It receives the full accumulated slice so far. Return a
