@@ -11,6 +11,7 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 	"github.com/spf13/cobra"
 )
@@ -82,6 +83,9 @@ func newAnalyzeCmd() *cobra.Command {
 		llmTypical          string
 		llmLarge            string
 		skipScreenshotCheck bool
+		siteMode            string
+		noSite              bool
+		keepSiteSource      bool
 	)
 
 	cmd := &cobra.Command{
@@ -89,6 +93,17 @@ func newAnalyzeCmd() *cobra.Command {
 		Short: "Analyze a codebase against its documentation site for gaps.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := context.Background()
+
+			var siteModeVal site.Mode
+			switch siteMode {
+			case "mirror":
+				siteModeVal = site.ModeMirror
+			case "expanded":
+				siteModeVal = site.ModeExpanded
+			default:
+				return fmt.Errorf("invalid --site-mode %q (want \"mirror\" or \"expanded\")", siteMode)
+			}
+			_ = siteModeVal // wired up in next task
 
 			projectName := filepath.Base(filepath.Clean(repoPath))
 			projectDir := filepath.Join(cacheDir, projectName)
@@ -392,6 +407,9 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
 	cmd.Flags().BoolVar(&skipScreenshotCheck, "skip-screenshot-check", false,
 		"skip the missing-screenshot detection pass")
+	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
+	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
+	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", false, "preserve generated Hugo source at <projectDir>/site-src/")
 
 	return cmd
 }
