@@ -110,3 +110,33 @@ func renderHome(d homeData) (string, error) {
 	}
 	return buf.String(), nil
 }
+
+// driftIssue describes a single drift finding linking a doc page to an issue.
+type driftIssue struct {
+	Page  string
+	Issue string
+}
+
+// featureData drives renderFeature. Unlike the home/config templates, this
+// template branches purely on per-feature attributes (Documented, UserFacing,
+// presence of Files/Symbols/etc.) so there is no Mode-derived view layer.
+type featureData struct {
+	Slug        string
+	Name        string
+	Description string
+	Layer       string
+	UserFacing  bool
+	Documented  bool
+	Files       []string
+	Symbols     []string
+	DocURLs     []string
+	Drift       []driftIssue
+}
+
+func renderFeature(d featureData) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "feature.md.tmpl", d); err != nil {
+		return "", fmt.Errorf("render feature: %w", err)
+	}
+	return buf.String(), nil
+}

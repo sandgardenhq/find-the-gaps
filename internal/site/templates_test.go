@@ -139,3 +139,60 @@ func TestRenderHomeExpandedLinksToFeatures(t *testing.T) {
 		t.Error("expanded home should not link to mapping")
 	}
 }
+
+func TestRenderFeatureFull(t *testing.T) {
+	in := featureData{
+		Slug:        "user-auth",
+		Name:        "User Auth",
+		Description: "Login and session management.",
+		Layer:       "service",
+		UserFacing:  true,
+		Documented:  true,
+		Files:       []string{"internal/auth/login.go", "internal/auth/session.go"},
+		Symbols:     []string{"Login", "Logout"},
+		DocURLs:     []string{"https://example.com/docs/auth"},
+		Drift: []driftIssue{
+			{Page: "https://example.com/docs/auth", Issue: "old signature"},
+		},
+	}
+	got, err := renderFeature(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`+++`,
+		`title = "User Auth"`,
+		`tags = ["layer:service", "status:documented", "user-facing:yes"]`,
+		"# User Auth",
+		"Login and session management.",
+		"`internal/auth/login.go`",
+		"`internal/auth/session.go`",
+		"`Login`",
+		"`Logout`",
+		"[https://example.com/docs/auth](https://example.com/docs/auth)",
+		"old signature",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderFeatureUndocumentedCallout(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Slug:       "x",
+		Name:       "X",
+		Documented: false,
+		UserFacing: true,
+		Layer:      "ui",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `tags = ["layer:ui", "status:undocumented", "user-facing:yes"]`) {
+		t.Errorf("undocumented + user-facing tag missing:\n%s", got)
+	}
+	if !strings.Contains(got, "**Undocumented**") {
+		t.Errorf("expected callout, got:\n%s", got)
+	}
+}
