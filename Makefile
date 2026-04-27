@@ -59,5 +59,6 @@ vendor-hextra: ## Re-vendor the Hextra Hugo theme (override TAG=vX.Y.Z to bump).
 	  --exclude='node_modules' \
 	  "$$tmp/hextra/" "$(HEXTRA_DEST)/"; \
 	echo "$$tag" > "$(HEXTRA_DEST)/VERSION"; \
+	find "$(HEXTRA_DEST)" -name go.mod -delete; \
 	test -f "$(HEXTRA_DEST)/theme.toml" || { echo "ERROR: theme.toml missing after vendor"; exit 1; }; \
 	echo "Vendored Hextra @ $$tag ($$(find $(HEXTRA_DEST) -type f | wc -l | tr -d ' ') files)"
