@@ -5,9 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/charmbracelet/log"
 	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
 )
+
+// formatUsage renders Bifrost token-usage info as a single human-readable line
+// for verbose debug logging. Returns "" for a nil usage so call sites can pass
+// the result to log.Debugf unconditionally without emitting empty lines on
+// providers that do not return usage. Cache-token fields default to 0 when
+// PromptTokensDetails is absent (the common case for non-Anthropic providers).
+func formatUsage(u *schemas.BifrostLLMUsage) string {
+	if u == nil {
+		return ""
+	}
+	var cw, cr int
+	if u.PromptTokensDetails != nil {
+		cw = u.PromptTokensDetails.CachedWriteTokens
+		cr = u.PromptTokensDetails.CachedReadTokens
+	}
+	return fmt.Sprintf("usage: prompt=%d completion=%d cache_write=%d cache_read=%d",
+		u.PromptTokens, u.CompletionTokens, cw, cr)
+}
 
 // bifrostRequester is the subset of the Bifrost SDK used by BifrostClient.
 // It allows injection of a test double without modifying production code paths.
@@ -112,6 +131,21 @@ func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string) (
 	return &BifrostClient{client: client, provider: provider, model: model}, nil
 }
 
+// anthropicCachedContent renders text as a one-element ContentBlocks slice
+// carrying ephemeral cache_control. This is the only Bifrost-supported path
+// for marking a user/tool message as a cache breakpoint on the Anthropic
+// provider — ContentStr does not carry cache_control through to the wire.
+// Only call when c.provider == schemas.Anthropic.
+func anthropicCachedContent(text string) *schemas.ChatMessageContent {
+	return &schemas.ChatMessageContent{
+		ContentBlocks: []schemas.ChatContentBlock{{
+			Type:         schemas.ChatContentBlockTypeText,
+			Text:         schemas.Ptr(text),
+			CacheControl: &schemas.CacheControl{Type: schemas.CacheControlTypeEphemeral},
+		}},
+	}
+}
+
 // CompleteWithTools runs a multi-turn tool-use conversation. It dispatches
 // tool calls through Tool.Execute handlers and feeds the results back to the
 // LLM until the model returns a plain-text response or the round limit is
@@ -128,13 +162,24 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 	bifrostMsgs := make([]schemas.ChatMessage, 0, len(messages))
 	for _, m := range messages {
 		bm := schemas.ChatMessage{}
+		// cacheable is true only when the caller asked for a cache breakpoint
+		// AND the provider is Anthropic. Other providers don't speak
+		// cache_control; sending it would be a wire-format error.
+		cacheable := m.CacheBreakpoint && c.provider == schemas.Anthropic
 		switch m.Role {
 		case "user":
 			bm.Role = schemas.ChatMessageRoleUser
-			bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			if cacheable {
+				bm.Content = anthropicCachedContent(m.Content)
+			} else {
+				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			}
 		case "assistant":
 			bm.Role = schemas.ChatMessageRoleAssistant
 			if len(m.ToolCalls) > 0 {
+				// Assistant tool-call messages carry no text content, so
+				// CacheBreakpoint has nothing to attach to. Ignore the flag
+				// here — flagging this role is structurally a caller bug.
 				calls := make([]schemas.ChatAssistantMessageToolCall, len(m.ToolCalls))
 				for i, tc := range m.ToolCalls {
 					id := tc.ID
@@ -148,6 +193,8 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 					}
 				}
 				bm.ChatAssistantMessage = &schemas.ChatAssistantMessage{ToolCalls: calls}
+			} else if cacheable {
+				bm.Content = anthropicCachedContent(m.Content)
 			} else {
 				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
 			}
@@ -155,7 +202,11 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 			bm.Role = schemas.ChatMessageRoleTool
 			id := m.ToolCallID
 			bm.ChatToolMessage = &schemas.ChatToolMessage{ToolCallID: &id}
-			bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			if cacheable {
+				bm.Content = anthropicCachedContent(m.Content)
+			} else {
+				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			}
 		}
 		bifrostMsgs = append(bifrostMsgs, bm)
 	}
@@ -195,6 +246,9 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 	}
 	if len(resp.Choices) == 0 {
 		return ChatMessage{}, fmt.Errorf("bifrost tool completion: no choices returned")
+	}
+	if msg := formatUsage(resp.Usage); msg != "" {
+		log.Debugf("%s", msg)
 	}
 
 	choice := resp.Choices[0]
@@ -285,6 +339,9 @@ func (c *BifrostClient) completeJSONOpenAI(ctx context.Context, prompt string, s
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
 	}
+	if logMsg := formatUsage(resp.Usage); logMsg != "" {
+		log.Debugf("%s", logMsg)
+	}
 	msg := resp.Choices[0].Message
 	if msg == nil || msg.Content == nil || msg.Content.ContentStr == nil {
 		return nil, fmt.Errorf("bifrost CompleteJSON: nil content; schema=%q", schema.Name)
@@ -329,8 +386,13 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 		Model:    c.model,
 		Input: []schemas.ChatMessage{
 			{
-				Role:    schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
+				Role: schemas.ChatMessageRoleUser,
+				// Promote the user prompt to a content block carrying ephemeral
+				// cache_control so retries (and any deterministic re-send within
+				// the 5m TTL) read from cache. The respond tool deliberately
+				// does NOT carry CacheControl — Bifrost v1.5.2's tool-level path
+				// is non-deterministic; see design doc's Bifrost API Findings.
+				Content: anthropicCachedContent(prompt),
 			},
 		},
 		Params: &schemas.ChatParameters{
@@ -347,6 +409,9 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 	}
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
+	}
+	if logMsg := formatUsage(resp.Usage); logMsg != "" {
+		log.Debugf("%s", logMsg)
 	}
 
 	msg := resp.Choices[0].Message
@@ -369,7 +434,17 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 }
 
 // Complete sends a user prompt and returns the first completion text.
+// On the Anthropic provider, the user prompt is promoted to a content block
+// carrying ephemeral cache_control so any retry or deterministic re-send
+// within the 5m TTL reads from cache. Production caller is the drift page
+// classifier (drift.go:459); see design doc's Cost Analysis Per Call Site.
 func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, error) {
+	var content *schemas.ChatMessageContent
+	if c.provider == schemas.Anthropic {
+		content = anthropicCachedContent(prompt)
+	} else {
+		content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)}
+	}
 	bifrostCtx := schemas.NewBifrostContext(ctx, schemas.NoDeadline)
 	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
 		Provider: c.provider,
@@ -377,7 +452,7 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 		Input: []schemas.ChatMessage{
 			{
 				Role:    schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
+				Content: content,
 			},
 		},
 		Params: &schemas.ChatParameters{
@@ -393,9 +468,12 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("bifrost completion: no choices returned")
 	}
-	content := resp.Choices[0].Message.Content
-	if content == nil || content.ContentStr == nil {
+	if msg := formatUsage(resp.Usage); msg != "" {
+		log.Debugf("%s", msg)
+	}
+	respContent := resp.Choices[0].Message.Content
+	if respContent == nil || respContent.ContentStr == nil {
 		return "", fmt.Errorf("bifrost completion: nil content")
 	}
-	return *content.ContentStr, nil
+	return *respContent.ContentStr, nil
 }

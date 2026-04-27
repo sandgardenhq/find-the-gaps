@@ -141,6 +141,60 @@ func TestRunAgentLoop_MaxRoundsExceeded_ReturnsErrMaxRounds(t *testing.T) {
 	assert.Equal(t, 1, result.Rounds, "result must report rounds attempted")
 }
 
+// On round 2, the previously-marked message must be unflagged and the
+// newly-appended tool result must carry the marker.
+func TestRunAgentLoop_RotatesCacheBreakpointToLatestMessage(t *testing.T) {
+	var observed [][]ChatMessage
+	scripted := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: `{}`}}},
+		{Role: "assistant", Content: "ok"},
+	}
+	tools := []Tool{{
+		Name: "echo", Description: "x",
+		Execute: func(_ context.Context, _ string) (string, error) { return "result", nil },
+	}}
+	initial := []ChatMessage{{Role: "user", Content: "go", CacheBreakpoint: true}}
+
+	_, err := runAgentLoop(context.Background(), scriptedTurns(scripted, &observed), initial, tools)
+	require.NoError(t, err)
+	require.Len(t, observed, 2)
+
+	// Round 1: only the seeded user message has the flag.
+	require.Len(t, observed[0], 1)
+	require.True(t, observed[0][0].CacheBreakpoint)
+
+	// Round 2: messages = [seeded user, assistant tool_use, tool result].
+	// The seeded user message must KEEP its flag (durable breakpoint #2);
+	// the latest message (tool result) must carry the rotating breakpoint;
+	// the assistant message in between must NOT have it.
+	require.Len(t, observed[1], 3)
+	require.True(t, observed[1][0].CacheBreakpoint, "investigator prompt keeps its breakpoint")
+	require.False(t, observed[1][1].CacheBreakpoint, "intermediate assistant message must not be flagged")
+	require.True(t, observed[1][2].CacheBreakpoint, "latest tool result must carry rotating breakpoint")
+}
+
+// When there is NO seeded breakpoint, the rotating marker still applies
+// to the latest appended message starting from round 2.
+func TestRunAgentLoop_RotatingBreakpoint_NoSeeded(t *testing.T) {
+	var observed [][]ChatMessage
+	scripted := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: `{}`}}},
+		{Role: "assistant", Content: "ok"},
+	}
+	tools := []Tool{{
+		Name: "echo", Description: "x",
+		Execute: func(_ context.Context, _ string) (string, error) { return "result", nil },
+	}}
+	initial := []ChatMessage{{Role: "user", Content: "go"}}
+
+	_, err := runAgentLoop(context.Background(), scriptedTurns(scripted, &observed), initial, tools)
+	require.NoError(t, err)
+	require.Len(t, observed[1], 3)
+	require.False(t, observed[1][0].CacheBreakpoint)
+	require.False(t, observed[1][1].CacheBreakpoint)
+	require.True(t, observed[1][2].CacheBreakpoint)
+}
+
 func TestRunAgentLoop_MaxRoundsAllowsCompletion(t *testing.T) {
 	// max-rounds=2 with a single tool-call followed by text must succeed in 2 rounds.
 	scripted := []ChatMessage{

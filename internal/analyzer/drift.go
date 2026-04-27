@@ -288,7 +288,7 @@ calling note_observation at all.`,
 		strings.Join(pageSummaries, "\n"),
 	)
 
-	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
+	messages := []ChatMessage{{Role: "user", Content: systemPrompt, CacheBreakpoint: true}}
 
 	budget := budgetForFeature(len(entry.Files), len(pages))
 	log.Infof("  investigating drift for feature %q (%d files, %d pages, budget %d rounds)",

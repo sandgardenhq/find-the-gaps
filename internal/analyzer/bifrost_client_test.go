@@ -903,3 +903,233 @@ func TestBifrostClient_CompleteJSON_OpenAI_SetsMaxCompletionTokens(t *testing.T)
 	require.NotNil(t, fake.lastRequest.Params.MaxCompletionTokens)
 	assert.GreaterOrEqual(t, *fake.lastRequest.Params.MaxCompletionTokens, 16_000)
 }
+
+// TestCompleteOneTurn_CacheBreakpoint_RendersContentBlockWithCacheControl
+// asserts that when the provider is Anthropic and a ChatMessage has
+// CacheBreakpoint=true, completeOneTurn renders that message as a one-element
+// ContentBlocks slice carrying CacheControl{Type: ephemeral} — Bifrost only
+// passes cache_control through on content blocks, not on ContentStr.
+func TestCompleteOneTurn_CacheBreakpoint_RendersContentBlockWithCacheControl(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(&schemas.ChatMessageContent{ContentStr: &text}, nil),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
+
+	_, err := client.completeOneTurn(context.Background(),
+		[]ChatMessage{
+			{Role: "user", Content: "uncached"},
+			{Role: "user", Content: "cached prefix end", CacheBreakpoint: true},
+		},
+		nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+	require.Len(t, fake.lastRequest.Input, 2)
+
+	// First message: ContentStr form, no content-blocks promotion.
+	first := fake.lastRequest.Input[0]
+	require.NotNil(t, first.Content)
+	require.NotNil(t, first.Content.ContentStr)
+	assert.Equal(t, "uncached", *first.Content.ContentStr)
+	assert.Empty(t, first.Content.ContentBlocks)
+
+	// Second message: rendered as a one-element content-blocks slice with
+	// ephemeral cache_control, no ContentStr.
+	second := fake.lastRequest.Input[1]
+	require.NotNil(t, second.Content)
+	assert.Nil(t, second.Content.ContentStr,
+		"cache-flagged message should be promoted to ContentBlocks; ContentStr must be nil")
+	require.Len(t, second.Content.ContentBlocks, 1)
+	block := second.Content.ContentBlocks[0]
+	assert.Equal(t, schemas.ChatContentBlockTypeText, block.Type)
+	require.NotNil(t, block.Text)
+	assert.Equal(t, "cached prefix end", *block.Text)
+	require.NotNil(t, block.CacheControl, "cache-flagged block must carry cache_control")
+	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
+}
+
+// TestCompleteJSONAnthropic_UserPromptHasCacheControl asserts that the
+// Anthropic branch of CompleteJSON promotes the user prompt to a one-element
+// ContentBlocks slice carrying ephemeral cache_control. Includes a guardrail:
+// the respond tool definition must NOT carry cache_control — Bifrost v1.5.2's
+// tool-level cache_control path is non-deterministic (see design doc's Bifrost
+// API Findings), so we deliberately leave Tools[0].CacheControl nil.
+func TestCompleteJSONAnthropic_UserPromptHasCacheControl(t *testing.T) {
+	respondID := "tc_1"
+	respondName := "respond"
+	args := `{"summary":"x","features":[]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						ID: &respondID,
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      &respondName,
+							Arguments: args,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
+
+	_, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+
+	// Guardrail: the respond tool MUST NOT carry cache_control. Bifrost's
+	// tool-level cache_control path is non-deterministic in v1.5.2.
+	require.NotNil(t, fake.lastRequest.Params)
+	require.Len(t, fake.lastRequest.Params.Tools, 1)
+	assert.Nil(t, fake.lastRequest.Params.Tools[0].CacheControl,
+		"tool-level cache_control is broken in Bifrost v1.5.2; this must remain nil")
+
+	// The user prompt is promoted to a one-element content-blocks slice
+	// carrying ephemeral cache_control.
+	require.Len(t, fake.lastRequest.Input, 1)
+	msg := fake.lastRequest.Input[0]
+	require.NotNil(t, msg.Content)
+	assert.Nil(t, msg.Content.ContentStr,
+		"user prompt should be promoted to ContentBlocks; ContentStr must be nil")
+	require.Len(t, msg.Content.ContentBlocks, 1)
+	block := msg.Content.ContentBlocks[0]
+	assert.Equal(t, schemas.ChatContentBlockTypeText, block.Type)
+	require.NotNil(t, block.Text)
+	assert.Equal(t, "summarize this", *block.Text)
+	require.NotNil(t, block.CacheControl, "user prompt block must carry cache_control")
+	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
+}
+
+// TestComplete_Anthropic_UserPromptHasCacheControl asserts that on the
+// Anthropic provider, Complete promotes the user prompt to a one-element
+// ContentBlocks slice carrying ephemeral cache_control. Production caller
+// is the drift page classifier (drift.go:459) — same-page re-classification
+// within 5 minutes hits cache.
+func TestComplete_Anthropic_UserPromptHasCacheControl(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &text}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
+
+	_, err := client.Complete(context.Background(), "classify this page")
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+	require.Len(t, fake.lastRequest.Input, 1)
+
+	msg := fake.lastRequest.Input[0]
+	require.NotNil(t, msg.Content)
+	assert.Nil(t, msg.Content.ContentStr,
+		"Anthropic Complete: user prompt should be promoted to ContentBlocks; ContentStr must be nil")
+	require.Len(t, msg.Content.ContentBlocks, 1)
+	block := msg.Content.ContentBlocks[0]
+	assert.Equal(t, schemas.ChatContentBlockTypeText, block.Type)
+	require.NotNil(t, block.Text)
+	assert.Equal(t, "classify this page", *block.Text)
+	require.NotNil(t, block.CacheControl, "user prompt block must carry cache_control")
+	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
+}
+
+// TestComplete_OpenAI_UserPromptIsContentStr asserts the OpenAI path of
+// Complete still uses ContentStr — the provider gate is doing its job and
+// we don't send cache_control to providers that don't speak it.
+func TestComplete_OpenAI_UserPromptIsContentStr(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &text}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o")
+
+	_, err := client.Complete(context.Background(), "classify this page")
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+	require.Len(t, fake.lastRequest.Input, 1)
+
+	msg := fake.lastRequest.Input[0]
+	require.NotNil(t, msg.Content)
+	require.NotNil(t, msg.Content.ContentStr,
+		"OpenAI Complete must keep ContentStr; cache_control is Anthropic-only")
+	assert.Equal(t, "classify this page", *msg.Content.ContentStr)
+	assert.Empty(t, msg.Content.ContentBlocks,
+		"OpenAI Complete must not promote to ContentBlocks")
+}
+
+// TestCompleteOneTurn_CacheBreakpoint_NotAnthropic_NoOp asserts that on
+// non-Anthropic providers (OpenAI, Ollama), the CacheBreakpoint flag is
+// silently ignored — the message comes through as ContentStr unchanged. We
+// don't want to send cache_control to providers that don't speak it.
+func TestCompleteOneTurn_CacheBreakpoint_NotAnthropic_NoOp(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(&schemas.ChatMessageContent{ContentStr: &text}, nil),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o")
+
+	_, err := client.completeOneTurn(context.Background(),
+		[]ChatMessage{{Role: "user", Content: "x", CacheBreakpoint: true}},
+		nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+	require.Len(t, fake.lastRequest.Input, 1)
+
+	got := fake.lastRequest.Input[0]
+	require.NotNil(t, got.Content)
+	require.NotNil(t, got.Content.ContentStr,
+		"non-Anthropic providers must keep ContentStr; CacheBreakpoint is a no-op there")
+	assert.Equal(t, "x", *got.Content.ContentStr)
+	assert.Empty(t, got.Content.ContentBlocks,
+		"non-Anthropic providers must not promote to ContentBlocks")
+}
+
+// formatUsage tests — the helper renders Bifrost usage info into a single
+// string suitable for verbose-debug logging. The test asserts on the returned
+// string directly so the helper has no logging-framework dependency. Production
+// call sites pass the result to log.Debugf.
+
+func TestFormatUsage_IncludesCacheTokens(t *testing.T) {
+	got := formatUsage(&schemas.BifrostLLMUsage{
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		PromptTokensDetails: &schemas.ChatPromptTokensDetails{
+			CachedWriteTokens: 1024,
+			CachedReadTokens:  2048,
+		},
+	})
+	assert.Contains(t, got, "prompt=100")
+	assert.Contains(t, got, "completion=50")
+	assert.Contains(t, got, "cache_write=1024")
+	assert.Contains(t, got, "cache_read=2048")
+}
+
+func TestFormatUsage_NilDetails_ReportsZeroes(t *testing.T) {
+	got := formatUsage(&schemas.BifrostLLMUsage{
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	assert.Contains(t, got, "cache_write=0")
+	assert.Contains(t, got, "cache_read=0")
+}
+
+func TestFormatUsage_NilUsage_EmptyString(t *testing.T) {
+	assert.Equal(t, "", formatUsage(nil))
+}

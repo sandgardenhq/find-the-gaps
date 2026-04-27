@@ -785,6 +785,49 @@ func TestDetectDrift_TypicalWithoutToolSupport_Errors(t *testing.T) {
 	assert.Contains(t, err.Error(), "typical")
 }
 
+// fakeToolClient is a minimal ToolLLMClient that captures the messages slice
+// fed into CompleteWithTools and immediately returns a "done" result without
+// running the agent loop. Used by cache-breakpoint tests.
+type fakeToolClient struct {
+	complete func(ctx context.Context, msgs []analyzer.ChatMessage, tools []analyzer.Tool, opts ...analyzer.AgentOption) (analyzer.AgentResult, error)
+}
+
+func (f *fakeToolClient) Complete(_ context.Context, _ string) (string, error) { return "", nil }
+
+func (f *fakeToolClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (f *fakeToolClient) CompleteWithTools(ctx context.Context, msgs []analyzer.ChatMessage, tools []analyzer.Tool, opts ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+	return f.complete(ctx, msgs, tools, opts...)
+}
+
+func TestInvestigateFeatureDrift_MarksFirstMessageAsCacheBreakpoint(t *testing.T) {
+	var capturedMsgs [][]analyzer.ChatMessage
+	fake := &fakeToolClient{
+		complete: func(_ context.Context, msgs []analyzer.ChatMessage, _ []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+			snapshot := make([]analyzer.ChatMessage, len(msgs))
+			copy(snapshot, msgs)
+			capturedMsgs = append(capturedMsgs, snapshot)
+			return analyzer.AgentResult{FinalMessage: analyzer.ChatMessage{Role: "assistant", Content: "done"}, Rounds: 1}, nil
+		},
+	}
+
+	entry := analyzer.FeatureEntry{
+		Feature: analyzer.CodeFeature{Name: "auth", Description: "login"},
+		Files:   []string{"auth.go"},
+		Symbols: []string{"Login"},
+	}
+	pages := []string{"https://example.com/page"}
+	pageReader := func(string) (string, error) { return "stub", nil }
+
+	_, err := analyzer.InvestigateFeatureDrift(context.Background(), fake, entry, pages, pageReader, "/repo")
+	require.NoError(t, err)
+	require.Len(t, capturedMsgs, 1)
+	require.NotEmpty(t, capturedMsgs[0])
+	require.True(t, capturedMsgs[0][0].CacheBreakpoint, "investigator's first user message must be marked as cache breakpoint")
+}
+
 func TestInvestigateFeatureDrift_RecordsObservations(t *testing.T) {
 	client := &driftStubClient{
 		responses: []analyzer.ChatMessage{

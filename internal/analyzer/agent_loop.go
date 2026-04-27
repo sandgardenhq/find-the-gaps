@@ -74,6 +74,7 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 			return AgentResult{}, err
 		}
 		messages = append(messages, resp)
+		rotateCacheBreakpoint(messages)
 		lastAssistant = resp
 
 		if len(resp.ToolCalls) == 0 {
@@ -98,6 +99,24 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 				ToolCallID: tc.ID,
 			})
 		}
+		rotateCacheBreakpoint(messages)
 	}
 	return AgentResult{FinalMessage: lastAssistant, Rounds: cfg.maxRounds}, ErrMaxRounds
+}
+
+// rotateCacheBreakpoint clears the rotating breakpoint on every message
+// EXCEPT the seeded one (index 0 if it was originally flagged), then sets
+// the rotating breakpoint on messages[len(messages)-1]. The seeded flag
+// at index 0 is preserved as a durable breakpoint.
+func rotateCacheBreakpoint(messages []ChatMessage) {
+	seededFlag := len(messages) > 0 && messages[0].CacheBreakpoint
+	for i := range messages {
+		messages[i].CacheBreakpoint = false
+	}
+	if seededFlag {
+		messages[0].CacheBreakpoint = true
+	}
+	if len(messages) > 0 {
+		messages[len(messages)-1].CacheBreakpoint = true
+	}
 }
