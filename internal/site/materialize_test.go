@@ -92,6 +92,73 @@ func TestMaterializeMirrorWithScreenshots(t *testing.T) {
 	}
 }
 
+func TestMaterializeExpandedWritesFeaturePages(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// mapping.md is unused by expanded mode but exists alongside gaps.md the
+	// way the reporter lays them down.
+	if err := os.WriteFile(filepath.Join(projectDir, "mapping.md"),
+		[]byte("# mapping.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// gaps.md must contain a quoted feature name so linkFeatureNames has
+	// something to rewrite into a /features/<slug>/ link.
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n\n\"User Auth\" has drift.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{
+				Feature: analyzer.CodeFeature{Name: "User Auth", Layer: "service", UserFacing: true},
+				Files:   []string{"internal/auth/login.go"},
+				Symbols: []string{"Login"},
+			},
+			{
+				Feature: analyzer.CodeFeature{Name: "user auth", Layer: "ui", UserFacing: true},
+				Files:   []string{"web/auth.tsx"},
+			},
+		},
+		AllDocFeatures: []string{"User Auth"},
+	}
+	err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Features index
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "features", "_index.md")); err != nil {
+		t.Errorf("features/_index.md missing: %v", err)
+	}
+	// Per-feature pages with collision-resolved slugs
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "features", "user-auth.md")); err != nil {
+		t.Errorf("user-auth.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "content", "features", "user-auth-2.md")); err != nil {
+		t.Errorf("user-auth-2.md missing (collision): %v", err)
+	}
+	// Gaps page (linked feature names rendered into gaps.md content dir)
+	gaps, err := os.ReadFile(filepath.Join(srcDir, "content", "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(gaps), "/features/user-auth/") {
+		t.Errorf("gaps.md should hyperlink feature names:\n%s", gaps)
+	}
+	// hugo.toml taxonomies
+	cfg, _ := os.ReadFile(filepath.Join(srcDir, "hugo.toml"))
+	if !contains(string(cfg), "[taxonomies]") {
+		t.Errorf("hugo.toml missing taxonomies:\n%s", cfg)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
 }

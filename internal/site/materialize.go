@@ -49,10 +49,161 @@ func materialize(srcDir string, in Inputs, opts BuildOptions) error {
 			return err
 		}
 	case ModeExpanded:
-		// Phase 4 follow-up tasks add this branch.
-		return fmt.Errorf("expanded mode not yet wired in materialize")
+		if err := materializeExpanded(srcDir, contentDir, in, opts); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions) error {
+	_ = srcDir // reserved for future per-mode assets
+
+	// Resolve slugs first; subsequent renders use the same map.
+	names := make([]string, 0, len(in.Mapping))
+	for _, e := range in.Mapping {
+		names = append(names, e.Feature.Name)
+	}
+	slugs := resolveSlugs(names)
+
+	// docFeatures set for documented status.
+	docFeatures := map[string]bool{}
+	for _, f := range in.AllDocFeatures {
+		docFeatures[f] = true
+	}
+
+	// driftByFeature for embedded drift sections.
+	driftByFeature := map[string][]driftIssue{}
+	for _, d := range in.Drift {
+		for _, i := range d.Issues {
+			driftByFeature[d.Feature] = append(driftByFeature[d.Feature], driftIssue{Page: i.Page, Issue: i.Issue})
+		}
+	}
+
+	// docPagesByFeature from DocsMap.
+	docPagesByFeature := map[string][]string{}
+	for _, e := range in.DocsMap {
+		docPagesByFeature[e.Feature] = e.Pages
+	}
+
+	featuresDir := filepath.Join(contentDir, "features")
+	if err := os.MkdirAll(featuresDir, 0o755); err != nil {
+		return err
+	}
+
+	// per-feature pages
+	rows := make([]featureRow, 0, len(in.Mapping))
+	for _, e := range in.Mapping {
+		slug := slugs[e.Feature.Name]
+		if slug == "" {
+			continue // skip features whose name reduces to empty slug
+		}
+		documented := docFeatures[e.Feature.Name]
+		page, err := renderFeature(featureData{
+			Slug:        slug,
+			Name:        e.Feature.Name,
+			Description: e.Feature.Description,
+			Layer:       e.Feature.Layer,
+			UserFacing:  e.Feature.UserFacing,
+			Documented:  documented,
+			Files:       e.Files,
+			Symbols:     e.Symbols,
+			DocURLs:     docPagesByFeature[e.Feature.Name],
+			Drift:       driftByFeature[e.Feature.Name],
+		})
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(featuresDir, slug+".md"), []byte(page), 0o644); err != nil {
+			return err
+		}
+		rows = append(rows, featureRow{
+			Slug: slug, Name: e.Feature.Name, Layer: e.Feature.Layer,
+			UserFacing: e.Feature.UserFacing, Documented: documented,
+			FileCount: len(e.Files), DriftCount: len(driftByFeature[e.Feature.Name]),
+		})
+	}
+
+	// features index
+	idx, err := renderFeaturesIndex(featuresIndexData{Rows: rows})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(featuresDir, "_index.md"), []byte(idx), 0o644); err != nil {
+		return err
+	}
+
+	// gaps with linked feature names — read raw gaps.md and rewrite feature names.
+	gapsBody, err := os.ReadFile(filepath.Join(opts.ProjectDir, "gaps.md"))
+	if err != nil {
+		return fmt.Errorf("read gaps.md: %w", err)
+	}
+	rewritten := linkFeatureNames(string(gapsBody), slugs)
+	gapsFM := "+++\ntitle = \"Gaps\"\nweight = 20\n+++\n\n"
+	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), []byte(gapsFM+rewritten), 0o644); err != nil {
+		return err
+	}
+
+	// per-docs-page screenshot pages
+	if in.ScreenshotsRan {
+		ssDir := filepath.Join(contentDir, "screenshots")
+		if err := os.MkdirAll(ssDir, 0o755); err != nil {
+			return err
+		}
+		// group by page (preserve first-seen order for determinism)
+		byPage := map[string][]screenshotGap{}
+		var order []string
+		seen := map[string]bool{}
+		for _, g := range in.Screenshots {
+			if !seen[g.PageURL] {
+				seen[g.PageURL] = true
+				order = append(order, g.PageURL)
+			}
+			byPage[g.PageURL] = append(byPage[g.PageURL], screenshotGap{
+				Quoted: g.QuotedPassage, ShouldShow: g.ShouldShow, Alt: g.SuggestedAlt, Insert: g.InsertionHint,
+			})
+		}
+		pageSlugs := resolveSlugs(order)
+		for _, url := range order {
+			body, err := renderScreenshotPage(screenshotPageData{
+				PageURL: url,
+				Title:   url,
+				Gaps:    byPage[url],
+			})
+			if err != nil {
+				return err
+			}
+			slug := pageSlugs[url]
+			if slug == "" {
+				slug = "page"
+			}
+			if err := os.WriteFile(filepath.Join(ssDir, slug+".md"), []byte(body), 0o644); err != nil {
+				return err
+			}
+		}
+		// also write a section index for screenshots
+		ssIdx := "+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n\n# Missing screenshots\n"
+		if err := os.WriteFile(filepath.Join(ssDir, "_index.md"), []byte(ssIdx), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// linkFeatureNames replaces quoted feature-name occurrences in body with
+// quoted markdown links to /features/<slug>/. Only names from the slugs map
+// are rewritten; everything else is left untouched.
+func linkFeatureNames(body string, slugs map[string]string) string {
+	out := body
+	for name, slug := range slugs {
+		if name == "" || slug == "" {
+			continue
+		}
+		quoted := "\"" + name + "\""
+		linked := "\"[" + name + "](/features/" + slug + "/)\""
+		out = strings.ReplaceAll(out, quoted, linked)
+	}
+	return out
 }
 
 func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) error {
