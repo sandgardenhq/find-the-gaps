@@ -41,6 +41,7 @@ var RequiredTools = []Tool{
 		InstallHint: "brew install hugo (or see https://github.com/gohugoio/hugo/releases)",
 		InstallCmds: map[string][]string{
 			"darwin": {"brew", "install", "hugo"},
+			"linux":  {"brew", "install", "hugo"},
 		},
 	},
 }

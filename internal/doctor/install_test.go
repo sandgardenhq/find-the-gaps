@@ -128,6 +128,29 @@ func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
 	}
 }
 
+func TestRequiredTools_HugoCoversDarwinAndLinux(t *testing.T) {
+	var hugo *Tool
+	for i := range RequiredTools {
+		if RequiredTools[i].Name == "hugo" {
+			hugo = &RequiredTools[i]
+			break
+		}
+	}
+	if hugo == nil {
+		t.Fatal("hugo entry missing from RequiredTools")
+	}
+	for _, goos := range []string{"darwin", "linux"} {
+		cmd, ok := hugo.InstallCmds[goos]
+		if !ok {
+			t.Errorf("hugo InstallCmds missing entry for %q", goos)
+			continue
+		}
+		if len(cmd) == 0 {
+			t.Errorf("hugo InstallCmds[%q] is empty", goos)
+		}
+	}
+}
+
 func TestDefaultRunner_RunsCommand(t *testing.T) {
 	var stdout bytes.Buffer
 	err := defaultRunner(context.Background(), &stdout, io.Discard, "echo", "hello")
