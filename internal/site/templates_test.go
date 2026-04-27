@@ -143,7 +143,6 @@ func TestRenderHomeExpandedLinksToFeatures(t *testing.T) {
 
 func TestRenderFeatureFull(t *testing.T) {
 	in := featureData{
-		Slug:        "user-auth",
 		Name:        "User Auth",
 		Description: "Login and session management.",
 		Layer:       "service",
@@ -181,7 +180,6 @@ func TestRenderFeatureFull(t *testing.T) {
 
 func TestRenderFeatureFrontmatterIsValidTOML(t *testing.T) {
 	in := featureData{
-		Slug:       "user-auth",
 		Name:       "User Auth",
 		Layer:      "service",
 		UserFacing: true,
@@ -224,7 +222,6 @@ func TestRenderFeatureFrontmatterIsValidTOML(t *testing.T) {
 
 func TestRenderFeatureUndocumentedCallout(t *testing.T) {
 	got, err := renderFeature(featureData{
-		Slug:       "x",
 		Name:       "X",
 		Documented: false,
 		UserFacing: true,

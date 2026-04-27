@@ -121,7 +121,6 @@ type driftIssue struct {
 // template branches purely on per-feature attributes (Documented, UserFacing,
 // presence of Files/Symbols/etc.) so there is no Mode-derived view layer.
 type featureData struct {
-	Slug        string
 	Name        string
 	Description string
 	Layer       string

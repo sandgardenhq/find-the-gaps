@@ -81,6 +81,15 @@ func Build(ctx context.Context, in Inputs, opts BuildOptions) error {
 		}
 	}
 
+	// preserveSrc lets a hugo build failure opt out of cleanup so the user
+	// can inspect the generated source. Every other early return cleans up.
+	preserveSrc := false
+	defer func() {
+		if !opts.KeepSource && !preserveSrc {
+			_ = os.RemoveAll(srcDir)
+		}
+	}()
+
 	if err := materialize(srcDir, in, opts); err != nil {
 		return fmt.Errorf("materialize: %w", err)
 	}
@@ -116,13 +125,9 @@ func Build(ctx context.Context, in Inputs, opts BuildOptions) error {
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		// Preserve srcDir for debugging on failure.
+		preserveSrc = true
 		return fmt.Errorf("hugo build failed (source preserved at %s): %w: %s", srcDir, err, stderr.String())
 	}
 
-	// Cleanup if not keeping source.
-	if !opts.KeepSource {
-		_ = os.RemoveAll(srcDir)
-	}
 	return nil
 }

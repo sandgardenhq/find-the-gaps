@@ -100,7 +100,6 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 		}
 		documented := docFeatures[e.Feature.Name]
 		page, err := renderFeature(featureData{
-			Slug:        slug,
 			Name:        e.Feature.Name,
 			Description: e.Feature.Description,
 			Layer:       e.Feature.Layer,
