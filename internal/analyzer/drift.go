@@ -231,6 +231,119 @@ func readPageTool(pageReader func(url string) (string, error)) Tool {
 	}
 }
 
+// driftObservation is one piece of evidence the investigator surfaces for the
+// judge to adjudicate. Both quotes are required and must be verbatim — they are
+// the entire input the judge sees about this candidate.
+type driftObservation struct {
+	Page      string `json:"page"`
+	DocQuote  string `json:"doc_quote"`
+	CodeQuote string `json:"code_quote"`
+	Concern   string `json:"concern"`
+}
+
+// noteObservationTool returns a Tool that appends each LLM-recorded observation
+// to out. Bad arguments are reported back to the LLM as a tool result string so
+// the loop continues.
+func noteObservationTool(out *[]driftObservation) Tool {
+	return Tool{
+		Name:        "note_observation",
+		Description: "Record one piece of evidence about possible documentation drift. Both doc_quote and code_quote must be verbatim. Call once per distinct observation. When you have nothing more to record, reply with plain text.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"page":       map[string]any{"type": "string", "description": "Doc page URL the observation refers to, or empty string if page-agnostic."},
+				"doc_quote":  map[string]any{"type": "string", "description": "Verbatim passage from the docs."},
+				"code_quote": map[string]any{"type": "string", "description": "Verbatim excerpt from the source code."},
+				"concern":    map[string]any{"type": "string", "description": "One sentence: what looks off."},
+			},
+			"required": []string{"page", "doc_quote", "code_quote", "concern"},
+		},
+		Execute: func(_ context.Context, rawArgs string) (string, error) {
+			var o driftObservation
+			if err := json.Unmarshal([]byte(rawArgs), &o); err != nil {
+				return fmt.Sprintf("invalid arguments: %v", err), nil
+			}
+			*out = append(*out, o)
+			return "recorded", nil
+		},
+	}
+}
+
+// investigateFeatureDrift runs the agent loop with read_file, read_page, and
+// note_observation tools, returning the raw observations the LLM surfaced. It
+// gathers evidence; the judge stage adjudicates separately.
+func investigateFeatureDrift(
+	ctx context.Context,
+	client ToolLLMClient,
+	entry FeatureEntry,
+	pages []string,
+	pageReader func(url string) (string, error),
+	repoRoot string,
+) ([]driftObservation, error) {
+	var pageSummaries []string
+	for _, url := range pages {
+		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
+	}
+
+	var observations []driftObservation
+	tools := []Tool{
+		readFileTool(repoRoot),
+		readPageTool(pageReader),
+		noteObservationTool(&observations),
+	}
+
+	// PROMPT: Investigates a feature for documentation drift by reading source files and doc pages, recording each piece of evidence via note_observation. The investigator gathers; it does not adjudicate.
+	systemPrompt := fmt.Sprintf(`You are investigating documentation accuracy for a software feature.
+
+Feature: %s
+Code description: %s
+Implemented in: %s
+Symbols: %s
+
+Documentation pages:
+%s
+
+You have tools available to read source files and documentation pages in full.
+Use them to investigate as needed.
+
+Your job is to surface candidate documentation drift. For each thing that
+*might* be wrong or missing in the docs, call note_observation with:
+- page: the doc URL (or empty string)
+- doc_quote: the exact passage from the docs that concerns you
+- code_quote: the exact excerpt from the source code that contradicts or
+  is missing from the docs
+- concern: one sentence describing what looks off
+
+Quote verbatim. Include enough context in code_quote that someone reading
+just the observation can understand the contradiction (e.g. include the full
+function signature line, not just an identifier).
+
+Do not decide whether something IS drift — just record what looks suspicious.
+A reviewer will adjudicate later.
+
+When you have nothing more to record, reply with plain text (e.g. "done").
+If you find nothing suspicious, reply with plain text immediately without
+calling note_observation at all.`,
+		entry.Feature.Name,
+		entry.Feature.Description,
+		strings.Join(entry.Files, ", "),
+		strings.Join(entry.Symbols, ", "),
+		strings.Join(pageSummaries, "\n"),
+	)
+
+	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
+
+	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(driftMaxRounds))
+	if errors.Is(err, ErrMaxRounds) {
+		log.Warnf("drift investigator exceeded %d rounds for feature %q; handing %d observations to judge", driftMaxRounds, entry.Feature.Name, len(observations))
+		return observations, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return observations, nil
+}
+
 // addFindingTool returns a Tool that appends each LLM-reported drift issue to
 // out. Bad arguments are reported back to the LLM as a tool result string so
 // the loop continues; only catastrophic errors would abort.

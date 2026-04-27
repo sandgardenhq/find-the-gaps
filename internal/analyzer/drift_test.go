@@ -33,6 +33,23 @@ func addFinding(issue analyzer.DriftIssue) analyzer.ChatMessage {
 	}
 }
 
+// noteObservation builds a ChatMessage that invokes note_observation with one
+// observation. Test helper.
+func noteObservation(page, docQuote, codeQuote, concern string) analyzer.ChatMessage {
+	args, _ := json.Marshal(map[string]string{
+		"page":       page,
+		"doc_quote":  docQuote,
+		"code_quote": codeQuote,
+		"concern":    concern,
+	})
+	return analyzer.ChatMessage{
+		Role: "assistant",
+		ToolCalls: []analyzer.ToolCall{
+			{ID: "obs_" + concern, Name: "note_observation", Arguments: string(args)},
+		},
+	}
+}
+
 // driftDone builds a plain-text assistant message that terminates the agent
 // loop (no tool calls). Test helper.
 func driftDone() analyzer.ChatMessage {
@@ -609,4 +626,48 @@ func TestDetectDrift_LargeWithoutToolSupport_Errors(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool use")
 	assert.Contains(t, err.Error(), "large")
+}
+
+func TestInvestigateFeatureDrift_RecordsObservations(t *testing.T) {
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs/x", "doc says A", "code says B", "mismatch on A vs B"),
+			driftDone(),
+		},
+	}
+	entry := analyzer.FeatureEntry{
+		Feature: analyzer.CodeFeature{Name: "auth", Description: "login"},
+		Files:   []string{"auth.go"},
+		Symbols: []string{"Login"},
+	}
+	pageReader := func(url string) (string, error) { return "# Docs", nil }
+
+	obs, err := analyzer.InvestigateFeatureDrift(context.Background(), client, entry, []string{"https://docs/x"}, pageReader, t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, obs, 1)
+	assert.Equal(t, "https://docs/x", obs[0].Page)
+	assert.Equal(t, "doc says A", obs[0].DocQuote)
+	assert.Equal(t, "code says B", obs[0].CodeQuote)
+	assert.Equal(t, "mismatch on A vs B", obs[0].Concern)
+}
+
+func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
+	// Two observations recorded, then loop exhausts without "done". The
+	// stub reuses the last element when responses runs out, so we script
+	// enough observations to deterministically exceed the round cap.
+	client := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("p1", "d1", "c1", "concern 1"),
+			noteObservation("p2", "d2", "c2", "concern 2"),
+		},
+	}
+	for i := 0; i < 60; i++ {
+		client.responses = append(client.responses,
+			noteObservation(fmt.Sprintf("p%d", i+3), "d", "c", "concern"))
+	}
+
+	entry := analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"a.go"}}
+	obs, err := analyzer.InvestigateFeatureDrift(context.Background(), client, entry, []string{"https://x"}, func(string) (string, error) { return "", nil }, t.TempDir())
+	require.NoError(t, err, "round-cap exhaustion must not be a hard error")
+	assert.GreaterOrEqual(t, len(obs), 2, "all observations recorded before cap must be returned")
 }
