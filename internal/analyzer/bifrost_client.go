@@ -112,6 +112,21 @@ func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string) (
 	return &BifrostClient{client: client, provider: provider, model: model}, nil
 }
 
+// anthropicCachedContent renders text as a one-element ContentBlocks slice
+// carrying ephemeral cache_control. This is the only Bifrost-supported path
+// for marking a user/tool message as a cache breakpoint on the Anthropic
+// provider — ContentStr does not carry cache_control through to the wire.
+// Only call when c.provider == schemas.Anthropic.
+func anthropicCachedContent(text string) *schemas.ChatMessageContent {
+	return &schemas.ChatMessageContent{
+		ContentBlocks: []schemas.ChatContentBlock{{
+			Type:         schemas.ChatContentBlockTypeText,
+			Text:         schemas.Ptr(text),
+			CacheControl: &schemas.CacheControl{Type: schemas.CacheControlTypeEphemeral},
+		}},
+	}
+}
+
 // CompleteWithTools runs a multi-turn tool-use conversation. It dispatches
 // tool calls through Tool.Execute handlers and feeds the results back to the
 // LLM until the model returns a plain-text response or the round limit is
@@ -128,13 +143,24 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 	bifrostMsgs := make([]schemas.ChatMessage, 0, len(messages))
 	for _, m := range messages {
 		bm := schemas.ChatMessage{}
+		// cacheable is true only when the caller asked for a cache breakpoint
+		// AND the provider is Anthropic. Other providers don't speak
+		// cache_control; sending it would be a wire-format error.
+		cacheable := m.CacheBreakpoint && c.provider == schemas.Anthropic
 		switch m.Role {
 		case "user":
 			bm.Role = schemas.ChatMessageRoleUser
-			bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			if cacheable {
+				bm.Content = anthropicCachedContent(m.Content)
+			} else {
+				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			}
 		case "assistant":
 			bm.Role = schemas.ChatMessageRoleAssistant
 			if len(m.ToolCalls) > 0 {
+				// Assistant tool-call messages carry no text content, so
+				// CacheBreakpoint has nothing to attach to. Ignore the flag
+				// here — flagging this role is structurally a caller bug.
 				calls := make([]schemas.ChatAssistantMessageToolCall, len(m.ToolCalls))
 				for i, tc := range m.ToolCalls {
 					id := tc.ID
@@ -148,6 +174,8 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 					}
 				}
 				bm.ChatAssistantMessage = &schemas.ChatAssistantMessage{ToolCalls: calls}
+			} else if cacheable {
+				bm.Content = anthropicCachedContent(m.Content)
 			} else {
 				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
 			}
@@ -155,7 +183,11 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 			bm.Role = schemas.ChatMessageRoleTool
 			id := m.ToolCallID
 			bm.ChatToolMessage = &schemas.ChatToolMessage{ToolCallID: &id}
-			bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			if cacheable {
+				bm.Content = anthropicCachedContent(m.Content)
+			} else {
+				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
+			}
 		}
 		bifrostMsgs = append(bifrostMsgs, bm)
 	}
