@@ -196,3 +196,30 @@ func TestRenderFeatureUndocumentedCallout(t *testing.T) {
 		t.Errorf("expected callout, got:\n%s", got)
 	}
 }
+
+func TestRenderFeaturesIndex(t *testing.T) {
+	got, err := renderFeaturesIndex(featuresIndexData{
+		Rows: []featureRow{
+			{Slug: "alpha", Name: "Alpha", Layer: "ui", UserFacing: true, Documented: true, FileCount: 2, DriftCount: 0},
+			{Slug: "beta", Name: "Beta", Layer: "service", UserFacing: false, Documented: false, FileCount: 5, DriftCount: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"<table>",
+		"<th>Name</th>",
+		"<th>Layer</th>",
+		"<th>User-facing</th>",
+		"<th>Doc status</th>",
+		`<a href="/features/alpha/">Alpha</a>`,
+		`<a href="/features/beta/">Beta</a>`,
+		"<td>ui</td>",
+		"<td>service</td>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}

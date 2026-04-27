@@ -140,3 +140,25 @@ func renderFeature(d featureData) (string, error) {
 	}
 	return buf.String(), nil
 }
+
+type featureRow struct {
+	Slug       string
+	Name       string
+	Layer      string
+	UserFacing bool
+	Documented bool
+	FileCount  int
+	DriftCount int
+}
+
+type featuresIndexData struct {
+	Rows []featureRow
+}
+
+func renderFeaturesIndex(d featuresIndexData) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "features_index.md.tmpl", d); err != nil {
+		return "", fmt.Errorf("render features_index: %w", err)
+	}
+	return buf.String(), nil
+}
