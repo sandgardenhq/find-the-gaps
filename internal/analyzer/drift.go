@@ -182,7 +182,8 @@ with plain text immediately without calling add_finding at all.`,
 
 	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
 
-	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(driftMaxRounds))
+	budget := budgetForFeature(len(entry.Files), len(pages))
+	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(budget))
 	if errors.Is(err, ErrMaxRounds) {
 		log.Warnf("drift agent exceeded %d rounds for feature %q; returning %d accumulated findings", driftMaxRounds, entry.Feature.Name, len(findings))
 		return findings, nil
