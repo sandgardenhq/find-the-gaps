@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+- Drift detection's tool-use requirement moved from the `large` tier to the
+  `typical` tier. The drift investigator now runs as a tool-use agent on the
+  typical tier (Sonnet by default); the large tier only makes a single
+  non-tool `CompleteJSON` call (the drift judge). As a result, `--llm-large`
+  may now name any supported provider (e.g. `ollama/...`), and `--llm-typical`
+  must name a provider that supports tool use (currently `anthropic` or
+  `openai`).
+
 ## v0.1.1
 
 ### Added

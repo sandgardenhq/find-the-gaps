@@ -1,7 +1,0 @@
-# analyze must fail fast when --llm-large names a provider that does not
-# support tool use. Validation runs before any crawl or LLM work.
-env ANTHROPIC_API_KEY=stub
-mkdir repo
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.invalid --llm-large ollama/llama3.1
-stderr 'tool use'
-stderr 'large'

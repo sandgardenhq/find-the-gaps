@@ -125,15 +125,17 @@ Global Flags:
 Find the Gaps routes LLM work across three reasoning tiers so cheap, high-volume
 calls land on cheaper models while the hardest calls use a frontier model:
 
-| Tier      | Used for                                            | Default                         |
-|-----------|-----------------------------------------------------|---------------------------------|
-| `small`   | Per-page doc summaries and release-note classifier  | `anthropic/claude-haiku-4-5`    |
-| `typical` | Extracting features from code                       | `anthropic/claude-sonnet-4-6`   |
-| `large`   | Feature-to-code mapping and agentic drift detection | `anthropic/claude-opus-4-7`     |
+| Tier      | Used for                                                       | Default                         |
+|-----------|----------------------------------------------------------------|---------------------------------|
+| `small`   | Per-page doc summaries and release-note classifier             | `anthropic/claude-haiku-4-5`    |
+| `typical` | Feature extraction and the drift investigator (tool-use agent) | `anthropic/claude-sonnet-4-6`   |
+| `large`   | Feature-to-code mapping and the drift judge (single JSON call) | `anthropic/claude-opus-4-7`     |
 
 Each tier accepts a combined `provider/model` string. Bare model names default
-to the `anthropic` provider. The `large` tier must name a provider that supports
-tool use (currently `anthropic` or `openai`) — the CLI refuses to start otherwise.
+to the `anthropic` provider. The `typical` tier must name a provider that
+supports tool use (currently `anthropic` or `openai`) because it runs the drift
+investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
+tier may use any supported provider; it only makes single non-tool calls.
 
 Configure tiers via flag or environment variable:
 

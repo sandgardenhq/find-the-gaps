@@ -13,25 +13,25 @@ import (
 )
 
 const (
-	// driftBudgetExpectedFindings is the headroom reserved for add_finding
-	// tool calls when computing a feature's drift agent round budget.
+	// driftBudgetExpectedFindings is the headroom reserved for note_observation
+	// tool calls when computing a feature's drift investigator round budget.
 	driftBudgetExpectedFindings = 5
 
 	// driftBudgetSlack covers re-reads, the closing plain-text turn, and any
-	// other non-read overhead the agent incurs during a drift check.
+	// other non-read overhead the investigator incurs during a drift check.
 	driftBudgetSlack = 3
 
 	// driftBudgetCeiling is the hard upper bound on the per-feature drift
-	// agent round budget. Protects against runaway cost when a feature
+	// investigator round budget. Protects against runaway cost when a feature
 	// mapping has unrealistically many files or pages.
 	driftBudgetCeiling = 100
 )
 
-// budgetForFeature returns the agent round budget for a single feature's
-// drift check. Each read_file and read_page tool call costs one round; each
-// add_finding call costs one round; slack covers re-reads and the closing
-// turn. The result is clamped at driftBudgetCeiling to bound runaway cost
-// when a feature has an unrealistic number of inputs.
+// budgetForFeature returns the investigator round budget for a single
+// feature's drift check. Each read_file and read_page tool call costs one
+// round; each note_observation call costs one round; slack covers re-reads
+// and the closing turn. The result is clamped at driftBudgetCeiling to bound
+// runaway cost when a feature has an unrealistic number of inputs.
 func budgetForFeature(files, pages int) int {
 	budget := files + pages + driftBudgetExpectedFindings + driftBudgetSlack
 	if budget > driftBudgetCeiling {
@@ -65,10 +65,11 @@ func DetectDrift(
 	repoRoot string,
 	onFinding DriftProgressFunc,
 ) ([]DriftFinding, error) {
-	toolClient, ok := tiering.Large().(ToolLLMClient)
+	investigator, ok := tiering.Typical().(ToolLLMClient)
 	if !ok {
-		return nil, fmt.Errorf("DetectDrift: large tier does not support tool use (required for drift detection); configure --llm-large with a tool-use-capable provider (anthropic or openai)")
+		return nil, fmt.Errorf("DetectDrift: typical tier does not support tool use (required for the drift investigator); configure --llm-typical with a tool-use-capable provider (anthropic or openai)")
 	}
+	judge := tiering.Large()
 	classifier := tiering.Small()
 
 	// Index docsMap by feature name for fast lookup.
@@ -98,7 +99,11 @@ func DetectDrift(
 			continue
 		}
 
-		issues, err := detectDriftForFeature(ctx, toolClient, entry, pages, pageReader, repoRoot)
+		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
+		}
+		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
@@ -112,83 +117,6 @@ func DetectDrift(
 		}
 	}
 
-	return findings, nil
-}
-
-func detectDriftForFeature(
-	ctx context.Context,
-	client ToolLLMClient,
-	entry FeatureEntry,
-	pages []string,
-	pageReader func(url string) (string, error),
-	repoRoot string,
-) ([]DriftIssue, error) {
-	// Build page summary lines for the initial prompt.
-	var pageSummaries []string
-	for _, url := range pages {
-		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
-	}
-
-	var findings []DriftIssue
-	tools := []Tool{
-		readFileTool(repoRoot),
-		readPageTool(pageReader),
-		addFindingTool(&findings),
-	}
-
-	// PROMPT: Reviews documentation accuracy for one feature using tool calls to read source files and cached doc pages. The agent reports each issue as it finds it via add_finding, then ends the conversation with a plain-text confirmation.
-	systemPrompt := fmt.Sprintf(`You are reviewing documentation accuracy for a software feature.
-
-Feature: %s
-Code description: %s
-Implemented in: %s
-Symbols: %s
-
-Documentation pages:
-%s
-
-You have tools available to read source files and documentation pages in full.
-Use them to investigate as needed before producing your findings.
-
-Identify specific inaccuracies, missing information, or outdated content in the
-documentation relative to what the code actually does. This includes:
-- Features or behaviors documented but no longer present in code
-- Parameters, fields, or requirements not mentioned in docs
-- Incorrect descriptions of how something works
-- Any other misleading or stale content
-
-Do NOT flag entire features as undocumented — only report inaccuracies or gaps
-within documentation that already exists for this feature.
-
-Express each finding as documentation feedback — describe what is wrong or
-missing in the docs, not what the code does. One finding per specific issue.
-
-Each time you identify a documentation issue, call the add_finding tool with the
-"page" (URL or empty string) and "issue" (one or two sentences). Call
-add_finding once per issue. When you have no more issues to report, reply with
-plain text confirming you are done (e.g. "done"). If you find no issues, reply
-with plain text immediately without calling add_finding at all.`,
-		entry.Feature.Name,
-		entry.Feature.Description,
-		strings.Join(entry.Files, ", "),
-		strings.Join(entry.Symbols, ", "),
-		strings.Join(pageSummaries, "\n"),
-	)
-
-	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
-
-	budget := budgetForFeature(len(entry.Files), len(pages))
-	log.Infof("  checking drift for feature %q (%d files, %d pages, budget %d rounds)",
-		entry.Feature.Name, len(entry.Files), len(pages), budget)
-	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(budget))
-	if errors.Is(err, ErrMaxRounds) {
-		log.Warnf("drift agent exceeded budget of %d rounds for feature %q (%d files, %d pages); returning %d accumulated findings",
-			budget, entry.Feature.Name, len(entry.Files), len(pages), len(findings))
-		return findings, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	return findings, nil
 }
 
@@ -260,36 +188,201 @@ func readPageTool(pageReader func(url string) (string, error)) Tool {
 	}
 }
 
-// addFindingTool returns a Tool that appends each LLM-reported drift issue to
-// out. Bad arguments are reported back to the LLM as a tool result string so
-// the loop continues; only catastrophic errors would abort.
-func addFindingTool(out *[]DriftIssue) Tool {
+// driftObservation is one piece of evidence the investigator surfaces for the
+// judge to adjudicate. Both quotes are required and must be verbatim — they are
+// the entire input the judge sees about this candidate.
+type driftObservation struct {
+	Page      string `json:"page"`
+	DocQuote  string `json:"doc_quote"`
+	CodeQuote string `json:"code_quote"`
+	Concern   string `json:"concern"`
+}
+
+// noteObservationTool returns a Tool that appends each LLM-recorded observation
+// to out. Bad arguments are reported back to the LLM as a tool result string so
+// the loop continues.
+func noteObservationTool(out *[]driftObservation) Tool {
 	return Tool{
-		Name:        "add_finding",
-		Description: "Record one documentation accuracy issue. Call once per distinct issue. When you have no more issues to report, reply with plain text instead of calling this tool.",
+		Name:        "note_observation",
+		Description: "Record one piece of evidence about possible documentation drift. Both doc_quote and code_quote must be verbatim. Call once per distinct observation. When you have nothing more to record, reply with plain text.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"page": map[string]any{
-					"type":        "string",
-					"description": "URL of the doc page the issue refers to, or empty string if page-agnostic.",
-				},
-				"issue": map[string]any{
-					"type":        "string",
-					"description": "One or two sentences describing the documentation issue.",
-				},
+				"page":       map[string]any{"type": "string", "description": "Doc page URL the observation refers to, or empty string if page-agnostic."},
+				"doc_quote":  map[string]any{"type": "string", "description": "Verbatim passage from the docs."},
+				"code_quote": map[string]any{"type": "string", "description": "Verbatim excerpt from the source code."},
+				"concern":    map[string]any{"type": "string", "description": "One sentence: what looks off."},
 			},
-			"required": []string{"page", "issue"},
+			"required": []string{"page", "doc_quote", "code_quote", "concern"},
 		},
 		Execute: func(_ context.Context, rawArgs string) (string, error) {
-			var f DriftIssue
-			if err := json.Unmarshal([]byte(rawArgs), &f); err != nil {
+			var o driftObservation
+			if err := json.Unmarshal([]byte(rawArgs), &o); err != nil {
 				return fmt.Sprintf("invalid arguments: %v", err), nil
 			}
-			*out = append(*out, f)
+			*out = append(*out, o)
 			return "recorded", nil
 		},
 	}
+}
+
+// investigateFeatureDrift runs the agent loop with read_file, read_page, and
+// note_observation tools, returning the raw observations the LLM surfaced. It
+// gathers evidence; the judge stage adjudicates separately.
+func investigateFeatureDrift(
+	ctx context.Context,
+	client ToolLLMClient,
+	entry FeatureEntry,
+	pages []string,
+	pageReader func(url string) (string, error),
+	repoRoot string,
+) ([]driftObservation, error) {
+	var pageSummaries []string
+	for _, url := range pages {
+		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
+	}
+
+	var observations []driftObservation
+	tools := []Tool{
+		readFileTool(repoRoot),
+		readPageTool(pageReader),
+		noteObservationTool(&observations),
+	}
+
+	// PROMPT: Investigates a feature for documentation drift by reading source files and doc pages, recording each piece of evidence via note_observation. The investigator gathers; it does not adjudicate.
+	systemPrompt := fmt.Sprintf(`You are investigating documentation accuracy for a software feature.
+
+Feature: %s
+Code description: %s
+Implemented in: %s
+Symbols: %s
+
+Documentation pages:
+%s
+
+You have tools available to read source files and documentation pages in full.
+Use them to investigate as needed.
+
+Your job is to surface candidate documentation drift. For each thing that
+*might* be wrong or missing in the docs, call note_observation with:
+- page: the doc URL (or empty string)
+- doc_quote: the exact passage from the docs that concerns you
+- code_quote: the exact excerpt from the source code that contradicts or
+  is missing from the docs
+- concern: one sentence describing what looks off
+
+Quote verbatim. Include enough context in code_quote that someone reading
+just the observation can understand the contradiction (e.g. include the full
+function signature line, not just an identifier).
+
+Do not decide whether something IS drift — just record what looks suspicious.
+A reviewer will adjudicate later.
+
+When you have nothing more to record, reply with plain text (e.g. "done").
+If you find nothing suspicious, reply with plain text immediately without
+calling note_observation at all.`,
+		entry.Feature.Name,
+		entry.Feature.Description,
+		strings.Join(entry.Files, ", "),
+		strings.Join(entry.Symbols, ", "),
+		strings.Join(pageSummaries, "\n"),
+	)
+
+	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
+
+	budget := budgetForFeature(len(entry.Files), len(pages))
+	log.Infof("  investigating drift for feature %q (%d files, %d pages, budget %d rounds)",
+		entry.Feature.Name, len(entry.Files), len(pages), budget)
+	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(budget))
+	if errors.Is(err, ErrMaxRounds) {
+		log.Warnf("drift investigator exceeded budget of %d rounds for feature %q (%d files, %d pages); handing %d observations to judge",
+			budget, entry.Feature.Name, len(entry.Files), len(pages), len(observations))
+		return observations, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return observations, nil
+}
+
+// judgeSchema is the structured-output contract for judgeFeatureDrift. The
+// judge returns an "issues" array of {page, issue} objects (the DriftIssue
+// shape); an empty array means "every observation was a false alarm".
+var judgeSchema = JSONSchema{
+	Name: "drift_judge_issues",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page":  {"type": "string"},
+              "issue": {"type": "string"}
+            },
+            "required": ["page", "issue"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["issues"],
+      "additionalProperties": false
+    }`),
+}
+
+// judgeResponse mirrors judgeSchema for unmarshaling.
+type judgeResponse struct {
+	Issues []DriftIssue `json:"issues"`
+}
+
+// judgeFeatureDrift adjudicates the investigator's observations for one feature
+// in a single non-tool CompleteJSON call. With zero observations it short-
+// circuits and returns nil without calling the LLM.
+func judgeFeatureDrift(
+	ctx context.Context,
+	client LLMClient,
+	feature CodeFeature,
+	observations []driftObservation,
+) ([]DriftIssue, error) {
+	if len(observations) == 0 {
+		return nil, nil
+	}
+
+	var b strings.Builder
+	for i, o := range observations {
+		fmt.Fprintf(&b, "[%d] page: %s\n    docs say: %q\n    code shows: %q\n    concern: %s\n",
+			i+1, o.Page, o.DocQuote, o.CodeQuote, o.Concern)
+	}
+
+	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, merging duplicates, and emitting actionable documentation feedback as DriftIssues.
+	prompt := fmt.Sprintf(`You are reviewing candidate documentation drift observations for one software feature.
+
+Feature: %s
+Description: %s
+
+Candidate drift observations from investigation:
+%s
+
+For each observation, decide: real drift, false alarm, or duplicate of another.
+Emit one DriftIssue per real drift. Merge duplicates into a single issue.
+Drop false alarms entirely.
+
+Each emitted issue must be actionable documentation feedback — describe what
+is wrong or missing in the docs, not what the code does. One or two sentences.
+
+If every observation is a false alarm, emit an empty "issues" array.`,
+		feature.Name, feature.Description, b.String())
+
+	raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
+	if err != nil {
+		return nil, fmt.Errorf("judgeFeatureDrift %q: %w", feature.Name, err)
+	}
+	var resp judgeResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("judgeFeatureDrift %q: invalid JSON response: %w", feature.Name, err)
+	}
+	return resp.Issues, nil
 }
 
 // releaseNotePatterns are URL path segments that identify changelog/release-note
