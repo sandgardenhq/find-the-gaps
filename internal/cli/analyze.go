@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -103,7 +105,6 @@ func newAnalyzeCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("invalid --site-mode %q (want \"mirror\" or \"expanded\")", siteMode)
 			}
-			_ = siteModeVal // wired up in next task
 
 			projectName := filepath.Base(filepath.Clean(repoPath))
 			projectDir := filepath.Join(cacheDir, projectName)
@@ -380,14 +381,49 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			// Build the Hugo site unless --no-site.
+			if !noSite {
+				err := site.Build(ctx,
+					site.Inputs{
+						Summary:        productSummary,
+						Mapping:        featureMap,
+						DocsMap:        docsFeatureMap,
+						AllDocFeatures: docCoveredFeatures,
+						Drift:          driftFindings,
+						Screenshots:    screenshotGaps,
+						ScreenshotsRan: !skipScreenshotCheck,
+					},
+					site.BuildOptions{
+						ProjectDir:  projectDir,
+						ProjectName: projectName,
+						KeepSource:  keepSiteSource,
+						Mode:        siteModeVal,
+						GeneratedAt: time.Now(),
+					})
+				if err != nil {
+					if errors.Is(err, site.ErrHugoMissing) {
+						return fmt.Errorf("hugo not found on PATH; install via `find-the-gaps install-deps` or `brew install hugo`, or pass --no-site to skip site generation")
+					}
+					return fmt.Errorf("build site: %w", err)
+				}
+			}
+
 			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
 			if skipScreenshotCheck {
 				screenshotsLine += " (skipped)"
 			}
+			siteLine := "  " + projectDir + "/site/"
+			if noSite {
+				siteLine += " (skipped)"
+			}
+			extraLine := ""
+			if keepSiteSource && !noSite {
+				extraLine = "\n  " + projectDir + "/site-src/"
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n  %s/gaps.md\n%s\n",
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n  %s/gaps.md\n%s\n%s%s\n",
 				len(scan.Files), len(pages), len(featureMap),
-				projectDir, projectDir, screenshotsLine)
+				projectDir, projectDir, screenshotsLine, siteLine, extraLine)
 
 			return nil
 		},
