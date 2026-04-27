@@ -22,21 +22,6 @@ type driftStubClient struct {
 	completeFunc func(ctx context.Context, prompt string) (string, error)
 }
 
-// addFinding builds a ChatMessage that invokes the add_finding tool with one
-// drift issue. Test helper retained because the legacy add_finding tool is
-// still defined on drift.go (Task 5 deletes it). New tests use noteObservation.
-//
-//nolint:unused // paired with addFindingTool; deleted in the next refactor task
-func addFinding(issue analyzer.DriftIssue) analyzer.ChatMessage {
-	args, _ := json.Marshal(issue)
-	return analyzer.ChatMessage{
-		Role: "assistant",
-		ToolCalls: []analyzer.ToolCall{
-			{ID: "add_" + issue.Issue, Name: "add_finding", Arguments: string(args)},
-		},
-	}
-}
-
 // noteObservation builds a ChatMessage that invokes note_observation with one
 // observation. Test helper.
 func noteObservation(page, docQuote, codeQuote, concern string) analyzer.ChatMessage {
@@ -644,12 +629,12 @@ func TestDetectDrift_MaxRoundsExceeded_PartialFindingsReturnedAndContinues(t *te
 		Role:      "assistant",
 		ToolCalls: []analyzer.ToolCall{{ID: "call_inf", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
 	}
-	// Feature "auth": 1 note_observation (round 1) + 29 tool calls (rounds 2..30),
-	// exhausting the budget after round 30 with one accumulated observation.
+	// Feature "auth": 1 note_observation (round 1) + 49 tool calls (rounds 2..50),
+	// exhausting the budget after round 50 with one accumulated observation.
 	// Feature "search": 1 note_observation + 1 driftDone (loop exits cleanly).
-	responses := make([]analyzer.ChatMessage, 0, 32)
+	responses := make([]analyzer.ChatMessage, 0, 52)
 	responses = append(responses, noteObservation("", "doc says auth", "code does auth", "partial auth issue"))
-	for i := 0; i < 29; i++ {
+	for i := 0; i < 49; i++ {
 		responses = append(responses, toolCallResponse)
 	}
 	responses = append(responses, noteObservation("", "doc says search", "code does search", "issue for search"))

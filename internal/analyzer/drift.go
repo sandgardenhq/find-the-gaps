@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const driftMaxRounds = 30
+const driftMaxRounds = 50
 
 // DriftProgressFunc is called after each feature's findings are appended to the
 // accumulated slice. It receives the full accumulated slice so far. Return a
@@ -92,85 +92,6 @@ func DetectDrift(
 		}
 	}
 
-	return findings, nil
-}
-
-// detectDriftForFeature is the legacy single-stage drift agent. It is no longer
-// wired into DetectDrift (Task 4 replaced it with investigateFeatureDrift +
-// judgeFeatureDrift) but remains in the file until Task 5 deletes it, to keep
-// the wiring change isolated and trivially revertible.
-//
-//nolint:unused // scheduled for deletion in the next refactor task
-func detectDriftForFeature(
-	ctx context.Context,
-	client ToolLLMClient,
-	entry FeatureEntry,
-	pages []string,
-	pageReader func(url string) (string, error),
-	repoRoot string,
-) ([]DriftIssue, error) {
-	// Build page summary lines for the initial prompt.
-	var pageSummaries []string
-	for _, url := range pages {
-		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
-	}
-
-	var findings []DriftIssue
-	tools := []Tool{
-		readFileTool(repoRoot),
-		readPageTool(pageReader),
-		addFindingTool(&findings),
-	}
-
-	// PROMPT: Reviews documentation accuracy for one feature using tool calls to read source files and cached doc pages. The agent reports each issue as it finds it via add_finding, then ends the conversation with a plain-text confirmation.
-	systemPrompt := fmt.Sprintf(`You are reviewing documentation accuracy for a software feature.
-
-Feature: %s
-Code description: %s
-Implemented in: %s
-Symbols: %s
-
-Documentation pages:
-%s
-
-You have tools available to read source files and documentation pages in full.
-Use them to investigate as needed before producing your findings.
-
-Identify specific inaccuracies, missing information, or outdated content in the
-documentation relative to what the code actually does. This includes:
-- Features or behaviors documented but no longer present in code
-- Parameters, fields, or requirements not mentioned in docs
-- Incorrect descriptions of how something works
-- Any other misleading or stale content
-
-Do NOT flag entire features as undocumented — only report inaccuracies or gaps
-within documentation that already exists for this feature.
-
-Express each finding as documentation feedback — describe what is wrong or
-missing in the docs, not what the code does. One finding per specific issue.
-
-Each time you identify a documentation issue, call the add_finding tool with the
-"page" (URL or empty string) and "issue" (one or two sentences). Call
-add_finding once per issue. When you have no more issues to report, reply with
-plain text confirming you are done (e.g. "done"). If you find no issues, reply
-with plain text immediately without calling add_finding at all.`,
-		entry.Feature.Name,
-		entry.Feature.Description,
-		strings.Join(entry.Files, ", "),
-		strings.Join(entry.Symbols, ", "),
-		strings.Join(pageSummaries, "\n"),
-	)
-
-	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
-
-	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(driftMaxRounds))
-	if errors.Is(err, ErrMaxRounds) {
-		log.Warnf("drift agent exceeded %d rounds for feature %q; returning %d accumulated findings", driftMaxRounds, entry.Feature.Name, len(findings))
-		return findings, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	return findings, nil
 }
 
@@ -433,40 +354,6 @@ If every observation is a false alarm, emit an empty "issues" array.`,
 		return nil, fmt.Errorf("judgeFeatureDrift %q: invalid JSON response: %w", feature.Name, err)
 	}
 	return resp.Issues, nil
-}
-
-// addFindingTool returns a Tool that appends each LLM-reported drift issue to
-// out. Bad arguments are reported back to the LLM as a tool result string so
-// the loop continues; only catastrophic errors would abort.
-//
-//nolint:unused // paired with detectDriftForFeature; deleted in the next refactor task
-func addFindingTool(out *[]DriftIssue) Tool {
-	return Tool{
-		Name:        "add_finding",
-		Description: "Record one documentation accuracy issue. Call once per distinct issue. When you have no more issues to report, reply with plain text instead of calling this tool.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"page": map[string]any{
-					"type":        "string",
-					"description": "URL of the doc page the issue refers to, or empty string if page-agnostic.",
-				},
-				"issue": map[string]any{
-					"type":        "string",
-					"description": "One or two sentences describing the documentation issue.",
-				},
-			},
-			"required": []string{"page", "issue"},
-		},
-		Execute: func(_ context.Context, rawArgs string) (string, error) {
-			var f DriftIssue
-			if err := json.Unmarshal([]byte(rawArgs), &f); err != nil {
-				return fmt.Sprintf("invalid arguments: %v", err), nil
-			}
-			*out = append(*out, f)
-			return "recorded", nil
-		},
-	}
 }
 
 // releaseNotePatterns are URL path segments that identify changelog/release-note
