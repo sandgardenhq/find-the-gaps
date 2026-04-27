@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"text/template"
+	"time"
 )
 
 // hugoConfigData drives renderHugoConfig.
@@ -55,6 +56,57 @@ func renderHugoConfig(data hugoConfigData) (string, error) {
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "hugo.toml.tmpl", view); err != nil {
 		return "", fmt.Errorf("render hugo.toml: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// homeData drives renderHome.
+//
+// Mode is translated into the Expanded boolean flag at render time so that
+// templates can compare against named semantics (`{{ if .Expanded }}`) rather
+// than rely on integer values of the Mode iota — which would silently break
+// if Mode constants are ever reordered.
+type homeData struct {
+	ProjectName           string
+	GeneratedAt           time.Time
+	Summary               string
+	FeatureCount          int
+	UndocumentedUserCount int
+	DriftCount            int
+	ScreenshotGapCount    int
+	ScreenshotsRan        bool
+	Mode                  Mode
+}
+
+// homeView is the data shape templates actually see. It carries the derived
+// Expanded flag so templates never branch on raw Mode values.
+type homeView struct {
+	ProjectName           string
+	GeneratedAt           time.Time
+	Summary               string
+	FeatureCount          int
+	UndocumentedUserCount int
+	DriftCount            int
+	ScreenshotGapCount    int
+	ScreenshotsRan        bool
+	Expanded              bool
+}
+
+func renderHome(d homeData) (string, error) {
+	view := homeView{
+		ProjectName:           d.ProjectName,
+		GeneratedAt:           d.GeneratedAt,
+		Summary:               d.Summary,
+		FeatureCount:          d.FeatureCount,
+		UndocumentedUserCount: d.UndocumentedUserCount,
+		DriftCount:            d.DriftCount,
+		ScreenshotGapCount:    d.ScreenshotGapCount,
+		ScreenshotsRan:        d.ScreenshotsRan,
+		Expanded:              d.Mode == ModeExpanded,
+	}
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "home.md.tmpl", view); err != nil {
+		return "", fmt.Errorf("render home: %w", err)
 	}
 	return buf.String(), nil
 }
