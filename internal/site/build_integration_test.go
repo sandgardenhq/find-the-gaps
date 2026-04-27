@@ -66,6 +66,51 @@ func TestBuildKeepSourcePersists(t *testing.T) {
 	}
 }
 
+// TestBuildRelativeProjectDirWritesToExpectedPath guards against a regression
+// where hugo's --destination was relative and got resolved against --source,
+// causing the rendered site to land inside the temp source dir and be silently
+// deleted on cleanup. analyze.go uses ".find-the-gaps/<repo>" by default — a
+// relative path — so this is the production case.
+func TestBuildRelativeProjectDirWritesToExpectedPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires hugo on $PATH")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+
+	relPD := ".cache/proj"
+	if err := os.MkdirAll(relPD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+		if err := os.WriteFile(filepath.Join(relPD, name), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = Build(context.Background(), Inputs{
+		Mapping:        analyzer.FeatureMap{{Feature: analyzer.CodeFeature{Name: "f"}}},
+		ScreenshotsRan: true,
+	}, BuildOptions{
+		ProjectDir:  relPD,
+		ProjectName: "proj",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Build err: %v", err)
+	}
+	idx := filepath.Join(relPD, "site", "index.html")
+	if _, err := os.Stat(idx); err != nil {
+		t.Fatalf("expected site at %s after Build with relative ProjectDir; got: %v", idx, err)
+	}
+}
+
 func TestBuildExpandedFeaturePagesRendered(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires hugo on $PATH")

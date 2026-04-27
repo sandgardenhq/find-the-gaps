@@ -94,9 +94,21 @@ func Build(ctx context.Context, in Inputs, opts BuildOptions) error {
 		return fmt.Errorf("clean dest: %w", err)
 	}
 
+	// Hugo resolves a relative --destination against --source, so passing a
+	// relative dest writes the site inside srcDir (and gets cleaned up with it
+	// on success). Always pass absolute paths.
+	absSrc, err := filepath.Abs(srcDir)
+	if err != nil {
+		return fmt.Errorf("abs source: %w", err)
+	}
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return fmt.Errorf("abs dest: %w", err)
+	}
+
 	cmd := exec.CommandContext(ctx, HugoBin,
-		"--source", srcDir,
-		"--destination", dest,
+		"--source", absSrc,
+		"--destination", absDest,
 		"--minify",
 		"--quiet",
 		"--baseURL", "/",
