@@ -102,7 +102,6 @@ func DetectDrift(
 			continue
 		}
 
-		log.Infof("  checking drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
 		issues, err := detectDriftForFeature(ctx, toolClient, entry, pages, pageReader, repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
@@ -183,9 +182,12 @@ with plain text immediately without calling add_finding at all.`,
 	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
 
 	budget := budgetForFeature(len(entry.Files), len(pages))
+	log.Infof("  checking drift for feature %q (%d files, %d pages, budget %d rounds)",
+		entry.Feature.Name, len(entry.Files), len(pages), budget)
 	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(budget))
 	if errors.Is(err, ErrMaxRounds) {
-		log.Warnf("drift agent exceeded %d rounds for feature %q; returning %d accumulated findings", driftMaxRounds, entry.Feature.Name, len(findings))
+		log.Warnf("drift agent exceeded budget of %d rounds for feature %q (%d files, %d pages); returning %d accumulated findings",
+			budget, entry.Feature.Name, len(entry.Files), len(pages), len(findings))
 		return findings, nil
 	}
 	if err != nil {
