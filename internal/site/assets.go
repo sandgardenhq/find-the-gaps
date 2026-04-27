@@ -2,7 +2,7 @@ package site
 
 import "embed"
 
-//go:embed assets/theme/hextra
+//go:embed all:assets/theme/hextra
 var themeFS embed.FS
 
 //go:embed all:assets/templates
