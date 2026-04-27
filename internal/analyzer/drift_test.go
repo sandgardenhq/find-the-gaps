@@ -610,3 +610,26 @@ func TestDetectDrift_LargeWithoutToolSupport_Errors(t *testing.T) {
 	assert.Contains(t, err.Error(), "tool use")
 	assert.Contains(t, err.Error(), "large")
 }
+
+func TestBudgetForFeature(t *testing.T) {
+	cases := []struct {
+		name         string
+		files, pages int
+		want         int
+	}{
+		{"minimum", 1, 1, 10},
+		{"medium", 8, 4, 20},
+		{"grows past old cap", 15, 10, 33},
+		{"large but uncapped", 40, 30, 78},
+		{"one below ceiling", 45, 46, 99},
+		{"exactly at ceiling", 46, 46, 100},
+		{"clamped above ceiling", 60, 50, 100},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := analyzer.ExportedBudgetForFeature(tc.files, tc.pages)
+			assert.Equal(t, tc.want, got, "budgetForFeature(%d, %d)", tc.files, tc.pages)
+		})
+	}
+}
