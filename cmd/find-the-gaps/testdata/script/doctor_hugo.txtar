@@ -1,0 +1,38 @@
+# doctor reports both mdfetch and hugo versions when both are on PATH, and
+# emits a clear install hint when hugo is broken.
+#
+# Note: $WORK/bin is prepended to PATH so the fakes shadow any real binary.
+# We can't fully scrub PATH here because testscript's registered-command
+# directory must remain on PATH for `exec ftg` to resolve.
+
+# Case 1: both fakes work; assert each tool's version line is present.
+chmod 755 bin/mdfetch
+chmod 755 bin/hugo
+env PATH=$WORK/bin:$PATH
+exec ftg doctor
+stdout 'mdfetch'
+stdout 'hugo'
+stdout 'hugo v0\.154\.5'
+! stderr .
+
+# Case 2: shadow hugo with a script that exits non-zero. Doctor must exit
+# non-zero and stderr must name hugo + the brew install hint. (The same
+# install-hint stderr line is emitted whether hugo is missing entirely or
+# the version probe fails — that user-visible signal is what we assert.)
+cp bin/hugo-broken bin/hugo
+chmod 755 bin/hugo
+env PATH=$WORK/bin:$PATH
+! exec ftg doctor
+stderr 'hugo'
+stderr 'brew install hugo'
+
+-- bin/mdfetch --
+#!/bin/sh
+echo "mdfetch 42.0.0"
+-- bin/hugo --
+#!/bin/sh
+echo "hugo v0.154.5+extended linux/amd64 BuildDate=unknown"
+-- bin/hugo-broken --
+#!/bin/sh
+echo "boom" 1>&2
+exit 99

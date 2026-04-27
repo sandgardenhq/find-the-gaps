@@ -1,0 +1,70 @@
+# goreleaser config for find-the-gaps.
+#
+# NOTE: as of this commit the active release pipeline is the hand-rolled
+# .github/workflows/release.yml (which uses `go build` + `gh release create`).
+# This file declares the eventual goreleaser pipeline that will replace it,
+# and — critically — is the canonical place where the Homebrew formula's
+# runtime dependencies (mdfetch, hugo) live. CLAUDE.md commits the project
+# to goreleaser; this config makes that commitment concrete.
+version: 2
+
+project_name: find-the-gaps
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ftg
+    binary: ftg
+    main: ./cmd/find-the-gaps
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/sandgardenhq/find-the-gaps/internal/cli.version={{.Version}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: ftg
+    formats: [tar.gz]
+    name_template: "find-the-gaps_{{ .Tag }}_{{ .Os }}-{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github-native
+
+brews:
+  - name: find-the-gaps
+    repository:
+      owner: sandgardenhq
+      name: homebrew-tap
+    directory: Formula
+    homepage: https://github.com/sandgardenhq/find-the-gaps
+    description: Find outdated or missing documentation in a codebase.
+    license: MIT
+    install: |
+      bin.install "ftg"
+    test: |
+      system "#{bin}/ftg", "--version"
+    dependencies:
+      - name: britt/tap/mdfetch
+      - name: hugo
+    caveats: |
+      Find the Gaps shells out to `mdfetch` (docs ingestion) and `hugo`
+      (static site rendering). Both were installed as dependencies of
+      this formula. Run `ftg doctor` to verify both are reachable.

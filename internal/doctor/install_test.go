@@ -115,6 +115,7 @@ func TestRunInstall_InstallFails_ReturnsOne(t *testing.T) {
 func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.0.0")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
 	t.Setenv("PATH", dir)
 
 	var stdout, stderr bytes.Buffer
@@ -124,6 +125,29 @@ func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "already installed") {
 		t.Errorf("stdout missing 'already installed'; got %q", stdout.String())
+	}
+}
+
+func TestRequiredTools_HugoCoversDarwinAndLinux(t *testing.T) {
+	var hugo *Tool
+	for i := range RequiredTools {
+		if RequiredTools[i].Name == "hugo" {
+			hugo = &RequiredTools[i]
+			break
+		}
+	}
+	if hugo == nil {
+		t.Fatal("hugo entry missing from RequiredTools")
+	}
+	for _, goos := range []string{"darwin", "linux"} {
+		cmd, ok := hugo.InstallCmds[goos]
+		if !ok {
+			t.Errorf("hugo InstallCmds missing entry for %q", goos)
+			continue
+		}
+		if len(cmd) == 0 {
+			t.Errorf("hugo InstallCmds[%q] is empty", goos)
+		}
 	}
 }
 
@@ -137,4 +161,3 @@ func TestDefaultRunner_RunsCommand(t *testing.T) {
 		t.Errorf("expected stdout to contain 'hello', got %q", stdout.String())
 	}
 }
-

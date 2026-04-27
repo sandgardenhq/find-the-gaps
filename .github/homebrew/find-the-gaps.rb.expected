@@ -38,10 +38,12 @@ class FindTheGaps < Formula
 
   def caveats
     <<~EOS
-      find-the-gaps also needs `mdfetch` (npm package @sandgarden/mdfetch).
-      It was installed into Node's global prefix during post_install.
-      `brew uninstall find-the-gaps` will NOT remove mdfetch — run
-      `npm uninstall -g @sandgarden/mdfetch` if you want it gone.
+      find-the-gaps shells out to two external tools, both installed during post_install:
+        • mdfetch (npm package @sandgarden/mdfetch) — installed into Node's global prefix
+        • hugo (Homebrew formula) — installed via `brew install hugo`
+      `brew uninstall find-the-gaps` will NOT remove either. To clean up:
+        npm uninstall -g @sandgarden/mdfetch
+        brew uninstall hugo
       Verify with: ftg doctor
     EOS
   end

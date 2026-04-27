@@ -1,0 +1,31 @@
++++
+title = "{{ .ProjectName }}"
+type = "docs"
++++
+
+# {{ .ProjectName }}
+
+{{ if .Summary }}{{ .Summary }}{{ end }}
+
+_Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}_
+
+## At a glance
+
+- **{{ .FeatureCount }} features**
+- **{{ .UndocumentedUserCount }} undocumented (user-facing)**
+- **{{ .DriftCount }} drift findings**
+{{- if .ScreenshotsRan }}
+- **{{ .ScreenshotGapCount }} missing screenshots**
+{{- end }}
+
+## Sections
+
+{{ if .Expanded -}}
+- [Features](/features/)
+{{- else -}}
+- [Mapping](/mapping/)
+{{- end }}
+- [Gaps](/gaps/)
+{{- if .ScreenshotsRan }}
+- [Screenshots](/screenshots/)
+{{- end }}
