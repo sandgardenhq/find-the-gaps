@@ -155,23 +155,26 @@ Before any scenario runs:
 
 ### Scenario 8: Homebrew Install
 
-**Context**: Verify the published Homebrew formula installs cleanly with all dependencies.
+**Context**: Verify the published Homebrew formula installs cleanly. The formula does NOT declare `mdfetch` as a brew dependency; instead, its `post_install` step shells out to `ftg install-deps`, which installs `mdfetch` via `npm`. Brew pulls in `node` automatically because the formula declares `depends_on "node"`.
 
 **Steps**:
-1. On a machine without `find-the-gaps` or `mdfetch` installed (or a fresh VM / clean `brew` test sandbox), run `brew install <tap>/find-the-gaps`.
-2. Observe brew's output.
-3. Run `find-the-gaps --version`.
+1. On a machine without `find-the-gaps` or `mdfetch` installed (or a fresh VM / clean `brew` test sandbox), run `brew install sandgardenhq/tap/find-the-gaps`.
+2. Observe brew's output, including the post-install step and the caveats block.
+3. Run `ftg --version`.
 4. Run `mdfetch --version`.
-5. Run `find-the-gaps doctor`.
+5. Run `ftg doctor`.
+6. Verify both macOS and Linux: repeat steps 1–5 on a Linux machine with Homebrew installed.
 
 **Success Criteria**:
-- [ ] `brew install` completes successfully and installs `mdfetch` as a dependency.
-- [ ] The caveats block about the external tool is printed.
-- [ ] `find-the-gaps --version` returns the installed version.
+- [ ] `brew install` completes successfully on macOS and on Linux.
+- [ ] Brew installs `node` as a dependency (visible in the install plan).
+- [ ] `post_install` runs and prints the same output as `ftg install-deps` (mdfetch installed if missing, or "already present" message if a system Node already had it).
+- [ ] The caveats block prints the `mdfetch` notice — including the `brew uninstall` warning and the `ftg doctor` hint.
+- [ ] `ftg --version` returns the version that matches the formula's declared `version`.
 - [ ] `mdfetch --version` succeeds.
-- [ ] `find-the-gaps doctor` exits `0` and reports `mdfetch` present.
+- [ ] `ftg doctor` exits `0` and reports `mdfetch` present.
 
-**If Blocked**: If brew fails to resolve the `mdfetch` dependency (tap path issue), stop and ask before adjusting the formula live.
+**If Blocked**: If `post_install` fails (for example, Node's `npm` is sandboxed away from the brew shell, or the npm registry is unreachable), capture the full brew install log and ask before adjusting the formula live. Do NOT silently re-add a brew `depends_on "mdfetch"` line — there is no such formula today.
 
 ---
 
@@ -196,7 +199,34 @@ Before any scenario runs:
 
 ---
 
-### Scenario 10: Hugo Site Output
+### Scenario 10: GitHub Action
+
+**Context**: Verify the composite action installs binaries, runs analysis, uploads the artifact, and manages the tracking issue per spec.
+
+**Steps**:
+1. Tag a release of this repo (or use the most recent published tag).
+2. In a fixture GitHub repository, add a workflow that calls `sandgardenhq/find-the-gaps@<tag>` with a real `docs-url`, `ANTHROPIC_API_KEY` secret, `create-issue: 'true'`.
+3. Trigger the workflow via `workflow_dispatch`.
+4. Wait for completion. Inspect: artifact, issues tab, run logs.
+5. Manually edit the fixture repo to introduce a new exported function (mirrors Scenario 2).
+6. Re-trigger the workflow.
+7. Inspect the issue (should be edited, not duplicated).
+8. Close the issue manually.
+9. Re-trigger the workflow.
+10. Inspect issues tab. The closed issue from step 8 should remain closed. A new open issue should exist with the latest findings.
+11. Re-run with `create-issue: 'false'`. Confirm artifact only.
+
+**Success Criteria**:
+- [ ] Step 4: artifact `find-the-gaps-report-<run_id>` is uploaded; issue exists with label `find-the-gaps` and the expected title; run exits `0`.
+- [ ] Step 7: same issue number as step 4, body updated to reflect step-5 change.
+- [ ] Step 10: a NEW issue is created (with `find-the-gaps` label, fresh number); the closed issue from step 8 remains closed/untouched. Confirm exactly one OPEN issue exists at the end.
+- [ ] Step 11: no issue created or modified; only the artifact is produced.
+
+**If Blocked**: If the action fails to download the release binary, capture the URL it tried and ask the developer — the asset-naming convention may have drifted.
+
+---
+
+### Scenario 11: Hugo Site Output
 
 **Context**: Verify the analyze command produces a deployable Hugo site in both `mirror` and `expanded` modes, and that all flag combinations behave as documented.
 

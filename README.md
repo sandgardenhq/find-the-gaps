@@ -45,6 +45,16 @@ Run `ftg doctor` at any time to check that they are available and see their dete
 
 ## Install
 
+### Homebrew (macOS and Linux)
+
+```sh
+brew install sandgardenhq/tap/find-the-gaps
+```
+
+The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs `ftg install-deps` during post-install to fetch `mdfetch` from npm. Run `ftg doctor` after install to confirm everything is wired up.
+
+### Other platforms
+
 ```sh
 go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest
 ```
@@ -182,6 +192,54 @@ Global Flags:
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
 - **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. Written whenever the screenshot pass runs (zero findings produces a `_None found._` body). Not written when `--skip-screenshot-check` is passed.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
+
+## Use as a GitHub Action
+
+Find the Gaps ships as a composite GitHub Action so maintainers can run audits
+on a schedule, before a release, or on demand — without installing anything
+locally.
+
+### Quickstart
+
+```yaml
+- uses: actions/checkout@v6
+- uses: sandgardenhq/find-the-gaps@v1
+  with:
+    docs-url: https://docs.example.com
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### Inputs
+
+| Name | Required | Default | Description |
+|---|---|---|---|
+| `docs-url` | yes | — | URL of the live documentation site |
+| `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
+| `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
+| `skip-screenshot-check` | no | `false` | Skip screenshot-gap detection |
+
+### Outputs
+
+- **Artifact** (`find-the-gaps-report-<run_id>`): contains `gaps.md` and `screenshots.md`. Always uploaded.
+- **Issue** (when `create-issue=true`): a single open issue labeled `find-the-gaps` is created or updated.
+  - Closed issues are never reopened.
+  - Empty findings: a comment is posted, the issue is not auto-closed.
+
+### Permissions
+
+```yaml
+permissions:
+  contents: read     # for actions/checkout
+  issues: write      # only when create-issue=true
+```
+
+### Runner support
+
+Linux x86_64 only (`runs-on: ubuntu-latest`). The action exits with an error on macOS or Windows runners.
+
+### Examples
+
+See [`docs/examples/`](docs/examples/) for ready-to-copy workflows: schedule, release, manual.
 
 ## Development
 

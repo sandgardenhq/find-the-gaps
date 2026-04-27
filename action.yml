@@ -1,0 +1,135 @@
+name: Find the Gaps
+description: Analyze a repository against its docs site to surface documentation gaps.
+author: Sandgarden
+
+inputs:
+  docs-url:
+    description: URL of the live documentation site to analyze against.
+    required: true
+  anthropic-api-key:
+    description: Anthropic API key. Pass the secrets.ANTHROPIC_API_KEY secret from the calling workflow.
+    required: true
+  create-issue:
+    description: When 'true', open or update a tracking issue with findings.
+    required: false
+    default: 'true'
+  skip-screenshot-check:
+    description: When 'true', skip screenshot-gap detection.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Verify Linux runner
+      shell: bash
+      run: |
+        if [[ "${RUNNER_OS}" != "Linux" ]]; then
+          echo "::error::find-the-gaps action supports linux runners only (got ${RUNNER_OS})"
+          exit 1
+        fi
+
+    - name: Verify Anthropic API key
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        if [[ -z "${ANTHROPIC_API_KEY}" ]]; then
+          echo "::error::anthropic-api-key input is empty; provide via secrets.ANTHROPIC_API_KEY"
+          exit 1
+        fi
+
+    - name: Resolve find-the-gaps version
+      id: ftg-version
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        version=$("${GITHUB_ACTION_PATH}/internal/action/scripts/resolve-version.sh" "${ACTION_REF}")
+        echo "Resolved version: ${version}"
+        echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+    - name: Install find-the-gaps
+      shell: bash
+      env:
+        VERSION: ${{ steps.ftg-version.outputs.version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [[ "${VERSION}" == "latest" ]]; then
+          tag=$(gh release view --repo sandgardenhq/find-the-gaps --json tagName --jq .tagName)
+        else
+          tag="${VERSION}"
+        fi
+        asset="find-the-gaps_${tag}_linux-amd64.tar.gz"
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/install-binary.sh" \
+          "sandgardenhq/find-the-gaps" "${tag}" "${asset}" "${RUNNER_TEMP}/ftg"
+        echo "${RUNNER_TEMP}/ftg" >> "${GITHUB_PATH}"
+
+    - name: Install mdfetch
+      shell: bash
+      run: npm install -g @sandgarden/mdfetch
+
+    - name: Run analyze
+      id: analyze
+      shell: bash
+      env:
+        DOCS_URL: ${{ inputs.docs-url }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        SKIP_SHOTS: ${{ inputs.skip-screenshot-check }}
+        REPO_ABS: ${{ github.workspace }}
+      run: |
+        cache_dir="${RUNNER_TEMP}/ftg-cache"
+        mkdir -p "${cache_dir}"
+        repo_abs="${REPO_ABS}"
+        project_name="$(basename "${repo_abs}")"
+        out_dir="${cache_dir}/${project_name}"
+        flags=()
+        if [[ "${SKIP_SHOTS}" == "true" ]]; then flags+=("--skip-screenshot-check"); fi
+        ftg analyze --repo "${repo_abs}" --docs-url "${DOCS_URL}" --cache-dir "${cache_dir}" "${flags[@]}"
+        echo "out_dir=${out_dir}" >> "${GITHUB_OUTPUT}"
+        if [[ ! -f "${out_dir}/gaps.md" && ! -f "${out_dir}/screenshots.md" ]]; then
+          echo "::error::find-the-gaps action: expected report files at ${out_dir} but found none. The CLI's output convention may have changed; check internal/cli/analyze.go and update action.yml's out_dir computation."
+          exit 1
+        fi
+        findings=$("${GITHUB_ACTION_PATH}/internal/action/scripts/has-findings.sh" \
+          "${out_dir}/gaps.md" \
+          "${out_dir}/screenshots.md")
+        echo "findings=${findings}" >> "${GITHUB_OUTPUT}"
+
+    - name: Upload report artifact
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: find-the-gaps-report-${{ github.run_id }}
+        path: |
+          ${{ steps.analyze.outputs.out_dir }}/gaps.md
+          ${{ steps.analyze.outputs.out_dir }}/screenshots.md
+        if-no-files-found: warn
+
+    - name: Build issue body
+      id: body
+      if: ${{ inputs.create-issue == 'true' }}
+      shell: bash
+      env:
+        RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        COMMIT_SHA: ${{ github.sha }}
+      run: |
+        export RUN_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        body_file="${RUNNER_TEMP}/ftg-issue-body.md"
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/build-issue-body.sh" \
+          "${{ steps.analyze.outputs.out_dir }}/gaps.md" \
+          "${{ steps.analyze.outputs.out_dir }}/screenshots.md" \
+          > "${body_file}"
+        echo "body_file=${body_file}" >> "${GITHUB_OUTPUT}"
+
+    - name: Update tracking issue
+      if: ${{ inputs.create-issue == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        FINDINGS: ${{ steps.analyze.outputs.findings }}
+      run: |
+        "${GITHUB_ACTION_PATH}/internal/action/scripts/update-issue.sh" \
+          "${{ steps.body.outputs.body_file }}" \
+          "${FINDINGS}"

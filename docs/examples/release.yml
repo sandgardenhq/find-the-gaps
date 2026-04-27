@@ -1,0 +1,20 @@
+# docs/examples/release.yml
+# Audit on every version tag; artifact only, no issue.
+name: Pre-release docs check
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: sandgardenhq/find-the-gaps@v1
+        with:
+          docs-url: https://docs.example.com
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          create-issue: 'false'
