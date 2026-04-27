@@ -48,6 +48,12 @@ type ChatMessage struct {
 	Content    string
 	ToolCalls  []ToolCall // set when Role=="assistant" and LLM requests tools
 	ToolCallID string     // set when Role=="tool" (response to a tool call)
+	// CacheBreakpoint marks this message as the last block of a cacheable
+	// prefix. The Bifrost client materializes it into Anthropic's
+	// content-block cache_control during request rendering; other providers
+	// ignore it. The flag lives on the provider-neutral message so callers
+	// don't need to know about Bifrost or Anthropic internals.
+	CacheBreakpoint bool
 }
 
 // ToolHandler runs one tool call. The returned string is sent back to the LLM

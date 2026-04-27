@@ -64,6 +64,13 @@ func TestChatMessage_Fields(t *testing.T) {
 	assert.Equal(t, "user", msg.Role)
 }
 
+func TestChatMessage_CacheBreakpointFieldExists(t *testing.T) {
+	// Compile-time assertion: ChatMessage must carry a CacheBreakpoint flag
+	// for callers to opt a message into prompt caching.
+	m := analyzer.ChatMessage{Role: "user", Content: "x", CacheBreakpoint: true}
+	require.True(t, m.CacheBreakpoint)
+}
+
 func TestScreenshotGap_ZeroValue(t *testing.T) {
 	var g analyzer.ScreenshotGap
 	assert.Equal(t, "", g.PageURL)
