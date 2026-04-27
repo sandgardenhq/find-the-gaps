@@ -45,3 +45,21 @@ func TestResolveSlugsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveSlugsAvoidsLiteralSuffixCollision(t *testing.T) {
+	// A literal name that slugifies to a value matching a previously-emitted
+	// collision suffix must not collapse onto the same slug. With ["Foo", "FOO",
+	// "foo-2"], a base-only counter would assign "foo-2" to BOTH "FOO" (via the
+	// -2 collision suffix) and "foo-2" (literal), causing two features to write
+	// to the same features/foo-2.md. Each input name must map to a unique slug.
+	in := []string{"Foo", "FOO", "foo-2"}
+	got := resolveSlugs(in)
+	owner := make(map[string]string)
+	for _, n := range in {
+		slug := got[n]
+		if other, taken := owner[slug]; taken {
+			t.Fatalf("slug collision: %q and %q both -> %q (got %v)", other, n, slug, got)
+		}
+		owner[slug] = n
+	}
+}

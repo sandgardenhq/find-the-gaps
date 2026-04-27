@@ -37,24 +37,26 @@ func featureSlug(s string) string {
 
 // resolveSlugs returns a name → slug map for the given names. Collisions are
 // resolved by appending -2, -3, ... in input order so that the first appearance
-// of a slug keeps the unsuffixed form. Names that produce empty slugs map to
-// the empty string and are not deduplicated.
+// of a slug keeps the unsuffixed form. The check is against the set of slugs
+// already emitted (not just bases), so a literal name that slugifies to a
+// previously-emitted suffix bumps to the next free counter rather than
+// colliding. Names that produce empty slugs map to the empty string and are
+// not deduplicated.
 func resolveSlugs(names []string) map[string]string {
 	out := make(map[string]string, len(names))
-	used := make(map[string]int)
+	taken := make(map[string]bool, len(names))
 	for _, n := range names {
 		base := featureSlug(n)
 		if base == "" {
 			out[n] = ""
 			continue
 		}
-		count := used[base]
-		used[base] = count + 1
-		if count == 0 {
-			out[n] = base
-		} else {
-			out[n] = base + "-" + strconv.Itoa(count+1)
+		candidate := base
+		for i := 2; taken[candidate]; i++ {
+			candidate = base + "-" + strconv.Itoa(i)
 		}
+		taken[candidate] = true
+		out[n] = candidate
 	}
 	return out
 }
