@@ -25,10 +25,6 @@ const (
 	// agent round budget. Protects against runaway cost when a feature
 	// mapping has unrealistically many files or pages.
 	driftBudgetCeiling = 100
-
-	// driftMaxRounds is retained as a temporary alias during migration. It
-	// is removed in a later task once all call sites use budgetForFeature.
-	driftMaxRounds = 30
 )
 
 // budgetForFeature returns the agent round budget for a single feature's
