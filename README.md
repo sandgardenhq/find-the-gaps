@@ -36,11 +36,12 @@ Unrecognized text files are still scanned as plain text so they can be cross-ref
 
 ## What this installs
 
-Find the Gaps shells out to one runtime dependency that must be on your `$PATH`:
+Find the Gaps shells out to runtime dependencies that must be on your `$PATH`:
 
 - [`mdfetch`](https://www.npmjs.com/package/@sandgarden/mdfetch) — downloads a documentation site as markdown
+- [`hugo`](https://gohugo.io) — static site generator used to render the analyze report as a browsable Hextra-themed site
 
-Run `ftg doctor` at any time to check that it is available and see its detected version.
+Run `ftg doctor` at any time to check that they are available and see their detected versions.
 
 ## Install
 
