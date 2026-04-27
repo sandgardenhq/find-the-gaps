@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -224,10 +225,16 @@ func accToFeatureMap(acc map[string]*accEntry, features []CodeFeature) FeatureMa
 		for f := range e.files {
 			files = append(files, f)
 		}
+		// Sort for byte-stable downstream prompts. The Files slice is rendered
+		// into the drift investigator's cached system prompt; non-deterministic
+		// order would silently invalidate Anthropic's prompt cache.
+		sort.Strings(files)
 		symbols := make([]string, 0, len(e.symbols))
 		for s := range e.symbols {
 			symbols = append(symbols, s)
 		}
+		// Sort for byte-stability — same reason as Files above.
+		sort.Strings(symbols)
 		out = append(out, FeatureEntry{
 			Feature: feat,
 			Files:   files,

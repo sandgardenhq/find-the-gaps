@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -537,5 +538,77 @@ func TestMapFeaturesToCode_UsesLargeTier(t *testing.T) {
 	}
 	if typicalCounter.calls != 0 {
 		t.Errorf("expected typicalCounter not to be called, got %d", typicalCounter.calls)
+	}
+}
+
+// TestMapFeaturesToCode_IsByteStableAcrossCalls asserts that, for a fixed
+// input, MapFeaturesToCode produces a byte-equal FeatureMap (specifically,
+// the per-entry Files and Symbols slices in the same order) on every call.
+//
+// Why this matters: the FeatureMap is fmt.Sprintf'd into the drift
+// investigator's system prompt (drift.go ~line 253). That prompt is the
+// cached prefix on Anthropic. A non-deterministic byte in it means every
+// request misses the cache while still paying the 1.25x write premium —
+// strictly worse than no caching.
+//
+// Many entries with several files / symbols each are required because Go
+// randomizes map iteration; a one- or two-element set won't expose order
+// drift reliably.
+func TestMapFeaturesToCode_IsByteStableAcrossCalls(t *testing.T) {
+	// One feature, many files+symbols, so the LLM "response" populates a
+	// large set whose iteration order matters when it's serialized.
+	resp := json.RawMessage(`{"entries":[{"feature":"f","files":["a.go","b.go","c.go","d.go","e.go","f.go","g.go","h.go","i.go","j.go"],"symbols":["A","B","C","D","E","F","G","H","I","J"]}]}`)
+
+	scan := &scanner.ProjectScan{
+		Files: []scanner.ScannedFile{
+			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "A"}}},
+			{Path: "b.go", Symbols: []scanner.Symbol{{Name: "B"}}},
+			{Path: "c.go", Symbols: []scanner.Symbol{{Name: "C"}}},
+			{Path: "d.go", Symbols: []scanner.Symbol{{Name: "D"}}},
+			{Path: "e.go", Symbols: []scanner.Symbol{{Name: "E"}}},
+			{Path: "f.go", Symbols: []scanner.Symbol{{Name: "F"}}},
+			{Path: "g.go", Symbols: []scanner.Symbol{{Name: "G"}}},
+			{Path: "h.go", Symbols: []scanner.Symbol{{Name: "H"}}},
+			{Path: "i.go", Symbols: []scanner.Symbol{{Name: "I"}}},
+			{Path: "j.go", Symbols: []scanner.Symbol{{Name: "J"}}},
+		},
+	}
+
+	features := []analyzer.CodeFeature{{Name: "f", Description: "a feature", Layer: "core", UserFacing: true}}
+
+	mapOnce := func() analyzer.FeatureMap {
+		c := &fakeClient{jsonResponses: map[string]json.RawMessage{"map_response": resp}}
+		got, err := analyzer.MapFeaturesToCode(
+			context.Background(),
+			&fakeTiering{large: c, largeCounter: analyzer.NewTiktokenCounter()},
+			features, scan, analyzer.MapperTokenBudget, false, nil,
+		)
+		if err != nil {
+			t.Fatalf("MapFeaturesToCode: %v", err)
+		}
+		return got
+	}
+
+	// Render the FeatureMap to bytes the way the drift prompt does — strings.Join
+	// of Files and Symbols. If Go's map-iteration randomization changes the
+	// order between calls, those bytes will differ.
+	render := func(fm analyzer.FeatureMap) string {
+		var b strings.Builder
+		for _, e := range fm {
+			fmt.Fprintf(&b, "feature=%s files=%s symbols=%s\n",
+				e.Feature.Name,
+				strings.Join(e.Files, ","),
+				strings.Join(e.Symbols, ","),
+			)
+		}
+		return b.String()
+	}
+
+	first := render(mapOnce())
+	for i := 0; i < 20; i++ {
+		got := render(mapOnce())
+		if got != first {
+			t.Fatalf("MapFeaturesToCode is not byte-stable on iteration %d:\nfirst: %s\ngot:   %s", i, first, got)
+		}
 	}
 }
