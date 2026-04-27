@@ -12,7 +12,33 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const driftMaxRounds = 50
+const (
+	// driftBudgetExpectedFindings is the headroom reserved for note_observation
+	// tool calls when computing a feature's drift investigator round budget.
+	driftBudgetExpectedFindings = 5
+
+	// driftBudgetSlack covers re-reads, the closing plain-text turn, and any
+	// other non-read overhead the investigator incurs during a drift check.
+	driftBudgetSlack = 3
+
+	// driftBudgetCeiling is the hard upper bound on the per-feature drift
+	// investigator round budget. Protects against runaway cost when a feature
+	// mapping has unrealistically many files or pages.
+	driftBudgetCeiling = 100
+)
+
+// budgetForFeature returns the investigator round budget for a single
+// feature's drift check. Each read_file and read_page tool call costs one
+// round; each note_observation call costs one round; slack covers re-reads
+// and the closing turn. The result is clamped at driftBudgetCeiling to bound
+// runaway cost when a feature has an unrealistic number of inputs.
+func budgetForFeature(files, pages int) int {
+	budget := files + pages + driftBudgetExpectedFindings + driftBudgetSlack
+	if budget > driftBudgetCeiling {
+		return driftBudgetCeiling
+	}
+	return budget
+}
 
 // DriftProgressFunc is called after each feature's findings are appended to the
 // accumulated slice. It receives the full accumulated slice so far. Return a
@@ -73,7 +99,6 @@ func DetectDrift(
 			continue
 		}
 
-		log.Infof("  investigating drift for feature %q (%d pages)", entry.Feature.Name, len(pages))
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
@@ -265,9 +290,13 @@ calling note_observation at all.`,
 
 	messages := []ChatMessage{{Role: "user", Content: systemPrompt}}
 
-	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(driftMaxRounds))
+	budget := budgetForFeature(len(entry.Files), len(pages))
+	log.Infof("  investigating drift for feature %q (%d files, %d pages, budget %d rounds)",
+		entry.Feature.Name, len(entry.Files), len(pages), budget)
+	_, err := client.CompleteWithTools(ctx, messages, tools, WithMaxRounds(budget))
 	if errors.Is(err, ErrMaxRounds) {
-		log.Warnf("drift investigator exceeded %d rounds for feature %q; handing %d observations to judge", driftMaxRounds, entry.Feature.Name, len(observations))
+		log.Warnf("drift investigator exceeded budget of %d rounds for feature %q (%d files, %d pages); handing %d observations to judge",
+			budget, entry.Feature.Name, len(entry.Files), len(pages), len(observations))
 		return observations, nil
 	}
 	if err != nil {

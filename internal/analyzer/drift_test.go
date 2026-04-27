@@ -629,12 +629,13 @@ func TestDetectDrift_MaxRoundsExceeded_PartialFindingsReturnedAndContinues(t *te
 		Role:      "assistant",
 		ToolCalls: []analyzer.ToolCall{{ID: "call_inf", Name: "read_page", Arguments: `{"url":"https://docs.example.com/auth"}`}},
 	}
-	// Feature "auth": 1 note_observation (round 1) + 49 tool calls (rounds 2..50),
-	// exhausting the budget after round 50 with one accumulated observation.
+	// Feature "auth": 1 note_observation (round 1) + 9 tool calls (rounds 2..10),
+	// exhausting the dynamic budget for a (1 file, 1 page) feature
+	// (1 + 1 + 5 + 3 = 10) with one accumulated observation.
 	// Feature "search": 1 note_observation + 1 driftDone (loop exits cleanly).
-	responses := make([]analyzer.ChatMessage, 0, 52)
+	responses := make([]analyzer.ChatMessage, 0, 12)
 	responses = append(responses, noteObservation("", "doc says auth", "code does auth", "partial auth issue"))
-	for i := 0; i < 49; i++ {
+	for i := 0; i < 9; i++ {
 		responses = append(responses, toolCallResponse)
 	}
 	responses = append(responses, noteObservation("", "doc says search", "code does search", "issue for search"))
@@ -860,4 +861,27 @@ func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
 	obs, err := analyzer.InvestigateFeatureDrift(context.Background(), client, entry, []string{"https://x"}, func(string) (string, error) { return "", nil }, t.TempDir())
 	require.NoError(t, err, "round-cap exhaustion must not be a hard error")
 	assert.GreaterOrEqual(t, len(obs), 2, "all observations recorded before cap must be returned")
+}
+
+func TestBudgetForFeature(t *testing.T) {
+	cases := []struct {
+		name         string
+		files, pages int
+		want         int
+	}{
+		{"minimum", 1, 1, 10},
+		{"medium", 8, 4, 20},
+		{"grows past old cap", 15, 10, 33},
+		{"large but uncapped", 40, 30, 78},
+		{"one below ceiling", 45, 46, 99},
+		{"exactly at ceiling", 46, 46, 100},
+		{"clamped above ceiling", 60, 50, 100},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := analyzer.ExportedBudgetForFeature(tc.files, tc.pages)
+			assert.Equal(t, tc.want, got, "budgetForFeature(%d, %d)", tc.files, tc.pages)
+		})
+	}
 }
