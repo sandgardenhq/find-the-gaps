@@ -406,7 +406,17 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 }
 
 // Complete sends a user prompt and returns the first completion text.
+// On the Anthropic provider, the user prompt is promoted to a content block
+// carrying ephemeral cache_control so any retry or deterministic re-send
+// within the 5m TTL reads from cache. Production caller is the drift page
+// classifier (drift.go:459); see design doc's Cost Analysis Per Call Site.
 func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, error) {
+	var content *schemas.ChatMessageContent
+	if c.provider == schemas.Anthropic {
+		content = anthropicCachedContent(prompt)
+	} else {
+		content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)}
+	}
 	bifrostCtx := schemas.NewBifrostContext(ctx, schemas.NoDeadline)
 	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
 		Provider: c.provider,
@@ -414,7 +424,7 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 		Input: []schemas.ChatMessage{
 			{
 				Role:    schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
+				Content: content,
 			},
 		},
 		Params: &schemas.ChatParameters{
@@ -430,9 +440,9 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("bifrost completion: no choices returned")
 	}
-	content := resp.Choices[0].Message.Content
-	if content == nil || content.ContentStr == nil {
+	respContent := resp.Choices[0].Message.Content
+	if respContent == nil || respContent.ContentStr == nil {
 		return "", fmt.Errorf("bifrost completion: nil content")
 	}
-	return *content.ContentStr, nil
+	return *respContent.ContentStr, nil
 }

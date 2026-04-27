@@ -1007,6 +1007,68 @@ func TestCompleteJSONAnthropic_UserPromptHasCacheControl(t *testing.T) {
 	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
 }
 
+// TestComplete_Anthropic_UserPromptHasCacheControl asserts that on the
+// Anthropic provider, Complete promotes the user prompt to a one-element
+// ContentBlocks slice carrying ephemeral cache_control. Production caller
+// is the drift page classifier (drift.go:459) — same-page re-classification
+// within 5 minutes hits cache.
+func TestComplete_Anthropic_UserPromptHasCacheControl(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &text}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-sonnet-4-6")
+
+	_, err := client.Complete(context.Background(), "classify this page")
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+	require.Len(t, fake.lastRequest.Input, 1)
+
+	msg := fake.lastRequest.Input[0]
+	require.NotNil(t, msg.Content)
+	assert.Nil(t, msg.Content.ContentStr,
+		"Anthropic Complete: user prompt should be promoted to ContentBlocks; ContentStr must be nil")
+	require.Len(t, msg.Content.ContentBlocks, 1)
+	block := msg.Content.ContentBlocks[0]
+	assert.Equal(t, schemas.ChatContentBlockTypeText, block.Type)
+	require.NotNil(t, block.Text)
+	assert.Equal(t, "classify this page", *block.Text)
+	require.NotNil(t, block.CacheControl, "user prompt block must carry cache_control")
+	assert.Equal(t, schemas.CacheControlTypeEphemeral, block.CacheControl.Type)
+}
+
+// TestComplete_OpenAI_UserPromptIsContentStr asserts the OpenAI path of
+// Complete still uses ContentStr — the provider gate is doing its job and
+// we don't send cache_control to providers that don't speak it.
+func TestComplete_OpenAI_UserPromptIsContentStr(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &text}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o")
+
+	_, err := client.Complete(context.Background(), "classify this page")
+	require.NoError(t, err)
+	require.NotNil(t, fake.lastRequest)
+	require.Len(t, fake.lastRequest.Input, 1)
+
+	msg := fake.lastRequest.Input[0]
+	require.NotNil(t, msg.Content)
+	require.NotNil(t, msg.Content.ContentStr,
+		"OpenAI Complete must keep ContentStr; cache_control is Anthropic-only")
+	assert.Equal(t, "classify this page", *msg.Content.ContentStr)
+	assert.Empty(t, msg.Content.ContentBlocks,
+		"OpenAI Complete must not promote to ContentBlocks")
+}
+
 // TestCompleteOneTurn_CacheBreakpoint_NotAnthropic_NoOp asserts that on
 // non-Anthropic providers (OpenAI, Ollama), the CacheBreakpoint flag is
 // silently ignored — the message comes through as ContentStr unchanged. We
