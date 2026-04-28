@@ -71,6 +71,34 @@ func waitForServingURL(t *testing.T, stdout *safeBuffer) string {
 	return ""
 }
 
+func TestServe_missingSiteDir_returnsErrorWithHint(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "neverAnalyzed")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	// Note: we deliberately do NOT create cacheBase/neverAnalyzed/site.
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"serve",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	if code == 0 {
+		t.Fatalf("exit code = 0, want non-zero; stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	expectedPath := filepath.Join(cacheBase, "neverAnalyzed", "site")
+	if !strings.Contains(stderr.String(), expectedPath) {
+		t.Errorf("stderr should name missing path %q, got %q", expectedPath, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ftg analyze") {
+		t.Errorf("stderr should hint at 'ftg analyze', got %q", stderr.String())
+	}
+}
+
 func TestServe_resolvesSiteDir_fromRepoAndCacheDir(t *testing.T) {
 	cacheBase := t.TempDir()
 	repoParent := t.TempDir()

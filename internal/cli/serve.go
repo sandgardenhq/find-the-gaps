@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -25,6 +26,11 @@ func newServeCmd() *cobra.Command {
 		RunE: func(cc *cobra.Command, _ []string) error {
 			projectName := filepath.Base(filepath.Clean(repoPath))
 			siteDir := filepath.Join(cacheDir, projectName, "site")
+
+			info, err := os.Stat(siteDir)
+			if err != nil || !info.IsDir() {
+				return fmt.Errorf("no rendered site at %s — run `ftg analyze` first to generate it", siteDir)
+			}
 
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
