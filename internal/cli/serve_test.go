@@ -71,6 +71,17 @@ func waitForServingURL(t *testing.T, stdout *safeBuffer) string {
 	return ""
 }
 
+func TestServe_addrFlag_defaultsTo8080(t *testing.T) {
+	cmd := newServeCmd()
+	flag := cmd.Flags().Lookup("addr")
+	if flag == nil {
+		t.Fatal("--addr flag is not defined")
+	}
+	if got, want := flag.DefValue, "127.0.0.1:8080"; got != want {
+		t.Errorf("--addr default = %q, want %q", got, want)
+	}
+}
+
 func TestServe_missingSiteDir_returnsErrorWithHint(t *testing.T) {
 	cacheBase := t.TempDir()
 	repoParent := t.TempDir()

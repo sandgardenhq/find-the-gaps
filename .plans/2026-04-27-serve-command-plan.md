@@ -24,7 +24,7 @@ ftg serve [--repo PATH] [--cache-dir PATH] [--addr HOST:PORT] [--open]
 |---------------|--------------------|------------------------------------------------------------------------|
 | `--repo`      | `.`                | Mirror of `analyze`. Used only to derive `projectName`.                |
 | `--cache-dir` | `.find-the-gaps`   | Mirror of `analyze`.                                                   |
-| `--addr`      | `127.0.0.1:0`      | Bind address. `:0` picks a free port and we print the chosen URL.      |
+| `--addr`      | `127.0.0.1:8080`   | Bind address. Pass `:0` to pick a free port; the chosen URL is always printed. |
 | `--open`      | `false`            | If true, open the URL in the default browser after the server is up.   |
 
 Behavior:
@@ -236,6 +236,6 @@ curl -sS http://127.0.0.1:8765/ | head
 
 ## Open Questions for the Author
 
-1. **Default address** — `127.0.0.1:0` (random free port, printed) vs `127.0.0.1:8080` (predictable, may collide). Plan currently picks `:0`. OK?
+1. ~~**Default address**~~ — Resolved 2026-04-28: `127.0.0.1:8080`.
 2. **`--open` default** — currently `false`. Most local-doc-server CLIs (e.g., `pkgsite`, `godoc -http`) leave it off. Confirm.
 3. **Multi-project layout** — `.find-the-gaps/` may contain multiple `<projectName>/site/` directories. Should `serve` accept a positional `--project` flag instead of (or in addition to) `--repo`? Not in this plan — `--repo` is sufficient and matches `analyze`. Flag if you want a different ergonomic.
