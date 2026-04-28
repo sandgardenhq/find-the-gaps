@@ -2,13 +2,19 @@
 title = {{ .Title | printf "%q" }}
 +++
 
-# {{ .Title }}
-
 [{{ .PageURL }}]({{ .PageURL }})
 
-{{ range .Gaps }}- **Passage:** {{ printf "%q" .Quoted }}
-  - **Screenshot should show:** {{ .ShouldShow }}
-  - **Alt text:** {{ .Alt }}
-  - **Insert:** {{ .Insert }}
+{{ range .Gaps -}}
+```markdown
+{{ .Quoted }}
+```
 
-{{ end }}
+{{ `{{< callout type="info" >}}` }}
+**Screenshot should show:** {{ .ShouldShow }}
+
+**Alt text:** `{{ .Alt }}`
+
+**Insertion hint:** {{ .Insert }}
+{{ `{{< /callout >}}` }}
+
+{{ end -}}

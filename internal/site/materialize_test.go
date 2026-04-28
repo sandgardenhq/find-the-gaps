@@ -531,6 +531,93 @@ func TestMaterializeExpandedGapsHasNoH1(t *testing.T) {
 	}
 }
 
+// TestMaterializeExpandedScreenshotIndexNoH1 asserts the expanded-mode
+// screenshots section index has no `# Missing screenshots` H1 (the
+// frontmatter title supplies the heading).
+func TestMaterializeExpandedScreenshotIndexNoH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{PageURL: "https://example.com/a", QuotedPassage: "x", ShouldShow: "x", SuggestedAlt: "x", InsertionHint: "x"},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "_index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Missing screenshots") {
+		t.Errorf("expanded screenshots/_index.md must not contain `# Missing screenshots`; got:\n%s", s)
+	}
+	if !contains(s, `title = "Screenshots"`) {
+		t.Errorf("expanded screenshots/_index.md missing frontmatter title; got:\n%s", s)
+	}
+}
+
+// TestMaterializeExpandedScreenshotPageCalloutAndFence asserts a per-page
+// expanded screenshot file uses the fence + callout layout.
+func TestMaterializeExpandedScreenshotPageCalloutAndFence(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{
+				PageURL:       "https://example.com/docs/quickstart",
+				QuotedPassage: "Click **Save** to continue.\nThe page reloads.",
+				ShouldShow:    "save button",
+				SuggestedAlt:  "save button",
+				InsertionHint: "after the paragraph",
+			},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "https-example-com-docs-quickstart.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	for _, want := range []string{
+		"```markdown",
+		"Click **Save** to continue.",
+		"The page reloads.",
+		`{{< callout type="info" >}}`,
+		"**Screenshot should show:** save button",
+		"**Alt text:** `save button`",
+		"**Insertion hint:** after the paragraph",
+		"{{< /callout >}}",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in expanded screenshot page:\n%s", want, s)
+		}
+	}
+}
+
 // TestMaterializeMirrorScreenshotsCalloutAndFence asserts the mirror-mode
 // content/screenshots.md is rendered from data: drops the standalone
 // `# Missing Screenshots` H1, embeds each passage in a ```markdown fence,

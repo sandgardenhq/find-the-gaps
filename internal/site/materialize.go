@@ -181,8 +181,9 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 				return err
 			}
 		}
-		// also write a section index for screenshots
-		ssIdx := "+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n\n# Missing screenshots\n"
+		// also write a section index for screenshots — frontmatter title is
+		// the page heading, so no body H1.
+		ssIdx := "+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n"
 		if err := os.WriteFile(filepath.Join(ssDir, "_index.md"), []byte(ssIdx), 0o644); err != nil {
 			return err
 		}

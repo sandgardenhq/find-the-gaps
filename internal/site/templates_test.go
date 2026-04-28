@@ -394,7 +394,7 @@ func TestRenderScreenshotPage(t *testing.T) {
 		PageURL: "https://example.com/docs/start",
 		Title:   "Quickstart",
 		Gaps: []screenshotGap{
-			{Quoted: "open the dashboard", ShouldShow: "the dashboard view", Alt: "dashboard", Insert: "after first paragraph"},
+			{Quoted: "open the dashboard\n\nclick **Save**", ShouldShow: "the dashboard view", Alt: "dashboard", Insert: "after first paragraph"},
 		},
 	})
 	if err != nil {
@@ -402,16 +402,22 @@ func TestRenderScreenshotPage(t *testing.T) {
 	}
 	for _, want := range []string{
 		`title = "Quickstart"`,
-		"# Quickstart",
 		"https://example.com/docs/start",
+		"```markdown",
 		"open the dashboard",
-		"the dashboard view",
-		"after first paragraph",
-		"**Alt text:**",
+		"click **Save**",
+		`{{< callout type="info" >}}`,
+		"**Screenshot should show:** the dashboard view",
+		"**Alt text:** `dashboard`",
+		"**Insertion hint:** after first paragraph",
+		"{{< /callout >}}",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "# Quickstart") {
+		t.Errorf("expanded screenshot page must not contain `# Quickstart` H1; got:\n%s", got)
 	}
 }
 
