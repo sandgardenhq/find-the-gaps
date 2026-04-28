@@ -106,7 +106,11 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("invalid --site-mode %q (want \"mirror\" or \"expanded\")", siteMode)
 			}
 
-			projectName := filepath.Base(filepath.Clean(repoPath))
+			absRepo, err := filepath.Abs(repoPath)
+			if err != nil {
+				return fmt.Errorf("resolve repo path: %w", err)
+			}
+			projectName := filepath.Base(absRepo)
 			projectDir := filepath.Join(cacheDir, projectName)
 
 			log.Info("scanning repository", "path", repoPath)
