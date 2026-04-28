@@ -139,7 +139,8 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 	}
 	rewritten := linkFeatureNames(string(gapsBody), slugs)
 	gapsFM := "+++\ntitle = \"Gaps\"\nweight = 20\n+++\n\n"
-	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), []byte(gapsFM+rewritten), 0o644); err != nil {
+	stripped := stripLeadingH1([]byte(rewritten))
+	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), append([]byte(gapsFM), stripped...), 0o644); err != nil {
 		return err
 	}
 
@@ -189,6 +190,41 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 	return nil
 }
 
+// stripLeadingH1 returns body with a leading `# ...\n` line and any
+// immediately-following blank lines removed. If the first non-blank line is
+// not an H1, body is returned unchanged. The frontmatter wrapper supplies the
+// page heading on the website, so the redundant H1 in the standalone reporter
+// output is dropped during materialize.
+func stripLeadingH1(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	// Body must start with `# ` (a real H1, not `## ` or other).
+	if !(len(body) >= 2 && body[0] == '#' && body[1] == ' ') &&
+		!(len(body) == 1 && body[0] == '#') {
+		// Not an H1 at the very start.
+		// Allow the body to be unchanged in cases like leading blank lines too.
+		return body
+	}
+	// Find end of the first line.
+	nl := -1
+	for i := range len(body) {
+		if body[i] == '\n' {
+			nl = i
+			break
+		}
+	}
+	rest := []byte{}
+	if nl >= 0 {
+		rest = body[nl+1:]
+	}
+	// Trim immediately-following blank lines.
+	for len(rest) > 0 && rest[0] == '\n' {
+		rest = rest[1:]
+	}
+	return rest
+}
+
 // linkFeatureNames replaces quoted feature-name occurrences in body with
 // quoted markdown links to /features/<slug>/. Only names from the slugs map
 // are rewritten; everything else is left untouched.
@@ -220,13 +256,14 @@ func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) 
 		return err
 	}
 
-	// gaps.md — read raw and wrap (still managed by the reporter).
+	// gaps.md — read raw, strip the standalone reporter's leading `# Gaps
+	// Found` H1, and wrap.
 	gapsBody, err := os.ReadFile(filepath.Join(opts.ProjectDir, "gaps.md"))
 	if err != nil {
 		return fmt.Errorf("read gaps.md: %w", err)
 	}
 	gapsFM := "+++\ntitle = \"Gaps\"\nweight = 20\n+++\n\n"
-	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), append([]byte(gapsFM), gapsBody...), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), append([]byte(gapsFM), stripLeadingH1(gapsBody)...), 0o644); err != nil {
 		return err
 	}
 

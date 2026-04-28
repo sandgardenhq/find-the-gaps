@@ -465,6 +465,97 @@ func TestResolveSlugsEmptyName(t *testing.T) {
 	}
 }
 
+// TestMaterializeMirrorGapsHasNoH1 asserts the mirror-mode content/gaps.md
+// has its leading `# Gaps Found` H1 stripped (the frontmatter title supplies
+// the page heading).
+func TestMaterializeMirrorGapsHasNoH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps Found\n\nbody line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialize(srcDir, Inputs{}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Gaps Found") {
+		t.Errorf("mirror gaps.md must not contain `# Gaps Found`; got:\n%s", s)
+	}
+	if !contains(s, "body line") {
+		t.Errorf("mirror gaps.md must keep body content; got:\n%s", s)
+	}
+}
+
+// TestMaterializeExpandedGapsHasNoH1 asserts the expanded-mode
+// content/gaps.md has its leading `# ...` H1 stripped after linkFeatureNames.
+func TestMaterializeExpandedGapsHasNoH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps Found\n\n\"User Auth\" has drift.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "User Auth", Layer: "service", UserFacing: true}, Files: []string{"internal/auth/login.go"}},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Gaps Found") {
+		t.Errorf("expanded gaps.md must not contain `# Gaps Found`; got:\n%s", s)
+	}
+	if !contains(s, "/features/user-auth/") {
+		t.Errorf("expanded gaps.md must still hyperlink feature names; got:\n%s", s)
+	}
+}
+
+func TestStripLeadingH1(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"with H1", "# Title\n\nbody\n", "body\n"},
+		{"with H1 and multiple blank lines", "# Title\n\n\nbody\n", "body\n"},
+		{"no H1 leading paragraph", "body without heading\n", "body without heading\n"},
+		{"empty body", "", ""},
+		{"only H1 line no newline", "# Just a Title", ""},
+		{"H1 then content immediately", "# T\nbody\n", "body\n"},
+		{"second-level heading is left alone", "## Sub\n\nbody\n", "## Sub\n\nbody\n"},
+		{"only blank input", "\n\n", "\n\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(stripLeadingH1([]byte(tc.in)))
+			if got != tc.want {
+				t.Errorf("stripLeadingH1(%q) = %q; want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
 }
