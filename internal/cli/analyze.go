@@ -445,7 +445,8 @@ func newAnalyzeCmd() *cobra.Command {
 		"skip the missing-screenshot detection pass")
 	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
 	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
-	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", false, "preserve generated Hugo source at <projectDir>/site-src/")
+	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true,
+		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
 
 	return cmd
 }
