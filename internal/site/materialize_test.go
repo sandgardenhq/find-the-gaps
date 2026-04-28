@@ -531,6 +531,65 @@ func TestMaterializeExpandedGapsHasNoH1(t *testing.T) {
 	}
 }
 
+// TestMaterializeMirrorScreenshotsCalloutAndFence asserts the mirror-mode
+// content/screenshots.md is rendered from data: drops the standalone
+// `# Missing Screenshots` H1, embeds each passage in a ```markdown fence,
+// and wraps screenshot fields in a Hextra callout shortcode.
+func TestMaterializeMirrorScreenshotsCalloutAndFence(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{
+				PageURL:       "https://example.com/docs/start",
+				QuotedPassage: "Click **Save** to continue.\nThe page reloads.",
+				ShouldShow:    "the save button",
+				SuggestedAlt:  "save button",
+				InsertionHint: "after the paragraph ending '…click Save.'",
+			},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Missing Screenshots") {
+		t.Errorf("mirror screenshots.md must not contain `# Missing Screenshots`; got:\n%s", s)
+	}
+	for _, want := range []string{
+		`title = "Screenshots"`,
+		"### From: https://example.com/docs/start",
+		"```markdown",
+		"Click **Save** to continue.",
+		"The page reloads.",
+		`{{< callout type="info" >}}`,
+		"**Screenshot should show:** the save button",
+		"**Alt text:** `save button`",
+		"**Insertion hint:** after the paragraph ending '…click Save.'",
+		"{{< /callout >}}",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in content/screenshots.md:\n%s", want, s)
+		}
+	}
+}
+
 func TestStripLeadingH1(t *testing.T) {
 	cases := []struct {
 		name string

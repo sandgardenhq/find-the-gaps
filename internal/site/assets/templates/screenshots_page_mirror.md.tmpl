@@ -1,0 +1,22 @@
+{{ if not .Pages -}}
+_None found._
+{{ else -}}
+{{ range .Pages -}}
+### From: {{ .PageURL }}
+
+{{ range .Gaps -}}
+```markdown
+{{ .Quoted }}
+```
+
+{{ `{{< callout type="info" >}}` }}
+**Screenshot should show:** {{ .ShouldShow }}
+
+**Alt text:** `{{ .Alt }}`
+
+**Insertion hint:** {{ .Insert }}
+{{ `{{< /callout >}}` }}
+
+{{ end }}
+{{ end -}}
+{{ end -}}

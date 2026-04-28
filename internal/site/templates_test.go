@@ -345,6 +345,50 @@ func TestRenderMappingPageOmitsEmptyFilesAndSymbols(t *testing.T) {
 	}
 }
 
+func TestRenderScreenshotsMirrorWithGaps(t *testing.T) {
+	got, err := renderScreenshotsMirror(screenshotsMirrorData{
+		Pages: []screenshotsMirrorPage{
+			{
+				PageURL: "https://example.com/docs/start",
+				Gaps: []screenshotGap{
+					{Quoted: "Open the dashboard\n\nClick **Save** to continue.", ShouldShow: "the dashboard view", Alt: "dashboard", Insert: "after first paragraph"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"### From: https://example.com/docs/start",
+		"```markdown",
+		"Open the dashboard",
+		"Click **Save** to continue.",
+		`{{< callout type="info" >}}`,
+		"**Screenshot should show:** the dashboard view",
+		"**Alt text:** `dashboard`",
+		"**Insertion hint:** after first paragraph",
+		"{{< /callout >}}",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderScreenshotsMirrorEmpty(t *testing.T) {
+	got, err := renderScreenshotsMirror(screenshotsMirrorData{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "_None found._") {
+		t.Errorf("expected `_None found._` for empty pages; got:\n%s", got)
+	}
+	if strings.Contains(got, "{{< callout") {
+		t.Errorf("empty data must not emit a callout; got:\n%s", got)
+	}
+}
+
 func TestRenderScreenshotPage(t *testing.T) {
 	got, err := renderScreenshotPage(screenshotPageData{
 		PageURL: "https://example.com/docs/start",
