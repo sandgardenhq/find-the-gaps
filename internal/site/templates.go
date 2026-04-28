@@ -162,6 +162,31 @@ func renderFeaturesIndex(d featuresIndexData) (string, error) {
 	return buf.String(), nil
 }
 
+// mappingFeature is one row in the mirror-mode mapping page.
+type mappingFeature struct {
+	Name        string
+	Description string
+	Layer       string
+	UserFacing  bool
+	Documented  bool
+	Files       []string
+	Symbols     []string
+	DocURLs     []string
+}
+
+type mappingPageData struct {
+	Summary  string
+	Features []mappingFeature
+}
+
+func renderMappingPage(d mappingPageData) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "mapping_page.md.tmpl", d); err != nil {
+		return "", fmt.Errorf("render mapping_page: %w", err)
+	}
+	return buf.String(), nil
+}
+
 type screenshotGap struct {
 	Quoted     string
 	ShouldShow string
@@ -173,6 +198,28 @@ type screenshotPageData struct {
 	PageURL string
 	Title   string
 	Gaps    []screenshotGap
+}
+
+// screenshotsMirrorPage groups one or more gaps under the page they belong to.
+type screenshotsMirrorPage struct {
+	PageURL string
+	Gaps    []screenshotGap
+}
+
+// screenshotsMirrorData drives renderScreenshotsMirror — the mirror-mode
+// single-page screenshots.md rendered from data so the website can use a
+// fenced passage + Hextra callout layout while the standalone reporter file
+// stays unchanged.
+type screenshotsMirrorData struct {
+	Pages []screenshotsMirrorPage
+}
+
+func renderScreenshotsMirror(d screenshotsMirrorData) (string, error) {
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "screenshots_page_mirror.md.tmpl", d); err != nil {
+		return "", fmt.Errorf("render screenshots_page_mirror: %w", err)
+	}
+	return buf.String(), nil
 }
 
 func renderScreenshotPage(d screenshotPageData) (string, error) {

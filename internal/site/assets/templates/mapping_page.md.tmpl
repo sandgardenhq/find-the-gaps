@@ -1,0 +1,39 @@
+## Product Summary
+
+{{ .Summary }}
+
+## Features
+
+{{ range .Features -}}
+### {{ .Name }}
+
+{{ if .Description }}> {{ .Description }}
+
+{{ end -}}
+{{ if .Layer }}- **Layer:** {{ .Layer }}
+{{ end -}}
+- **User-facing:** {{ if .UserFacing }}yes{{ else }}no{{ end }}
+- **Documentation status:** {{ if .Documented }}documented{{ else }}undocumented{{ end }}
+
+{{ if .Files -}}
+#### Implemented in
+
+{{ range .Files }}- `{{ . }}`
+{{ end }}
+{{ end -}}
+{{ if .Symbols -}}
+#### Symbols
+
+{{ range .Symbols }}- `{{ . }}`
+{{ end }}
+{{ end -}}
+#### Documented on
+
+{{ if .DocURLs -}}
+{{ range .DocURLs }}- [{{ . }}]({{ . }})
+{{ end }}
+{{ else -}}
+_(none)_
+
+{{ end -}}
+{{ end }}

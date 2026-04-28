@@ -324,11 +324,13 @@ func TestMaterializeExpandedWithScreenshots(t *testing.T) {
 }
 
 // TestMaterializeMirrorMissingReportFile exercises the error branch when a
-// required report markdown file is absent from ProjectDir.
+// required report markdown file is absent from ProjectDir. mapping.md is now
+// rendered from structured data and need not exist on disk; gaps.md is still
+// read and wrapped, so this test asserts the missing-gaps.md path.
 func TestMaterializeMirrorMissingReportFile(t *testing.T) {
 	srcDir := t.TempDir()
 	projectDir := t.TempDir()
-	// Intentionally do NOT write mapping.md / gaps.md.
+	// Intentionally do NOT write gaps.md.
 
 	err := materialize(srcDir, Inputs{}, BuildOptions{
 		ProjectDir:  projectDir,
@@ -337,10 +339,77 @@ func TestMaterializeMirrorMissingReportFile(t *testing.T) {
 		GeneratedAt: time.Now(),
 	})
 	if err == nil {
-		t.Fatal("expected error when mapping.md is missing")
+		t.Fatal("expected error when gaps.md is missing")
 	}
-	if !contains(err.Error(), "mapping.md") {
-		t.Errorf("expected error to name mapping.md, got %v", err)
+	if !contains(err.Error(), "gaps.md") {
+		t.Errorf("expected error to name gaps.md, got %v", err)
+	}
+}
+
+// TestMaterializeMirrorMappingHasNoFeatureMapH1 asserts the mirror-mode
+// content/mapping.md is rendered from data and does not contain the duplicate
+// `# Feature Map` H1 (the frontmatter title supplies the heading).
+func TestMaterializeMirrorMappingHasNoFeatureMapH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps Found\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		Summary: analyzer.ProductSummary{Description: "A demo CLI."},
+		Mapping: analyzer.FeatureMap{
+			{
+				Feature: analyzer.CodeFeature{
+					Name: "User Auth", Description: "Login and session management.",
+					Layer: "service", UserFacing: true,
+				},
+				Files:   []string{"internal/auth/login.go", "internal/auth/session.go"},
+				Symbols: []string{"Login", "Logout"},
+			},
+		},
+		AllDocFeatures: []string{"User Auth"},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "User Auth", Pages: []string{"https://example.com/docs/auth"}},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "mapping.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Feature Map") {
+		t.Errorf("content/mapping.md must not contain `# Feature Map`; got:\n%s", s)
+	}
+	if !contains(s, `title = "Mapping"`) {
+		t.Errorf("content/mapping.md missing frontmatter title; got:\n%s", s)
+	}
+	for _, want := range []string{
+		"## Product Summary",
+		"A demo CLI.",
+		"### User Auth",
+		"#### Implemented in",
+		"- `internal/auth/login.go`",
+		"- `internal/auth/session.go`",
+		"#### Symbols",
+		"- `Login`",
+		"- `Logout`",
+		"#### Documented on",
+		"- [https://example.com/docs/auth](https://example.com/docs/auth)",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in content/mapping.md:\n%s", want, s)
+		}
 	}
 }
 
@@ -393,6 +462,243 @@ func TestResolveSlugsEmptyName(t *testing.T) {
 	}
 	if got["Real"] != "real" {
 		t.Errorf("expected 'real' for 'Real'; got %q", got["Real"])
+	}
+}
+
+// TestMaterializeMirrorGapsHasNoH1 asserts the mirror-mode content/gaps.md
+// has its leading `# Gaps Found` H1 stripped (the frontmatter title supplies
+// the page heading).
+func TestMaterializeMirrorGapsHasNoH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps Found\n\nbody line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialize(srcDir, Inputs{}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Gaps Found") {
+		t.Errorf("mirror gaps.md must not contain `# Gaps Found`; got:\n%s", s)
+	}
+	if !contains(s, "body line") {
+		t.Errorf("mirror gaps.md must keep body content; got:\n%s", s)
+	}
+}
+
+// TestMaterializeExpandedGapsHasNoH1 asserts the expanded-mode
+// content/gaps.md has its leading `# ...` H1 stripped after linkFeatureNames.
+func TestMaterializeExpandedGapsHasNoH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps Found\n\n\"User Auth\" has drift.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "User Auth", Layer: "service", UserFacing: true}, Files: []string{"internal/auth/login.go"}},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Gaps Found") {
+		t.Errorf("expanded gaps.md must not contain `# Gaps Found`; got:\n%s", s)
+	}
+	if !contains(s, "/features/user-auth/") {
+		t.Errorf("expanded gaps.md must still hyperlink feature names; got:\n%s", s)
+	}
+}
+
+// TestMaterializeExpandedScreenshotIndexNoH1 asserts the expanded-mode
+// screenshots section index has no `# Missing screenshots` H1 (the
+// frontmatter title supplies the heading).
+func TestMaterializeExpandedScreenshotIndexNoH1(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{PageURL: "https://example.com/a", QuotedPassage: "x", ShouldShow: "x", SuggestedAlt: "x", InsertionHint: "x"},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "_index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Missing screenshots") {
+		t.Errorf("expanded screenshots/_index.md must not contain `# Missing screenshots`; got:\n%s", s)
+	}
+	if !contains(s, `title = "Screenshots"`) {
+		t.Errorf("expanded screenshots/_index.md missing frontmatter title; got:\n%s", s)
+	}
+}
+
+// TestMaterializeExpandedScreenshotPageCalloutAndFence asserts a per-page
+// expanded screenshot file uses the fence + callout layout.
+func TestMaterializeExpandedScreenshotPageCalloutAndFence(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{
+				PageURL:       "https://example.com/docs/quickstart",
+				QuotedPassage: "Click **Save** to continue.\nThe page reloads.",
+				ShouldShow:    "save button",
+				SuggestedAlt:  "save button",
+				InsertionHint: "after the paragraph",
+			},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "https-example-com-docs-quickstart.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	for _, want := range []string{
+		"```markdown",
+		"Click **Save** to continue.",
+		"The page reloads.",
+		`{{< callout type="info" >}}`,
+		"**Screenshot should show:** save button",
+		"**Alt text:** `save button`",
+		"**Insertion hint:** after the paragraph",
+		"{{< /callout >}}",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in expanded screenshot page:\n%s", want, s)
+		}
+	}
+}
+
+// TestMaterializeMirrorScreenshotsCalloutAndFence asserts the mirror-mode
+// content/screenshots.md is rendered from data: drops the standalone
+// `# Missing Screenshots` H1, embeds each passage in a ```markdown fence,
+// and wraps screenshot fields in a Hextra callout shortcode.
+func TestMaterializeMirrorScreenshotsCalloutAndFence(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := Inputs{
+		ScreenshotsRan: true,
+		Screenshots: []analyzer.ScreenshotGap{
+			{
+				PageURL:       "https://example.com/docs/start",
+				QuotedPassage: "Click **Save** to continue.\nThe page reloads.",
+				ShouldShow:    "the save button",
+				SuggestedAlt:  "save button",
+				InsertionHint: "after the paragraph ending '…click Save.'",
+			},
+		},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if contains(s, "# Missing Screenshots") {
+		t.Errorf("mirror screenshots.md must not contain `# Missing Screenshots`; got:\n%s", s)
+	}
+	for _, want := range []string{
+		`title = "Screenshots"`,
+		"### From: https://example.com/docs/start",
+		"```markdown",
+		"Click **Save** to continue.",
+		"The page reloads.",
+		`{{< callout type="info" >}}`,
+		"**Screenshot should show:** the save button",
+		"**Alt text:** `save button`",
+		"**Insertion hint:** after the paragraph ending '…click Save.'",
+		"{{< /callout >}}",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in content/screenshots.md:\n%s", want, s)
+		}
+	}
+}
+
+func TestStripLeadingH1(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"with H1", "# Title\n\nbody\n", "body\n"},
+		{"with H1 and multiple blank lines", "# Title\n\n\nbody\n", "body\n"},
+		{"no H1 leading paragraph", "body without heading\n", "body without heading\n"},
+		{"empty body", "", ""},
+		{"only H1 line no newline", "# Just a Title", ""},
+		{"H1 then content immediately", "# T\nbody\n", "body\n"},
+		{"second-level heading is left alone", "## Sub\n\nbody\n", "## Sub\n\nbody\n"},
+		{"only blank input", "\n\n", "\n\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := string(stripLeadingH1([]byte(tc.in)))
+			if got != tc.want {
+				t.Errorf("stripLeadingH1(%q) = %q; want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 

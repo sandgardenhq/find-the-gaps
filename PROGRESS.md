@@ -1,5 +1,28 @@
 # Progress
 
+## Task: Site formatting cleanup (feat/site-formatting) - COMPLETE
+- Started: 2026-04-27
+- Plan: `.plans/SITE_FORMATTING_DESIGN.md`
+- Summary: Rendered Hugo output is cleaner. Duplicate H1s on home / mapping / gaps / screenshots are gone (the frontmatter title now supplies the page heading). Mapping page renders Files / Symbols / Documented-on as `####` sub-section lists instead of comma-joined inline lines. Screenshot pages — both mirror and expanded — render the verbatim `quoted_passage` in a ` ```markdown ` fence with real newlines and move `should_show` / `suggested_alt` / `insertion_hint` into a Hextra `{{< callout type="info" >}}` block. `--keep-site-source` defaults to `true`, so a default `analyze` run leaves the generated Hugo source under `<projectDir>/site-src/` for inspection.
+- Standalone `.md` files at the project root (produced by `internal/reporter`) are intentionally **untouched**. The website's mapping and screenshots pages are now rendered from structured `Inputs` (new templates `mapping_page.md.tmpl`, `screenshots_page_mirror.md.tmpl`); the website's gaps page still uses the read-and-wrap path with a new `stripLeadingH1` helper. Reporter package is unchanged.
+- Per-task TDD log:
+  - **Task 1 (mapping)**: RED `TestRenderMappingPage*` (4 sub-cases) and `TestMaterializeMirrorMappingHasNoFeatureMapH1`. GREEN: new `mappingPageData` / `mappingFeature` types, `renderMappingPage`, `mapping_page.md.tmpl`, `buildMappingPageData`. Updated `TestMaterializeMirrorMissingReportFile` to assert the missing-`gaps.md` path since `mapping.md` is no longer read.
+  - **Task 2 (gaps H1)**: RED `TestMaterializeMirrorGapsHasNoH1`, `TestMaterializeExpandedGapsHasNoH1`, `TestStripLeadingH1` (8 sub-cases). GREEN: `stripLeadingH1(body []byte) []byte`. Applied in `materializeMirror` (after read) and `materializeExpanded` (after `linkFeatureNames`).
+  - **Task 3 (screenshots mirror)**: RED `TestRenderScreenshotsMirror{WithGaps,Empty}` and `TestMaterializeMirrorScreenshotsCalloutAndFence`. GREEN: new `screenshotsMirrorData` / `screenshotsMirrorPage` types, `renderScreenshotsMirror`, `screenshots_page_mirror.md.tmpl`, `buildScreenshotsMirrorData` (groups by page URL preserving first-seen order).
+  - **Task 4 (screenshots expanded)**: RED rewrote `TestRenderScreenshotPage` and added `TestMaterializeExpandedScreenshot{IndexNoH1,PageCalloutAndFence}`. GREEN: rewrote `screenshot_page.md.tmpl` with the fence + callout layout (matching the mirror version); dropped `# Missing screenshots` from the expanded section-index emission in `materialize.go`.
+  - **Task 5 (home)**: RED updated `TestRenderHomeIncludesCounts` to reject `# demo` H1. GREEN: removed `# {{ .ProjectName }}` line from `home.md.tmpl`.
+  - **Task 6 (`--keep-site-source` default)**: RED `TestKeepSiteSourceDefaultTrue`. GREEN: flipped flag default in `internal/cli/analyze.go`; help text updated to document the opt-out (`--keep-site-source=false`).
+  - **Task 7 (verification plan)**: Updated `.plans/VERIFICATION_PLAN.md` Scenario 11 — default-run criteria now confirm `<projectDir>/site-src/hugo.toml` IS present after a default run; step 6 now exercises `--keep-site-source=false` and asserts `site-src/` is absent.
+- Tests: `go test ./... -count=1` green across all packages.
+- Lint: `golangci-lint run` reports 0 issues.
+- Build: `go build ./...` succeeds.
+- Coverage: `internal/site` 84.2% of statements (baseline on `main` was 83.8% — slight improvement). Remaining uncovered statements are filesystem-error wrappers (`return fmt.Errorf("...: %w", err)` after `os.WriteFile` / `os.MkdirAll`) and template-execute error branches in the renderer functions — same internal-trust pattern as before. New helpers (`stripLeadingH1`, `buildMappingPageData`, `buildScreenshotsMirrorData`) are at 100%.
+- Notes:
+  - Hextra's shortcode syntax `{{< ... >}}` collides with Go's text/template action delimiters. Templates emit the literal shortcode string via Go's raw-string action: `` {{ `{{< callout type="info" >}}` }} ``. The output is plain markdown that Hugo then interprets as a shortcode.
+  - Triple-backtick fences inside templates work fine — Go's text/template does not treat backticks specially in template body text, only inside `{{ ... }}` actions where they delimit string literals.
+  - Risk: a `quoted_passage` that itself contains a fenced code block with three backticks will close the outer fence prematurely. Accepted trade-off given the user-stated preference for ` ```markdown `; not auto-promoting to four-backtick fences.
+- Completed: 2026-04-27
+
 ## Task: Post-review fixes for PR #21 - COMPLETE
 - Started: 2026-04-27
 - Tests: full suite green; new `TestResolveSlugsAvoidsLiteralSuffixCollision` covers the slug-collision regression
