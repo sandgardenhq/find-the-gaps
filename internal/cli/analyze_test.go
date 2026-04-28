@@ -89,6 +89,50 @@ func TestAnalyze_cacheUsesProjectSubdir(t *testing.T) {
 	}
 }
 
+// When --repo is a relative path like "." or "./", project subdir resolution
+// must use the absolute path's basename — NOT a literal "." segment that
+// filepath.Join collapses, which would put outputs at <cache>/site instead of
+// the required <cache>/<repo>/site.
+func TestAnalyze_relativeRepoDot_usesAbsoluteBasenameForProjectDir(t *testing.T) {
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "myrelrepo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cacheBase := t.TempDir()
+
+	prevCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prevCWD) })
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", ".",
+		"--cache-dir", cacheBase,
+	})
+	if code != 0 {
+		t.Fatalf("analyze failed (code=%d): stderr=%q", code, stderr.String())
+	}
+
+	wantScan := filepath.Join(cacheBase, "myrelrepo", "scan", "scan.json")
+	if _, err := os.Stat(wantScan); err != nil {
+		t.Errorf("expected scan.json at %s: %v", wantScan, err)
+	}
+	wrongScan := filepath.Join(cacheBase, "scan", "scan.json")
+	if _, err := os.Stat(wrongScan); err == nil {
+		t.Errorf("scan.json should NOT exist at %s (project name collapsed away)", wrongScan)
+	}
+}
+
 func TestAnalyze_docsURLFlag_appearsInHelp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(&stdout, &stderr, []string{"analyze", "--docs-url", "https://docs.example.com", "--help"})

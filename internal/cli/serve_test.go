@@ -406,3 +406,57 @@ func TestServe_resolvesSiteDir_fromRepoAndCacheDir(t *testing.T) {
 		t.Fatalf("serve did not exit within deadline")
 	}
 }
+
+// `ftg serve --repo .` must resolve the site at <cache>/<repo>/site, not
+// <cache>/site. Without absolute-path resolution, filepath.Base(".") is "."
+// and filepath.Join collapses the project segment.
+func TestServe_relativeRepoDot_resolvesAbsoluteBasename(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "relrepo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	siteDir := filepath.Join(cacheBase, "relrepo", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatalf("mkdir site: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("hello from relrepo"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	prevCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prevCWD) })
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--repo", ".",
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	t.Cleanup(cancel)
+
+	url := waitForServingURL(t, stdout)
+	resp, err := http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "hello from relrepo") {
+		t.Errorf("body = %q, want it to contain 'hello from relrepo' (proves serve resolved <cache>/relrepo/site, not <cache>/site)", string(body))
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Second):
+		t.Fatalf("serve did not exit within deadline")
+	}
+}

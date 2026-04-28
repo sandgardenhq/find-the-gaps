@@ -51,7 +51,11 @@ func newServeCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Serve the find-the-gaps report site over HTTP.",
 		RunE: func(cc *cobra.Command, _ []string) error {
-			projectName := filepath.Base(filepath.Clean(repoPath))
+			absRepo, err := filepath.Abs(repoPath)
+			if err != nil {
+				return fmt.Errorf("resolve repo path: %w", err)
+			}
+			projectName := filepath.Base(absRepo)
 			siteDir := filepath.Join(cacheDir, projectName, "site")
 
 			info, err := os.Stat(siteDir)
