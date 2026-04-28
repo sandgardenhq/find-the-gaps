@@ -90,7 +90,6 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"# demo",
 		"A small CLI demo.",
 		"17 features",
 		"4 undocumented (user-facing)",
@@ -104,6 +103,9 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "# demo") {
+		t.Errorf("home page must not contain `# demo` H1 (frontmatter title supplies the heading); got:\n%s", got)
 	}
 }
 
