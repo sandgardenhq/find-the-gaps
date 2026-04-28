@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -191,35 +192,16 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 	return nil
 }
 
-// stripLeadingH1 returns body with a leading `# ...\n` line and any
-// immediately-following blank lines removed. If the first non-blank line is
-// not an H1, body is returned unchanged. The frontmatter wrapper supplies the
+// stripLeadingH1 returns body with a leading CommonMark H1 line (`# ...\n`)
+// and any immediately-following blank lines removed. If body does not start
+// with `# `, it is returned unchanged. The frontmatter wrapper supplies the
 // page heading on the website, so the redundant H1 in the standalone reporter
 // output is dropped during materialize.
 func stripLeadingH1(body []byte) []byte {
-	if len(body) == 0 {
+	if len(body) < 2 || body[0] != '#' || body[1] != ' ' {
 		return body
 	}
-	// Body must start with `# ` (a real H1, not `## ` or other).
-	if !(len(body) >= 2 && body[0] == '#' && body[1] == ' ') &&
-		!(len(body) == 1 && body[0] == '#') {
-		// Not an H1 at the very start.
-		// Allow the body to be unchanged in cases like leading blank lines too.
-		return body
-	}
-	// Find end of the first line.
-	nl := -1
-	for i := range len(body) {
-		if body[i] == '\n' {
-			nl = i
-			break
-		}
-	}
-	rest := []byte{}
-	if nl >= 0 {
-		rest = body[nl+1:]
-	}
-	// Trim immediately-following blank lines.
+	_, rest, _ := bytes.Cut(body, []byte{'\n'})
 	for len(rest) > 0 && rest[0] == '\n' {
 		rest = rest[1:]
 	}
