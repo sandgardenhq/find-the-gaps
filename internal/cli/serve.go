@@ -100,7 +100,7 @@ func newServeCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&repoPath, "repo", ".", "path to the repository whose report should be served")
 	cmd.Flags().StringVar(&cacheDir, "cache-dir", ".find-the-gaps", "base directory containing analyze output")
-	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8080", "bind address for the local server (host:port; use :0 to pick a free port)")
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8080", "bind address for the local server (host:port; use 127.0.0.1:0 to pick a free port)")
 	cmd.Flags().BoolVar(&openFlag, "open", false, "open the served URL in the default browser after the server is up")
 
 	return cmd
