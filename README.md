@@ -154,6 +154,35 @@ Configure tiers via flag or environment variable:
 > for `ollama` and `lmstudio` are now set via the `*_BASE_URL` env vars listed
 > above.
 
+### serve
+
+Browse the rendered Hextra report locally:
+
+```sh
+ftg serve --repo ./myrepo
+```
+
+Boots a static HTTP server against `<cache-dir>/<repo>/site/` (default `.find-the-gaps/<repo>/site/`). The site is the same one `ftg analyze` produces — no Hugo runtime needed.
+
+```
+Serve the find-the-gaps report site over HTTP.
+
+Usage:
+  ftg serve [flags]
+
+Flags:
+      --addr string        bind address for the local server (host:port; use :0 to pick a free port) (default "127.0.0.1:8080")
+      --cache-dir string   base directory containing analyze output (default ".find-the-gaps")
+  -h, --help               help for serve
+      --open               open the served URL in the default browser after the server is up
+      --repo string        path to the repository whose report should be served (default ".")
+
+Global Flags:
+  -v, --verbose   show debug logs
+```
+
+Pass `--open` to launch the report in your default browser. Pass `--addr :0` to grab a random free port; `serve` always prints the URL it bound to. `serve` exits with a clear message and non-zero status when no rendered site exists yet — run `ftg analyze` first.
+
 ### doctor
 
 ```

@@ -20,15 +20,23 @@ import (
 // for a fake; the real implementation shells out per OS.
 var openInBrowser = openURLInBrowser
 
-func openURLInBrowser(url string) error {
-	switch runtime.GOOS {
+// browserOpenerArgs returns the command name and args used to open a URL in
+// the default browser for the given GOOS. Pure function so tests can exercise
+// every OS branch without controlling runtime.GOOS.
+func browserOpenerArgs(goos, url string) (string, []string) {
+	switch goos {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		return "open", []string{url}
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}
 	default:
-		return exec.Command("xdg-open", url).Start()
+		return "xdg-open", []string{url}
 	}
+}
+
+func openURLInBrowser(url string) error {
+	name, args := browserOpenerArgs(runtime.GOOS, url)
+	return exec.Command(name, args...).Start()
 }
 
 func newServeCmd() *cobra.Command {

@@ -992,3 +992,20 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Drift test rewrite: `submitFindings` helper deleted; replaced with `addFinding(issue)` + `driftDone()` helpers. `TestDetectDrift_TextResponseWithoutSubmitFindings_ReturnsError` deleted (text without prior add_finding is the empty-findings case). `TestDetectDrift_SubmitFindingsBadJSON_ReturnsError` replaced with `TestDetectDrift_AddFindingBadJSON_FedBackToLLM`. `TestDetectDrift_MaxRoundsExceeded_*` now asserts that findings accumulated before exhaustion ARE returned alongside the next feature's findings.
   - Existing schema-translation tests in `bifrost_client_test.go` retargeted at `completeOneTurn` (white-box, same package); a new `TestBifrostClient_CompleteWithTools_AdaptsRunAgentLoop` exercises the public adapter end-to-end.
   - Test-double signature changes: `stubToolClient`, `stubLLMClient`, `driftStubClient`, `driftStubClientWithErr` updated to `(ctx, msgs, tools, opts ...AgentOption) (AgentResult, error)`. `driftStubClient` drives `RunAgentLoop` with its scripted responses as the TurnFunc, so loop behavior is shared between production and tests.
+
+
+## Task: ftg serve subcommand - COMPLETE
+- Started: 2026-04-28
+- Tests: full repo green; cli adds 8 new tests (TestNewRootCmd_Structure updated; TestServe_resolvesSiteDir_fromRepoAndCacheDir, TestServe_missingSiteDir_returnsErrorWithHint, TestServe_addrFlag_defaultsTo8080, TestServe_shutdownOnContextCancel, TestServe_open_invokesOpener, TestServe_noOpenFlag_doesNotInvokeOpener, TestServe_addrInUse_returnsListenError, TestServe_open_logsWarnOnOpenerError, TestBrowserOpenerArgs_perOS)
+- Coverage: serve.go newServeCmd 90.6%, browserOpenerArgs 100%, openURLInBrowser 0% (2 lines that exec a process — fundamentally unreachable in unit tests). Repo total 91.5%; cli package 89.5% (deficit is pre-existing in newAnalyzeCmd / newInstallDepsCmd — not introduced by this work).
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-28
+- Notes:
+  - Plan: `.plans/2026-04-27-serve-command-plan.md`
+  - RED → GREEN per CLAUDE.md TDD: each of the 6 plan tasks landed as a separate commit with a verified failing test before the production change. Task 4's test passed immediately because graceful shutdown was already wired in Task 2; verified the test catches regressions by temporarily removing `srv.Shutdown` and confirming the assertion `server still responding after cancel` failed, then reverted.
+  - Path resolution mirrors `analyze`: `<--cache-dir>/<base(--repo)>/site/`, default `.find-the-gaps/<repo>/site/`. `--addr` defaults to `127.0.0.1:8080`; pass `:0` for a free port. `--open` launches the URL in the default browser.
+  - Missing-site error names the path AND tells the user to run `ftg analyze` first.
+  - Graceful shutdown via `srv.Shutdown(ctx5s)` on cobra context cancel; tested with both clean-exit-code and post-cancel-listener-closed assertions.
+  - Browser opener: package-level `openInBrowser` var (test-swappable) wraps a pure `browserOpenerArgs(goos, url)` dispatcher so all OS branches are covered without controlling `runtime.GOOS`. The 2-line `openURLInBrowser` shell-out remains unreachable in unit tests by design.
+  - README updated under `### serve`; help output documented including `--open` and `--addr :0` semantics.

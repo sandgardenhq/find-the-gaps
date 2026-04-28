@@ -3,10 +3,13 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -208,6 +211,118 @@ func TestServe_shutdownOnContextCancel(t *testing.T) {
 	if resp, err := client.Get(url + "/"); err == nil {
 		_ = resp.Body.Close()
 		t.Errorf("server still responding after cancel; expected dial error")
+	}
+}
+
+func TestBrowserOpenerArgs_perOS(t *testing.T) {
+	const url = "http://example.test/"
+	tests := []struct {
+		goos     string
+		wantName string
+		wantArgs []string
+	}{
+		{"darwin", "open", []string{url}},
+		{"windows", "rundll32", []string{"url.dll,FileProtocolHandler", url}},
+		{"linux", "xdg-open", []string{url}},
+		{"freebsd", "xdg-open", []string{url}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.goos, func(t *testing.T) {
+			name, args := browserOpenerArgs(tc.goos, url)
+			if name != tc.wantName {
+				t.Errorf("name = %q, want %q", name, tc.wantName)
+			}
+			if !reflect.DeepEqual(args, tc.wantArgs) {
+				t.Errorf("args = %v, want %v", args, tc.wantArgs)
+			}
+		})
+	}
+}
+
+func TestServe_addrInUse_returnsListenError(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "addrcoll")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	siteDir := filepath.Join(cacheBase, "addrcoll", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatalf("mkdir site: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	hold, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("pre-bind: %v", err)
+	}
+	defer func() { _ = hold.Close() }()
+	addr := hold.Addr().String()
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"serve",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--addr", addr,
+	})
+	if code == 0 {
+		t.Fatalf("exit code = 0, want non-zero when --addr is in use; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "listen on") {
+		t.Errorf("stderr should explain the listen failure, got %q", stderr.String())
+	}
+}
+
+func TestServe_open_logsWarnOnOpenerError(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "openerr")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	siteDir := filepath.Join(cacheBase, "openerr", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatalf("mkdir site: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	original := openInBrowser
+	openInBrowser = func(url string) error {
+		return errors.New("simulated browser failure")
+	}
+	t.Cleanup(func() { openInBrowser = original })
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+		"--open",
+	})
+	t.Cleanup(cancel)
+
+	url := waitForServingURL(t, stdout)
+
+	// Server must remain up despite opener failure.
+	resp, err := http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("GET after opener error: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0 (opener failure must not abort serve)", code)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatalf("serve did not exit within deadline")
 	}
 }
 
