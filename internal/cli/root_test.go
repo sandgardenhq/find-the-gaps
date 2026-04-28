@@ -93,7 +93,7 @@ func TestNewRootCmd_Structure(t *testing.T) {
 		t.Error("Version is empty")
 	}
 
-	want := map[string]bool{"doctor": false, "analyze": false}
+	want := map[string]bool{"doctor": false, "analyze": false, "serve": false}
 	for _, c := range root.Commands() {
 		if _, ok := want[c.Name()]; ok {
 			want[c.Name()] = true
