@@ -71,6 +71,55 @@ func waitForServingURL(t *testing.T, stdout *safeBuffer) string {
 	return ""
 }
 
+func TestServe_shutdownOnContextCancel(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "shutdownproj")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	siteDir := filepath.Join(cacheBase, "shutdownproj", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatalf("mkdir site: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	t.Cleanup(cancel)
+
+	url := waitForServingURL(t, stdout)
+	resp, err := http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("liveness GET: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	cancel()
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0 on graceful shutdown", code)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatalf("serve did not exit within 6s of context cancel")
+	}
+
+	// After shutdown the listener is closed, so a follow-up GET must fail.
+	client := &http.Client{Timeout: 1 * time.Second}
+	if resp, err := client.Get(url + "/"); err == nil {
+		_ = resp.Body.Close()
+		t.Errorf("server still responding after cancel; expected dial error")
+	}
+}
+
 func TestServe_addrFlag_defaultsTo8080(t *testing.T) {
 	cmd := newServeCmd()
 	flag := cmd.Flags().Lookup("addr")
