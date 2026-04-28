@@ -71,6 +71,97 @@ func waitForServingURL(t *testing.T, stdout *safeBuffer) string {
 	return ""
 }
 
+func TestServe_open_invokesOpener(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "openproj")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	siteDir := filepath.Join(cacheBase, "openproj", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatalf("mkdir site: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	gotURL := make(chan string, 1)
+	original := openInBrowser
+	openInBrowser = func(url string) error {
+		gotURL <- url
+		return nil
+	}
+	t.Cleanup(func() { openInBrowser = original })
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+		"--open",
+	})
+	t.Cleanup(cancel)
+
+	url := waitForServingURL(t, stdout)
+
+	select {
+	case got := <-gotURL:
+		if got != url+"/" && got != url {
+			t.Errorf("opener received URL %q, want %q (or with trailing slash)", got, url)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("opener was never invoked")
+	}
+
+	cancel()
+	<-done
+}
+
+func TestServe_noOpenFlag_doesNotInvokeOpener(t *testing.T) {
+	cacheBase := t.TempDir()
+	repoParent := t.TempDir()
+	repoDir := filepath.Join(repoParent, "noopen")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	siteDir := filepath.Join(cacheBase, "noopen", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatalf("mkdir site: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	called := make(chan struct{}, 1)
+	original := openInBrowser
+	openInBrowser = func(url string) error {
+		called <- struct{}{}
+		return nil
+	}
+	t.Cleanup(func() { openInBrowser = original })
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	t.Cleanup(cancel)
+
+	_ = waitForServingURL(t, stdout)
+
+	// Give the (incorrectly wired) opener a brief window to fire if it's going to.
+	select {
+	case <-called:
+		t.Error("opener was called even though --open was not passed")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	cancel()
+	<-done
+}
+
 func TestServe_shutdownOnContextCancel(t *testing.T) {
 	cacheBase := t.TempDir()
 	repoParent := t.TempDir()

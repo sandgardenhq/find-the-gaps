@@ -7,17 +7,36 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
+
+// openInBrowser launches the user's default browser at url. Tests swap this out
+// for a fake; the real implementation shells out per OS.
+var openInBrowser = openURLInBrowser
+
+func openURLInBrowser(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
+	}
+}
 
 func newServeCmd() *cobra.Command {
 	var (
 		repoPath string
 		cacheDir string
 		addr     string
+		openFlag bool
 	)
 
 	cmd := &cobra.Command{
@@ -42,7 +61,14 @@ func newServeCmd() *cobra.Command {
 				ReadHeaderTimeout: 5 * time.Second,
 			}
 
-			_, _ = fmt.Fprintf(cc.OutOrStdout(), "serving %s at http://%s/\n", siteDir, ln.Addr().String())
+			url := fmt.Sprintf("http://%s/", ln.Addr().String())
+			_, _ = fmt.Fprintf(cc.OutOrStdout(), "serving %s at %s\n", siteDir, url)
+
+			if openFlag {
+				if err := openInBrowser(url); err != nil {
+					log.Warnf("could not open browser: %v", err)
+				}
+			}
 
 			errCh := make(chan error, 1)
 			go func() {
@@ -67,6 +93,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repoPath, "repo", ".", "path to the repository whose report should be served")
 	cmd.Flags().StringVar(&cacheDir, "cache-dir", ".find-the-gaps", "base directory containing analyze output")
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8080", "bind address for the local server (host:port; use :0 to pick a free port)")
+	cmd.Flags().BoolVar(&openFlag, "open", false, "open the served URL in the default browser after the server is up")
 
 	return cmd
 }
