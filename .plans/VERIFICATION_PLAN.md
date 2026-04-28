@@ -236,17 +236,19 @@ Before any scenario runs:
 3. Re-run with `--site-mode=expanded`.
 4. Crawl every link in `<projectDir>/site/gaps/index.html` and confirm each resolves.
 5. Re-run with `--no-site`.
-6. Re-run with `--keep-site-source`.
+6. Re-run with `--keep-site-source=false`.
 7. Temporarily remove `hugo` from `$PATH` and re-run without `--no-site`.
 
 **Success Criteria**:
 - [ ] Step 1: `<projectDir>/site/index.html` exists; loads in a browser; Hextra theme renders (sidebar, search, dark-mode toggle visible).
 - [ ] Step 1: `mapping.md`, `gaps.md`, and `screenshots.md` (if produced) are still emitted at `<projectDir>/`.
+- [ ] Step 1: `<projectDir>/site-src/hugo.toml` is present (default `--keep-site-source=true`).
 - [ ] Step 2: navigating to `/`, `/mapping/`, and `/gaps/` returns 200 with rendered Hextra pages.
 - [ ] Step 3: `<projectDir>/site/features/<slug>/index.html` exists for every feature in `mapping.md`.
+- [ ] Step 3: `<projectDir>/site-src/hugo.toml` is still present (default keep behavior applies in expanded mode too).
 - [ ] Step 4: every `/features/<slug>/` link in the rendered gaps page resolves to a 200.
 - [ ] Step 5: `<projectDir>/site/` does NOT exist after the run; stdout reports block lists `site/ (skipped)`.
-- [ ] Step 6: `<projectDir>/site-src/hugo.toml` is present after the run; the rendered `<projectDir>/site/` is also present.
+- [ ] Step 6: `<projectDir>/site-src/` does NOT exist after the run; the rendered `<projectDir>/site/` is still present.
 - [ ] Step 7: command exits non-zero; stderr names `hugo` and points the user at `find-the-gaps install-deps` (or `brew install hugo`).
 
 **If Blocked**: If any link in step 4 returns 404, or if the Hextra theme fails to render in step 2, capture the directory listing of `<projectDir>/site/` and the relevant HTML, then ask the developer.

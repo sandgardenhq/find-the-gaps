@@ -1,8 +1,8 @@
-+++
-title = {{ .Title | printf "%q" }}
-+++
-
-[{{ .PageURL }}]({{ .PageURL }})
+{{ if not .Pages -}}
+_None found._
+{{ else -}}
+{{ range .Pages -}}
+### From: {{ .PageURL }}
 
 {{ range .Gaps -}}
 ```markdown
@@ -17,4 +17,6 @@ title = {{ .Title | printf "%q" }}
 **Insertion hint:** {{ .Insert }}
 {{ `{{< /callout >}}` }}
 
+{{ end }}
+{{ end -}}
 {{ end -}}
