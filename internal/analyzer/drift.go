@@ -93,7 +93,6 @@ func DetectDrift(
 	onFinding DriftProgressFunc,
 	onFeatureDone DriftFeatureDoneFunc,
 ) ([]DriftFinding, error) {
-	_ = cached // TODO(Task 3): remove once cache lookup is wired
 	investigator, ok := tiering.Typical().(ToolLLMClient)
 	if !ok {
 		return nil, fmt.Errorf("DetectDrift: typical tier does not support tool use (required for the drift investigator); configure --llm-typical with a tool-use-capable provider (anthropic or openai)")
@@ -128,6 +127,32 @@ func DetectDrift(
 			continue
 		}
 
+		sortedFiles := sortedCopy(entry.Files)
+		sortedPages := sortedCopy(pages)
+
+		if cached != nil {
+			if c, ok := cached[entry.Feature.Name]; ok &&
+				equalStringSlice(c.Files, sortedFiles) &&
+				equalStringSlice(c.Pages, sortedPages) {
+				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
+				issues := c.Issues
+				if len(issues) > 0 {
+					findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
+					if onFinding != nil {
+						if err := onFinding(findings); err != nil {
+							return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
+						}
+					}
+				}
+				if onFeatureDone != nil {
+					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+						return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+					}
+				}
+				continue
+			}
+		}
+
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
@@ -136,8 +161,6 @@ func DetectDrift(
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
-		sortedFiles := sortedCopy(entry.Files)
-		sortedPages := sortedCopy(pages)
 
 		if len(issues) > 0 {
 			findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
@@ -505,4 +528,18 @@ func sortedCopy(s []string) []string {
 	out := append([]string(nil), s...)
 	sort.Strings(out)
 	return out
+}
+
+// equalStringSlice reports whether a and b are equal element-wise. Both
+// must already be sorted; this is not a set comparison.
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

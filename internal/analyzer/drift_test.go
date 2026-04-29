@@ -906,6 +906,46 @@ func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
 	assert.GreaterOrEqual(t, len(obs), 2, "all observations recorded before cap must be returned")
 }
 
+func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
+	// Investigator and judge stubs panic if invoked — they must not be called
+	// when the cache supplies an entry whose files+pages match the current run.
+	typical := &driftStubClient{} // empty responses; any call exhausts and panics
+	large := &driftStubClient{}   // judge must never run
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil },
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:  []string{"auth.go"},
+			Pages:  []string{"https://docs.example.com/auth"},
+			Issues: []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "stale signature"}},
+		},
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "auth", findings[0].Feature)
+	require.Len(t, findings[0].Issues, 1)
+	assert.Equal(t, "stale signature", findings[0].Issues[0].Issue)
+	assert.Equal(t, 0, typical.calls, "investigator must not run on cache hit")
+	assert.Equal(t, 0, large.completeCalls, "judge must not run on cache hit")
+}
+
 func TestBudgetForFeature(t *testing.T) {
 	cases := []struct {
 		name         string
