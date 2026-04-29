@@ -224,6 +224,32 @@ Global Flags:
 - **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. Written whenever the screenshot pass runs (zero findings produces a `_None found._` body). Not written when `--skip-screenshot-check` is passed.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
+## Ignored files
+
+Find the Gaps ships a curated list of files it never analyses — lockfiles,
+build artifacts, generated bindings, binary assets, test files, and the usual
+VCS / IDE noise. The full list is
+[`internal/scanner/ignore/defaults.ftgignore`](internal/scanner/ignore/defaults.ftgignore).
+The repo's own `.gitignore` is layered on top, so anything you tell git to
+ignore is also skipped by `ftg`.
+
+Override either layer with a `.ftgignore` at the repo root. It uses gitignore
+syntax, including `!` to re-include something an earlier layer skipped:
+
+```gitignore
+# .ftgignore
+!vendor/
+!*_test.go
+custom_build_dir/
+```
+
+The scan summary printed by `ftg analyze` shows how many files each layer
+skipped:
+
+```
+scanned 412 files, skipped 1,847 (defaults: 1,801, .gitignore: 38, .ftgignore: 8)
+```
+
 ## Use as a GitHub Action
 
 Find the Gaps ships as a composite GitHub Action so maintainers can run audits

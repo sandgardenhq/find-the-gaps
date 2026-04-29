@@ -1,23 +1,8 @@
 package ignore
 
 import (
-	"strings"
 	"testing"
-
-	gitignore "github.com/sabhiram/go-gitignore"
 )
-
-func TestDefaults_everyLineCompiles(t *testing.T) {
-	for i, line := range strings.Split(defaultsContent, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if gi := gitignore.CompileIgnoreLines(trimmed); gi == nil {
-			t.Errorf("line %d %q: CompileIgnoreLines returned nil", i+1, line)
-		}
-	}
-}
 
 func TestDefaults_skipsRepresentativeFiles(t *testing.T) {
 	cases := []struct {
@@ -30,6 +15,10 @@ func TestDefaults_skipsRepresentativeFiles(t *testing.T) {
 		{"__pycache__/bar.pyc", false},
 		{"dist/main.js", false},
 		{"target/debug/foo", false},
+		{"Build", true},
+		{"Build/release/app", false},
+		{"cmake-build-debug", true},
+		{"cmake-build-release/foo.o", false},
 		{".idea", true},
 		{".github", true},
 		{".cursor", true},

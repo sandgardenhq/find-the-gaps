@@ -202,9 +202,3 @@ func TestLoad_ftgignoreNegatesGitignore(t *testing.T) {
 		t.Errorf("data/ should be re-included; got %+v", got)
 	}
 }
-
-func TestLoad_ftgignoreSyntaxError(t *testing.T) {
-	// sabhiram/go-gitignore is permissive about syntax; pick a case it rejects.
-	// If no realistic syntax error exists, this test stays pending — see Task 9.
-	t.Skip("revisit after confirming what go-gitignore rejects")
-}
