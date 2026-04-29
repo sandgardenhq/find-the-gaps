@@ -3,10 +3,35 @@
 package ignore
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	gitignore "github.com/sabhiram/go-gitignore"
 )
+
+// Load constructs a Matcher from the embedded defaults plus any .gitignore
+// and .ftgignore files at repoRoot.
+func Load(repoRoot string) (*Matcher, error) {
+	sources := map[string]string{"defaults": defaultsContent}
+	order := []string{"defaults"}
+
+	for _, name := range []string{".gitignore", ".ftgignore"} {
+		path := filepath.Join(repoRoot, name)
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		sources[name] = string(data)
+		order = append(order, name)
+	}
+
+	return newMatcherFromLayers(sources, order)
+}
 
 // Decision is the result of testing a path against the layered rules.
 type Decision struct {

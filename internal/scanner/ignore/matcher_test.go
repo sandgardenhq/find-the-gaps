@@ -1,6 +1,10 @@
 package ignore
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestMatch_emptyMatcher_returnsNoSkip(t *testing.T) {
 	m := &Matcher{}
@@ -134,4 +138,73 @@ func TestStats_recordScanned(t *testing.T) {
 	if s.Scanned != 2 {
 		t.Errorf("Scanned = %d, want 2", s.Scanned)
 	}
+}
+
+func TestLoad_noFiles(t *testing.T) {
+	dir := t.TempDir()
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Load returned nil matcher")
+	}
+	// Defaults are always present; behaviour validated in Task 8.
+	if got := m.Match("README.md", false); got.Skip {
+		t.Errorf("README.md should not be skipped by minimal defaults; got %+v", got)
+	}
+}
+
+func TestLoad_loadsGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("custom.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := m.Match("custom.txt", false)
+	if !got.Skip || got.Reason != ".gitignore" {
+		t.Errorf("expected skip via .gitignore; got %+v", got)
+	}
+}
+
+func TestLoad_loadsFtgignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".ftgignore"), []byte("custom.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := m.Match("custom.txt", false)
+	if !got.Skip || got.Reason != ".ftgignore" {
+		t.Errorf("expected skip via .ftgignore; got %+v", got)
+	}
+}
+
+func TestLoad_ftgignoreNegatesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("data/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".ftgignore"), []byte("!data/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := m.Match("data/x.txt", false)
+	if got.Skip {
+		t.Errorf("data/ should be re-included; got %+v", got)
+	}
+}
+
+func TestLoad_ftgignoreSyntaxError(t *testing.T) {
+	// sabhiram/go-gitignore is permissive about syntax; pick a case it rejects.
+	// If no realistic syntax error exists, this test stays pending — see Task 9.
+	t.Skip("revisit after confirming what go-gitignore rejects")
 }
