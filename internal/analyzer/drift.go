@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -79,8 +80,11 @@ func DetectDrift(
 	docsMap DocsFeatureMap,
 	pageReader func(url string) (string, error),
 	repoRoot string,
+	cached map[string]CachedDriftEntry,
 	onFinding DriftProgressFunc,
+	onFeatureDone DriftFeatureDoneFunc,
 ) ([]DriftFinding, error) {
+	_ = cached
 	investigator, ok := tiering.Typical().(ToolLLMClient)
 	if !ok {
 		return nil, fmt.Errorf("DetectDrift: typical tier does not support tool use (required for the drift investigator); configure --llm-typical with a tool-use-capable provider (anthropic or openai)")
@@ -123,12 +127,20 @@ func DetectDrift(
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
+		sortedFiles := sortedCopy(entry.Files)
+		sortedPages := sortedCopy(pages)
+
 		if len(issues) > 0 {
 			findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
 			if onFinding != nil {
 				if err := onFinding(findings); err != nil {
 					return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
 				}
+			}
+		}
+		if onFeatureDone != nil {
+			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+				return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 			}
 		}
 	}
@@ -477,4 +489,11 @@ Content preview:
 		return false
 	}
 	return strings.Contains(strings.ToLower(resp), "yes")
+}
+
+// sortedCopy returns a sorted copy of s. The input is not modified.
+func sortedCopy(s []string) []string {
+	out := append([]string(nil), s...)
+	sort.Strings(out)
+	return out
 }

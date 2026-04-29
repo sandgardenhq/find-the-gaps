@@ -345,7 +345,7 @@ func newAnalyzeCmd() *cobra.Command {
 			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
 				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
 			}
-			driftFindings, err := analyzer.DetectDrift(ctx, tiering, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
+			driftFindings, err := analyzer.DetectDrift(ctx, tiering, featureMap, docsFeatureMap, pageReader, repoPath, nil, driftOnFinding, nil)
 			if err != nil {
 				return fmt.Errorf("detect drift: %w", err)
 			}

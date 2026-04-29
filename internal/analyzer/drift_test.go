@@ -110,7 +110,7 @@ func TestDetectDrift_NoDocumentedFeatures_ReturnsEmpty(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{} // no pages mapped — auth is undocumented, not a drift candidate
 	pageReader := func(url string) (string, error) { return "", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, typical: client, large: client}, featureMap, docsMap, pageReader, "/repo", nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: client, typical: client, large: client}, featureMap, docsMap, pageReader, "/repo", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 }
@@ -140,7 +140,7 @@ func TestDetectDrift_DocumentedFeature_ReturnsIssues(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth\nLogin with username.", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, "/repo", nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, "/repo", nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Equal(t, "auth", findings[0].Feature)
@@ -167,7 +167,7 @@ func TestDetectDrift_LLMReturnsEmptyArray_FeatureDropped(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Search docs", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, "/repo", nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, "/repo", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings, "features with no issues should be dropped")
 	assert.Equal(t, 0, large.completeCalls, "judge must be skipped when investigator emits zero observations")
@@ -205,7 +205,7 @@ func TestDetectDrift_ToolCall_ExecutedAndContinued(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth page", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Contains(t, findings[0].Issues[0].Issue, "JWT token")
@@ -234,7 +234,7 @@ func TestDetectDrift_ReadFile_OutsideRepo_ReturnsError(t *testing.T) {
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
 	// Must not error — path rejection is communicated back to the LLM as a tool result.
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	assert.NoError(t, err)
 }
 
@@ -263,7 +263,7 @@ func TestDetectDrift_ReadPage_ToolCall_ExecutedAndContinued(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth\nContent about auth.", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	assert.Contains(t, findings[0].Issues[0].Issue, "rate limiting")
@@ -290,7 +290,7 @@ func TestDetectDrift_UnknownTool_GracefulContinuation(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 }
@@ -316,7 +316,7 @@ func TestDetectDrift_ReadFile_BadJSON_ReturnsError(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	assert.NoError(t, err)
 }
 
@@ -341,7 +341,7 @@ func TestDetectDrift_ReadPage_BadJSON_ReturnsError(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	assert.NoError(t, err)
 }
 
@@ -372,7 +372,7 @@ func TestDetectDrift_ReadPage_PageReaderError_ReturnedToLLM(t *testing.T) {
 		return "# Auth", nil
 	}
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	assert.NoError(t, err, "pageReader errors should be communicated to the LLM, not propagated as DetectDrift errors")
 	// Verify the investigator was called multiple rounds (tool request + tool result continuation).
 	if typical.calls < 2 {
@@ -392,7 +392,7 @@ func TestDetectDrift_CompleteWithTools_Error_Propagated(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: client, large: client}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bifrost unavailable")
 }
@@ -421,7 +421,7 @@ func TestDetectDrift_NoteObservationBadJSON_FedBackToLLM(t *testing.T) {
 	docsMap := analyzer.DocsFeatureMap{{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}}}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err, "bad note_observation args should be communicated to the LLM, not propagated as DetectDrift errors")
 	assert.Empty(t, findings, "malformed note_observation payload must not be recorded")
 	assert.GreaterOrEqual(t, typical.calls, 2, "loop must continue after bad-args feedback")
@@ -445,7 +445,7 @@ func TestDetectDrift_ReleaseNotePageOnly_Skipped(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Changelog", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 	assert.Equal(t, 0, typical.calls, "investigator must not be called when all pages are release notes")
@@ -473,7 +473,7 @@ func TestDetectDrift_MixedPages_ReleaseNotesFiltered(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	// Investigator was called once (with the filtered page list, not the release-note URL).
 	assert.Equal(t, 1, typical.calls)
@@ -499,7 +499,7 @@ func TestDetectDrift_ChangelogByContent_SkippedByLLM(t *testing.T) {
 		return "## 2.0.0\n\n- Added new login flow\n\n## 1.9.0\n\n- Fixed bug", nil
 	}
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 	assert.Equal(t, 0, typical.calls, "investigator must not be called for changelog pages")
@@ -526,7 +526,7 @@ func TestDetectDrift_ContentClassifierError_FailsOpen(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err, "classifier error must not propagate")
 	assert.Equal(t, 1, typical.calls, "page must be included in drift detection when classifier errors")
 }
@@ -579,7 +579,7 @@ func TestDetectDrift_OnFinding_CalledPerFeatureWithFindings(t *testing.T) {
 		return nil
 	}
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), onFinding)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, onFinding, nil)
 	require.NoError(t, err)
 	assert.Len(t, findings, 2)
 	assert.Len(t, snapshots, 2, "callback must be called once per feature with findings")
@@ -613,7 +613,7 @@ func TestDetectDrift_OnFinding_ErrorPropagated(t *testing.T) {
 		return fmt.Errorf("disk full")
 	}
 
-	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), onFinding)
+	_, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, onFinding, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk full")
 }
@@ -666,7 +666,7 @@ func TestDetectDrift_MaxRoundsExceeded_PartialFindingsReturnedAndContinues(t *te
 	}
 	pageReader := func(url string) (string, error) { return "# Docs", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), &fakeTiering{small: small, typical: typical, large: large}, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err, "max-rounds exhaustion must not terminate DetectDrift")
 	require.Len(t, findings, 2, "partially-accumulated observations from the timed-out feature must still be judged, and the next feature must still be processed")
 	assert.Equal(t, "auth", findings[0].Feature)
@@ -715,7 +715,7 @@ func TestDetectDrift_UsesSmallTypicalLarge(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth\nreal docs.", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), tiering, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), tiering, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	require.Len(t, findings[0].Issues, 1)
@@ -744,7 +744,7 @@ func TestDetectDrift_NoObservations_SkipsJudge(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	findings, err := analyzer.DetectDrift(context.Background(), tiering, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	findings, err := analyzer.DetectDrift(context.Background(), tiering, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, findings)
 	assert.Equal(t, 0, large.completeCalls, "Judge must not be called when investigator emits zero observations")
@@ -779,7 +779,7 @@ func TestDetectDrift_TypicalWithoutToolSupport_Errors(t *testing.T) {
 	}
 	pageReader := func(url string) (string, error) { return "# Auth", nil }
 
-	_, err := analyzer.DetectDrift(context.Background(), tiering, featureMap, docsMap, pageReader, t.TempDir(), nil)
+	_, err := analyzer.DetectDrift(context.Background(), tiering, featureMap, docsMap, pageReader, t.TempDir(), nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool use")
 	assert.Contains(t, err.Error(), "typical")
