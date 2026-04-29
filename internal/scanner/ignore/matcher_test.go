@@ -103,3 +103,35 @@ func TestMatch_floatingBasename(t *testing.T) {
 		t.Errorf("nested node_modules dir should match; got %+v", got)
 	}
 }
+
+func TestStats_initialState(t *testing.T) {
+	var s Stats
+	if s.Scanned != 0 {
+		t.Errorf("Scanned = %d, want 0", s.Scanned)
+	}
+	if got := s.SkippedTotal(); got != 0 {
+		t.Errorf("SkippedTotal = %d, want 0", got)
+	}
+}
+
+func TestStats_recordSkip(t *testing.T) {
+	var s Stats
+	s.RecordSkip("defaults")
+	s.RecordSkip("defaults")
+	s.RecordSkip(".gitignore")
+	if got := s.SkippedTotal(); got != 3 {
+		t.Errorf("SkippedTotal = %d, want 3", got)
+	}
+	if got := s.Skipped["defaults"]; got != 2 {
+		t.Errorf("Skipped[defaults] = %d, want 2", got)
+	}
+}
+
+func TestStats_recordScanned(t *testing.T) {
+	var s Stats
+	s.RecordScanned()
+	s.RecordScanned()
+	if s.Scanned != 2 {
+		t.Errorf("Scanned = %d, want 2", s.Scanned)
+	}
+}

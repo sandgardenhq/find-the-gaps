@@ -97,6 +97,31 @@ func (l layer) check(relPath string) layerResult {
 	return layerNoMatch
 }
 
+// Stats tallies scanned and skipped paths during a walk.
+type Stats struct {
+	Scanned int
+	Skipped map[string]int
+}
+
+func (s *Stats) RecordScanned() {
+	s.Scanned++
+}
+
+func (s *Stats) RecordSkip(reason string) {
+	if s.Skipped == nil {
+		s.Skipped = make(map[string]int)
+	}
+	s.Skipped[reason]++
+}
+
+func (s *Stats) SkippedTotal() int {
+	total := 0
+	for _, n := range s.Skipped {
+		total += n
+	}
+	return total
+}
+
 // Match reports whether relPath should be skipped.
 //
 // sabhiram/go-gitignore's API is string-only — it does not honour an isDir
