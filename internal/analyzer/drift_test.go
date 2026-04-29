@@ -1025,6 +1025,72 @@ func TestDetectDrift_CacheMissByPages_RecomputesFresh(t *testing.T) {
 	assert.Greater(t, typical.calls, 0, "investigator must run on page mismatch")
 }
 
+func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
+	// Three features:
+	// 1. "fresh-with-issues"  — no cache entry, investigator emits an observation, judge issues.
+	// 2. "fresh-empty"        — no cache entry, investigator emits zero observations.
+	// 3. "cached"             — cache hit, returns prior issues.
+	// onFeatureDone must fire exactly 3 times, with the right names and issue counts.
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			// fresh-with-issues:
+			noteObservation("https://docs.example.com/a", "old", "new", "drift"),
+			driftDone(),
+			// fresh-empty:
+			driftDone(),
+			// cached: investigator must not be invoked.
+		},
+	}
+	large := &driftStubClient{completeFunc: judgeJSON("https://docs.example.com/a", "Drift A.")}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "fresh-with-issues"}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "fresh-empty"}, Files: []string{"b.go"}},
+		{Feature: analyzer.CodeFeature{Name: "cached"}, Files: []string{"c.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "fresh-with-issues", Pages: []string{"https://docs.example.com/a"}},
+		{Feature: "fresh-empty", Pages: []string{"https://docs.example.com/b"}},
+		{Feature: "cached", Pages: []string{"https://docs.example.com/c"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Page", nil }
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"cached": {
+			Files:  []string{"c.go"},
+			Pages:  []string{"https://docs.example.com/c"},
+			Issues: []analyzer.DriftIssue{{Page: "https://docs.example.com/c", Issue: "Cached drift."}},
+		},
+	}
+
+	type record struct {
+		name        string
+		issuesCount int
+	}
+	var recorded []record
+	onFeatureDone := func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
+		recorded = append(recorded, record{name: name, issuesCount: len(issues)})
+		return nil
+	}
+
+	_, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	require.Len(t, recorded, 3)
+	// Order matches featureMap iteration order.
+	assert.Equal(t, "fresh-with-issues", recorded[0].name)
+	assert.Equal(t, 1, recorded[0].issuesCount)
+	assert.Equal(t, "fresh-empty", recorded[1].name)
+	assert.Equal(t, 0, recorded[1].issuesCount)
+	assert.Equal(t, "cached", recorded[2].name)
+	assert.Equal(t, 1, recorded[2].issuesCount)
+}
+
 func TestBudgetForFeature(t *testing.T) {
 	cases := []struct {
 		name         string
