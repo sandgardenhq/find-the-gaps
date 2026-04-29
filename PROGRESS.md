@@ -1119,3 +1119,20 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Notes:
   - README's `## Ignored files` example showed `1,847` / `1,801` but the formatter used plain `%d`. Switched `formatScanSummary` to a package-level `message.NewPrinter(language.English)` so counts get English thousands separators (testscript scenarios with small counts pass unchanged because numbers under 1,000 don't get a separator).
   - Investigated a suspected CRLF regression in `splitLines` and confirmed it is a non-issue: an empirical probe shows `sabhiram/go-gitignore`'s `CompileIgnoreLines` strips trailing `\r` for every pattern shape (globs, negations, double-stars), so leaving the splitter as-is is safe.
+
+
+## Drift-Detection Cache - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: 18 new (10 analyzer-side cache tests + 8 cli-side load/save/hit tests); all packages green via `go test ./... -count=1` (11 packages)
+- Coverage: analyzer 93.4%, cli 87.0% (`saveDriftCache` 64.7% — uncovered branches are filesystem-error paths that need fault injection; all other new functions 100%)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - Plan: `.plans/2026-04-29-drift-cache.md`; design: `.plans/2026-04-29-drift-cache-design.md`
+  - Per-feature drift cache at `<projectDir>/drift.json` with set-based invalidation (feature name + sorted files + sorted pages). Resume-from-crash: `onFeatureDone` callback persists incrementally after every completed feature.
+  - `analyzer.DetectDrift` gained two trailing params: `cached map[string]CachedDriftEntry` (nil = run all fresh) and `onFeatureDone DriftFeatureDoneFunc` (fires for every completion, hit or fresh). Cache lookup short-circuits investigator+judge; classifier (small tier) still runs per page (page-classification cache deferred).
+  - CLI side adds `internal/cli/drift_cache.go` with atomic temp-file + rename writes (chmod 0o644 to match peer cache files) and nil-slice normalization on load. `--no-cache` skips the read but still writes a fresh cache.
+  - End-of-stage log line: `drift cache: H hits, F fresh`.
+  - Code-review feedback applied: doc comment on `DetectDrift`, transitional `_ = cached` placeholder marked + later removed, `0o644` file-mode parity, nil `Files`/`Pages` normalization on load, extracted `isDriftCacheHit` helper for direct unit testing.
