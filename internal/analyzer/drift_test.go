@@ -988,6 +988,43 @@ func TestDetectDrift_CacheMissByFiles_RecomputesFresh(t *testing.T) {
 	assert.Greater(t, typical.calls, 0, "investigator must run on cache miss")
 }
 
+func TestDetectDrift_CacheMissByPages_RecomputesFresh(t *testing.T) {
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+		},
+	}
+	large := &driftStubClient{completeFunc: judgeJSON("https://docs.example.com/auth", "Pages drifted.")}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:  []string{"auth.go"},
+			Pages:  []string{"https://docs.example.com/old"}, // mismatch
+			Issues: nil,
+		},
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Greater(t, typical.calls, 0, "investigator must run on page mismatch")
+}
+
 func TestBudgetForFeature(t *testing.T) {
 	cases := []struct {
 		name         string
