@@ -1,0 +1,26 @@
+# Verify .ftgignore can both re-include a default-skipped path with !pattern
+# and contribute its own positive skips to the .ftgignore segment of the
+# scan summary.
+#
+# Layout:
+#   main.go        — kept (not skipped)
+#   vendor/lib.go  — defaults skip vendor/, but .ftgignore !vendor/ re-includes it
+#   secret.txt     — skipped by .ftgignore positive pattern
+#   .ftgignore     — kept (the file itself isn't matched by its own rules)
+#
+# Expected: 3 files scanned (main.go, vendor/lib.go, .ftgignore); 1 file
+# skipped, attributed to .ftgignore.
+exec ftg analyze --repo repo --cache-dir $WORK/cache
+stdout '^scanned 3 files, skipped 1 \(\.ftgignore: 1\)$'
+
+-- repo/main.go --
+package main
+
+func main() {}
+-- repo/.ftgignore --
+!vendor/
+secret.txt
+-- repo/vendor/lib.go --
+package vendor
+-- repo/secret.txt --
+shh

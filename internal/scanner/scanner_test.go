@@ -10,7 +10,7 @@ func TestScan_emptyDir_returnsEmptyScan(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := t.TempDir()
 
-	scan, err := Scan(dir, Options{CacheDir: cacheDir})
+	scan, _, err := Scan(dir, Options{CacheDir: cacheDir})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestScan_goFile_extractsSymbols(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\n// Run starts the app.\nfunc Run() error { return nil }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	scan, err := Scan(dir, Options{CacheDir: t.TempDir()})
+	scan, _, err := Scan(dir, Options{CacheDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestScan_cacheReusedOnSecondRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Scan(dir, Options{CacheDir: cacheDir})
+	_, _, err := Scan(dir, Options{CacheDir: cacheDir})
 	if err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestScan_cacheReusedOnSecondRun(t *testing.T) {
 		t.Fatalf("scan.json not written: %v", err)
 	}
 
-	scan2, err := Scan(dir, Options{CacheDir: cacheDir})
+	scan2, _, err := Scan(dir, Options{CacheDir: cacheDir})
 	if err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestScan_writesProjectMd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Scan(dir, Options{CacheDir: cacheDir})
+	_, _, err := Scan(dir, Options{CacheDir: cacheDir})
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -89,12 +89,12 @@ func TestScan_noCache_forcesReparse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Scan(dir, Options{CacheDir: cacheDir})
+	_, _, err := Scan(dir, Options{CacheDir: cacheDir})
 	if err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 
-	scan2, err := Scan(dir, Options{CacheDir: cacheDir, NoCache: true})
+	scan2, _, err := Scan(dir, Options{CacheDir: cacheDir, NoCache: true})
 	if err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}

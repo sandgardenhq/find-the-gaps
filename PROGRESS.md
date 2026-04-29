@@ -1087,3 +1087,35 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
     2. Wrapper per-turn: replaced `TestWrapWithCounter_IncrementsOnCompleteWithTools` (which asserted the buggy `counter==1`) with `TestWrapWithCounter_CompleteWithTools_CountsPerTurn` (5 turns -> counter=5) and `TestWrapWithCounter_CompleteWithTools_SingleTurn` (1 turn -> counter=1). RED first, then GREEN after wiring the wrapper to attach `WithTurnCallback`.
   - **Defer placement**: the original PROGRESS note for the prior task said the success-path call was correct; review caught that it skips every error path. The defer covers all 25+ exit paths from `tiering` construction onward.
   - Files: `internal/analyzer/agent_loop.go` (new `WithTurnCallback`, `cfg.onTurn` field, post-turn invocation, `OnTurnFromOptionsForTesting` helper), `internal/analyzer/agent_loop_test.go` (3 new tests), `internal/cli/llm_counter.go` (wrapper attaches callback instead of counting at outer call), `internal/cli/llm_counter_test.go` (revised fakeToolLLMClient + 2 new tests + non-success-path defer test), `internal/cli/analyze.go` (defer right after tiering construction; success-path call removed).
+
+
+## Default Ignore List - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: full repo green (`go test ./...`); 16 ignore-package tests, plus walker regression and CLI scan-summary scenarios
+- Coverage:
+  - `internal/scanner/ignore`: 94.8% statements
+  - `internal/scanner`: 93.6% statements
+  - Repo packages all ≥ 90% except two known pre-existing gaps unrelated to this feature: `internal/cli` 89.6% (gap is in `openURLInBrowser` exec shell-out and unrelated `newAnalyzeCmd` LLM-tier branches; the new `formatScanSummary` added by this feature is at 100%) and `internal/site` 84.2% (pre-existing, unrelated)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - Plan: `.plans/DEFAULT_IGNORE_LIST_IMPLEMENTATION_PLAN.md`; design: `.plans/2026-04-29-default-ignore-list-design.md`
+  - Replaced the 5-entry hardcoded `skippedDirs` map with a layered ignore matcher in new package `internal/scanner/ignore`. Three independently-compiled gitignore layers (embedded `defaults.ftgignore`, repo `.gitignore`, optional `.ftgignore`) compose via `MatchesPathHow` so later layers can negate earlier ones.
+  - `Walk` now returns `(ignore.Stats, error)`; the CLI surfaces `scanned N files, skipped M (defaults: X, .gitignore: Y, .ftgignore: Z)` as a one-line summary in `ftg analyze` output.
+  - Defaults file ships embedded via `//go:embed`; covers VCS/IDE, dependencies, Python, build artifacts (incl. `Build/`, `cmake-build-*/`), JVM, coverage, site/doc generators, test scaffolding, lockfiles, test files, generated code, minified/bundled, binary assets, OS noise, logs/dumps.
+  - README gained an `## Ignored files` section after `## Output` documenting defaults + `.ftgignore` override + the scan-summary line.
+  - Backlog cleanup in this final commit: deleted tautological `TestDefaults_everyLineCompiles` (sabhiram/go-gitignore's `CompileIgnoreLines` never returns nil — assertion couldn't fail); deleted skipped `TestLoad_ftgignoreSyntaxError` after confirming the dep accepts every input (`getPatternFromLine` discards `regexp.Compile` errors with `_`); added `Build/` and `cmake-build-*/` test rows to `TestDefaults_skipsRepresentativeFiles`.
+
+
+## Scan Summary — Thousands Separators - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: `TestFormatScanSummary_thousandsSeparators` and `TestFormatScanSummary_smallCountsHaveNoCommas` (RED → GREEN); full repo `go test ./...` green
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - README's `## Ignored files` example showed `1,847` / `1,801` but the formatter used plain `%d`. Switched `formatScanSummary` to a package-level `message.NewPrinter(language.English)` so counts get English thousands separators (testscript scenarios with small counts pass unchanged because numbers under 1,000 don't get a separator).
+  - Investigated a suspected CRLF regression in `splitLines` and confirmed it is a non-issue: an empirical probe shows `sabhiram/go-gitignore`'s `CompileIgnoreLines` strips trailing `\r` for every pattern shape (globs, negations, double-stars), so leaving the splitter as-is is safe.
