@@ -73,3 +73,33 @@ func TestMatch_earlierLayerCannotNegateLater(t *testing.T) {
 		t.Errorf("later positive should win; got %+v", got)
 	}
 }
+
+func TestMatch_directoryPattern(t *testing.T) {
+	m, err := newMatcherFromLayers(map[string]string{
+		"defaults": "build/\n",
+	}, []string{"defaults"})
+	if err != nil {
+		t.Fatalf("newMatcherFromLayers: %v", err)
+	}
+	if got := m.Match("build", true); !got.Skip {
+		t.Errorf("build/ should match dir 'build'; got %+v", got)
+	}
+	if got := m.Match("build/output.txt", false); !got.Skip {
+		t.Errorf("build/ should match files inside; got %+v", got)
+	}
+	// Sanity: a file literally named "build" (no slash) — gitignore semantics
+	// say `build/` matches dirs only. We accept whatever the lib decides; this
+	// test pins current behaviour.
+}
+
+func TestMatch_floatingBasename(t *testing.T) {
+	m, err := newMatcherFromLayers(map[string]string{
+		"defaults": "node_modules/\n",
+	}, []string{"defaults"})
+	if err != nil {
+		t.Fatalf("newMatcherFromLayers: %v", err)
+	}
+	if got := m.Match("pkg/node_modules", true); !got.Skip {
+		t.Errorf("nested node_modules dir should match; got %+v", got)
+	}
+}

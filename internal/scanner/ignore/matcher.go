@@ -98,10 +98,20 @@ func (l layer) check(relPath string) layerResult {
 }
 
 // Match reports whether relPath should be skipped.
+//
+// sabhiram/go-gitignore's API is string-only — it does not honour an isDir
+// hint internally. To make directory patterns like "build/" match a directory
+// path supplied without a trailing slash, we append "/" to the probe path
+// when isDir is true. This lets the underlying matcher resolve dir-only
+// patterns the way gitignore semantics intend.
 func (m *Matcher) Match(relPath string, isDir bool) Decision {
+	probe := relPath
+	if isDir && !strings.HasSuffix(relPath, "/") {
+		probe = relPath + "/"
+	}
 	d := Decision{}
 	for _, l := range m.layers {
-		switch l.check(relPath) {
+		switch l.check(probe) {
 		case layerSkip:
 			d = Decision{Skip: true, Reason: l.name}
 		case layerNegate:
