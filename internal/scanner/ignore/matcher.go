@@ -9,13 +9,7 @@ type Decision struct {
 }
 
 // Matcher evaluates paths against an ordered list of gitignore layers.
-type Matcher struct {
-	layers []layer
-}
-
-type layer struct {
-	name string
-}
+type Matcher struct{}
 
 // Match reports whether relPath should be skipped.
 func (m *Matcher) Match(relPath string, isDir bool) Decision {
