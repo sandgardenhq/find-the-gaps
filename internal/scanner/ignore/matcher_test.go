@@ -41,3 +41,35 @@ func TestMatch_singleLayer_noMatch(t *testing.T) {
 		t.Errorf("expected no skip for main.go; got %+v", got)
 	}
 }
+
+func TestMatch_laterLayerNegatesEarlier(t *testing.T) {
+	m, err := newMatcherFromLayers(map[string]string{
+		"defaults":   "vendor/\n",
+		".ftgignore": "!vendor/\n",
+	}, []string{"defaults", ".ftgignore"})
+	if err != nil {
+		t.Fatalf("newMatcherFromLayers: %v", err)
+	}
+	got := m.Match("vendor/lib.go", false)
+	if got.Skip {
+		t.Errorf("later !vendor/ should re-include; got %+v", got)
+	}
+	if got.Reason != ".ftgignore" {
+		t.Errorf("reason = %q, want %q", got.Reason, ".ftgignore")
+	}
+}
+
+func TestMatch_earlierLayerCannotNegateLater(t *testing.T) {
+	// Sanity: a defaults negation does NOT undo a .ftgignore positive match.
+	m, err := newMatcherFromLayers(map[string]string{
+		"defaults":   "!something\n",
+		".ftgignore": "something\n",
+	}, []string{"defaults", ".ftgignore"})
+	if err != nil {
+		t.Fatalf("newMatcherFromLayers: %v", err)
+	}
+	got := m.Match("something", false)
+	if !got.Skip {
+		t.Errorf("later positive should win; got %+v", got)
+	}
+}
