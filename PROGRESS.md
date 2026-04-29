@@ -1032,3 +1032,20 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Graceful shutdown via `srv.Shutdown(ctx5s)` on cobra context cancel; tested with both clean-exit-code and post-cancel-listener-closed assertions.
   - Browser opener: package-level `openInBrowser` var (test-swappable) wraps a pure `browserOpenerArgs(goos, url)` dispatcher so all OS branches are covered without controlling `runtime.GOOS`. The 2-line `openURLInBrowser` shell-out remains unreachable in unit tests by design.
   - README updated under `### serve`; help output documented including `--open` and `--addr :0` semantics.
+
+
+## Task: fix concurrent map writes in spider Index - COMPLETE
+- Started: 2026-04-29
+- Tests: full repo green with `-race`; spider package coverage 95.0% (3 new tests)
+- Coverage: total 91.4%; spider 95.0% (Record 100%, ProductInfo 100%, all locked methods covered)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run ./internal/spider/... ./internal/cli/...` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - Bug: `go run ./cmd/find-the-gaps/ analyze --repo ~/workspace/bun --docs-url https://bun.com/docs` panicked with `fatal error: concurrent map writes` at `internal/spider/cache.go:78` inside `(*Index).Record`. `Crawl` runs N (default 5) worker goroutines that each call `idx.Record`; `Record` mutated `idx.entries` (a Go map) without synchronization. Latent on small docs sites; reproducible whenever two workers committed within the same scheduler quantum.
+  - **RED**: `TestIndex_Record_concurrent` fires 64 goroutines, each calling `idx.Record` with a distinct URL. With `go test -race` it produces both a data race (Record:75 vs Record:78) and the original `concurrent map writes` fatal — exact match for the user-reported panic.
+  - **GREEN**: Added `sync.Mutex` field on `Index` and locked every public method that touches mutable state (`Has`, `Record`, `RecordAnalysis`, `Analysis`, `SetProductSummary`, `FilePath`, `All`). Private `save()` stays lock-free — only called from already-locked methods, never re-entrant. `LoadIndex` is unchanged: the returned `*Index` is single-threaded until `Crawl` hands it to workers.
+  - Added `(*Index).ProductInfo() (string, []string)` accessor with its own RED→GREEN cycle (compile-error RED, then implementation). Replaced direct `idx.ProductSummary` / `idx.AllFeatures` field reads in `internal/cli/analyze.go:205-208` with the locked accessor — defensive against future parallelization of the analysis loop.
+  - Did NOT defer the `index.json` save outside the worker. Mutex serializes them now; disk-write amplification (one save per fetched page) is wasteful but correct. Left as a separate perf-only follow-up rather than bundling into the bug fix.
+  - Verification: `go test -race ./...` passes all packages; the original panic site is now provably safe under the race detector. End-to-end re-run on `~/workspace/bun` not executed by Claude (would burn LLM credits) — invite the user to confirm the crawl completes locally.
+  - Files: `internal/spider/cache.go` (mutex + ProductInfo), `internal/spider/cache_test.go` (3 new tests + sync/fmt imports + rangeint modernization), `internal/cli/analyze.go` (use ProductInfo).
