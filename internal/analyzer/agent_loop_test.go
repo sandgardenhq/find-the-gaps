@@ -195,6 +195,61 @@ func TestRunAgentLoop_RotatingBreakpoint_NoSeeded(t *testing.T) {
 	require.True(t, observed[1][2].CacheBreakpoint)
 }
 
+// WithTurnCallback fires once per successful next() call so callers can count
+// real LLM round-trips. The happy path: 2 successful turns -> 2 invocations.
+func TestRunAgentLoop_TurnCallback_FiresOnEverySuccessfulTurn(t *testing.T) {
+	scripted := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: `{}`}}},
+		{Role: "assistant", Content: "ok"},
+	}
+	tools := []Tool{{
+		Name:    "echo",
+		Execute: func(_ context.Context, _ string) (string, error) { return "", nil },
+	}}
+	var calls int
+	_, err := runAgentLoop(context.Background(), scriptedTurns(scripted, nil), nil, tools, WithTurnCallback(func() { calls++ }))
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls, "callback must fire once per successful turn")
+}
+
+// A failing turn must NOT invoke the callback for itself; only successful
+// turns count.
+func TestRunAgentLoop_TurnCallback_NotFiredOnFailingTurn(t *testing.T) {
+	bang := errors.New("bifrost down")
+	turn := 0
+	next := func(_ context.Context, _ []ChatMessage, _ []Tool) (ChatMessage, error) {
+		turn++
+		if turn == 2 {
+			return ChatMessage{}, bang
+		}
+		return ChatMessage{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: `{}`}}}, nil
+	}
+	tools := []Tool{{
+		Name:    "echo",
+		Execute: func(_ context.Context, _ string) (string, error) { return "", nil },
+	}}
+	var calls int
+	_, err := runAgentLoop(context.Background(), next, nil, tools, WithTurnCallback(func() { calls++ }))
+	require.Error(t, err)
+	assert.Equal(t, 1, calls, "only the first (successful) turn should fire the callback")
+}
+
+// When ErrMaxRounds terminates the loop, the callback must have fired once
+// per attempted-and-completed turn.
+func TestRunAgentLoop_TurnCallback_FiresOnMaxRoundsPath(t *testing.T) {
+	scripted := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: `{}`}}},
+	}
+	tools := []Tool{{
+		Name:    "echo",
+		Execute: func(_ context.Context, _ string) (string, error) { return "", nil },
+	}}
+	var calls int
+	_, err := runAgentLoop(context.Background(), scriptedTurns(scripted, nil), nil, tools, WithMaxRounds(3), WithTurnCallback(func() { calls++ }))
+	require.ErrorIs(t, err, ErrMaxRounds)
+	assert.Equal(t, 3, calls, "callback fires per attempted turn even when max-rounds is hit")
+}
+
 func TestRunAgentLoop_MaxRoundsAllowsCompletion(t *testing.T) {
 	// max-rounds=2 with a single tool-call followed by text must succeed in 2 rounds.
 	scripted := []ChatMessage{

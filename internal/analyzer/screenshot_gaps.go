@@ -142,8 +142,8 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	// PROMPT: Identifies passages in a documentation page that describe user-facing UI moments (web, app, terminal) and should have a screenshot nearby but do not. Applies a locality rule: a passage is already covered if an image appears in the same section heading or within 3 paragraphs before/after. Populates "gaps"; empty if nothing needs a screenshot.
-	return fmt.Sprintf(`You are reviewing a documentation page to identify places where a screenshot would materially help the reader, but none is present nearby.
+	// PROMPT: Identifies the small number of passages in a documentation page where a screenshot is essential — multi-step flows, visually dense moments, or visual recognition the reader cannot reconstruct from prose. Applies a locality rule: a passage is already covered if an image appears in the same section heading or within 3 paragraphs before/after. Default is to flag nothing; over-flagging is worse than missing a gap.
+	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot is ESSENTIAL — not merely helpful. The default is to flag nothing. Be aggressively conservative; over-flagging is worse than missing a gap.
 
 URL: %s
 
@@ -155,20 +155,26 @@ Page content:
 
 A passage is ALREADY COVERED (do not flag it) if an existing image on this page appears in the same section heading as the passage, OR within 3 paragraphs before/after the passage.
 
-Only flag passages that describe a concrete user-facing moment the reader would benefit from seeing: a web UI, an app screen, a terminal session with visible output, a dialog, a dashboard, a button or form the user interacts with.
+Flag a passage ONLY if at least one is true:
+1. MULTI-STEP FLOW: It describes a sequence of two or more distinct user actions across changing UI states, and the reader needs to see the intermediate states to stay oriented (e.g., a wizard, an OAuth handshake screen-by-screen, a guided onboarding).
+2. VISUALLY DENSE: It describes a moment where prose cannot reasonably enumerate what is on screen — a dashboard with multiple panels, a chart whose shape matters, a configuration page with many interacting fields, a complex error state with specific layout.
+3. VISUAL RECOGNITION: The reader is asked to recognize something they cannot reconstruct from text alone — "look for the red banner at the top", "the chart should resemble this shape", "find the icon that looks like…".
 
 Do NOT flag:
-- Pure reference material (API signatures, type tables, option lists).
-- Abstract prose with no concrete UI moment.
-- Passages already covered by a nearby image per the locality rule above.
+- Single-action interactions ("click Save", "press Enter", "fill in the email field").
+- Terminal sessions whose output is already shown inline in a code block.
+- Reference material (API signatures, option tables, type listings).
+- Abstract prose with no specific UI moment.
+- Anything covered by the locality rule above.
+- Passages where you cannot name, in one sentence, exactly what would be lost if the reader followed prose alone.
 
-Populate "gaps" with one object per remaining gap. Each object must have:
-- "quoted_passage": the exact verbatim quote from the page that describes the UI moment. Do not paraphrase.
-- "should_show": a concrete description of what the screenshot should depict. Be specific: name the visible elements, values, buttons, states. Not "a screenshot of the feature".
-- "suggested_alt": alt text / caption for the screenshot, under 100 characters.
+Populate "gaps" with one object per REMAINING gap. Each object must have:
+- "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
+- "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
+- "suggested_alt": alt text / caption, under 100 characters.
 - "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
 
-Return an empty "gaps" array if nothing needs a screenshot.`, pageURL, coverageSummary, content)
+Return an empty "gaps" array if nothing meets the bar. This is the expected outcome for most pages.`, pageURL, coverageSummary, content)
 }
 
 // screenshotResponseItem is one raw item in the LLM's response for a
