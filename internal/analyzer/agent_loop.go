@@ -24,12 +24,34 @@ type AgentOption func(*agentConfig)
 
 type agentConfig struct {
 	maxRounds int
+	onTurn    func()
 }
 
 // WithMaxRounds sets the maximum number of LLM round-trips the agent loop will
 // perform before giving up. n must be >= 1.
 func WithMaxRounds(n int) AgentOption {
 	return func(cfg *agentConfig) { cfg.maxRounds = n }
+}
+
+// WithTurnCallback registers fn to be called once per successful turn (i.e.
+// once per real LLM round-trip), immediately after the turnFunc returns
+// without error. Used by callers that need to count actual LLM calls rather
+// than outer CompleteWithTools invocations. fn must be safe to invoke from
+// the goroutine driving the loop; pass nil to opt out.
+func WithTurnCallback(fn func()) AgentOption {
+	return func(cfg *agentConfig) { cfg.onTurn = fn }
+}
+
+// OnTurnFromOptionsForTesting applies opts to a fresh agentConfig and returns
+// the registered per-turn callback (or nil). Cross-package tests use it to
+// drive AgentOption-based hooks without invoking runAgentLoop end-to-end.
+// Not intended for production code.
+func OnTurnFromOptionsForTesting(opts ...AgentOption) func() {
+	cfg := agentConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg.onTurn
 }
 
 // turnFunc returns the LLM's next message for one round. It is the single-turn
@@ -72,6 +94,9 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 		resp, err := next(ctx, messages, tools)
 		if err != nil {
 			return AgentResult{}, err
+		}
+		if cfg.onTurn != nil {
+			cfg.onTurn()
 		}
 		messages = append(messages, resp)
 		rotateCacheBreakpoint(messages)

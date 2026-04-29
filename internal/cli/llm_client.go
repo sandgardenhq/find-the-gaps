@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
@@ -10,10 +11,30 @@ import (
 // Compile-time assertion: *llmTiering must satisfy analyzer.LLMTiering.
 var _ analyzer.LLMTiering = (*llmTiering)(nil)
 
+// LLMCallCounts is a snapshot of how many LLM calls have flowed through each
+// tier of an llmTiering. Reported at the end of an analyze run when --verbose
+// is set.
+type LLMCallCounts struct {
+	Small, Typical, Large int64
+}
+
+// Total returns the sum across all tiers.
+func (c LLMCallCounts) Total() int64 { return c.Small + c.Typical + c.Large }
+
 // llmTiering holds one LLMClient + TokenCounter per tier. Implements analyzer.LLMTiering.
 type llmTiering struct {
 	small, typical, large                      analyzer.LLMClient
 	smallCounter, typicalCounter, largeCounter analyzer.TokenCounter
+	smallCalls, typicalCalls, largeCalls       atomic.Int64
+}
+
+// CallCounts snapshots the per-tier call counters.
+func (t *llmTiering) CallCounts() LLMCallCounts {
+	return LLMCallCounts{
+		Small:   t.smallCalls.Load(),
+		Typical: t.typicalCalls.Load(),
+		Large:   t.largeCalls.Load(),
+	}
 }
 
 func (t *llmTiering) Small() analyzer.LLMClient             { return t.small }
@@ -54,10 +75,13 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 		built[i] = client
 		counters[i] = counter
 	}
-	return &llmTiering{
-		small: built[0], typical: built[1], large: built[2],
+	tg := &llmTiering{
 		smallCounter: counters[0], typicalCounter: counters[1], largeCounter: counters[2],
-	}, nil
+	}
+	tg.small = wrapWithCounter(built[0], &tg.smallCalls)
+	tg.typical = wrapWithCounter(built[1], &tg.typicalCalls)
+	tg.large = wrapWithCounter(built[2], &tg.largeCalls)
+	return tg, nil
 }
 
 // buildTierClient constructs a single (LLMClient, TokenCounter) for one (provider, model).

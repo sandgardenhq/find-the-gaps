@@ -142,6 +142,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("LLM client: %w", err)
 			}
+			defer logLLMCallCounts(tiering)
 
 			log.Infof("crawling %s", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
