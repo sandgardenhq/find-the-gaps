@@ -57,9 +57,8 @@ func newMatcherFromLayers(sources map[string]string, order []string) (*Matcher, 
 func extractNegatedLines(lines []string) []string {
 	var out []string
 	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "!") {
-			out = append(out, strings.TrimPrefix(trimmed, "!"))
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "!"); ok {
+			out = append(out, rest)
 		}
 	}
 	return out
