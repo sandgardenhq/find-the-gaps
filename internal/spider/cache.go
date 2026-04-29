@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -30,8 +31,10 @@ type indexJSON struct {
 }
 
 // Index is an in-memory view of index.json backed by a cache directory.
+// All public methods are safe for concurrent use.
 type Index struct {
 	dir            string
+	mu             sync.Mutex
 	entries        map[string]indexEntry
 	ProductSummary string
 	AllFeatures    []string
@@ -65,6 +68,8 @@ func LoadIndex(dir string) (*Index, error) {
 
 // Has reports whether rawURL is already recorded in the index.
 func (idx *Index) Has(rawURL string) bool {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	_, ok := idx.entries[rawURL]
 	return ok
 }
@@ -72,6 +77,8 @@ func (idx *Index) Has(rawURL string) bool {
 // Record adds rawURL to the index with the given filename and saves index.json.
 // It preserves any existing Summary and Features for the URL.
 func (idx *Index) Record(rawURL, filename string) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	e := idx.entries[rawURL]
 	e.Filename = filename
 	e.FetchedAt = time.Now()
@@ -81,6 +88,8 @@ func (idx *Index) Record(rawURL, filename string) error {
 
 // RecordAnalysis stores the LLM-produced summary and features for rawURL.
 func (idx *Index) RecordAnalysis(rawURL, summary string, features []string) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	e := idx.entries[rawURL]
 	e.Summary = summary
 	e.Features = features
@@ -90,6 +99,8 @@ func (idx *Index) RecordAnalysis(rawURL, summary string, features []string) erro
 
 // Analysis returns the cached summary and features for rawURL, if present.
 func (idx *Index) Analysis(rawURL string) (summary string, features []string, ok bool) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	e, found := idx.entries[rawURL]
 	if !found || e.Summary == "" {
 		return "", nil, false
@@ -99,13 +110,24 @@ func (idx *Index) Analysis(rawURL string) (summary string, features []string, ok
 
 // SetProductSummary stores the product-level summary and feature list.
 func (idx *Index) SetProductSummary(description string, features []string) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	idx.ProductSummary = description
 	idx.AllFeatures = features
 	return idx.save()
 }
 
+// ProductInfo returns the recorded product summary and feature list.
+func (idx *Index) ProductInfo() (string, []string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	return idx.ProductSummary, idx.AllFeatures
+}
+
 // FilePath returns the absolute cache file path for rawURL, if present.
 func (idx *Index) FilePath(rawURL string) (string, bool) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	e, ok := idx.entries[rawURL]
 	if !ok {
 		return "", false
@@ -115,6 +137,8 @@ func (idx *Index) FilePath(rawURL string) (string, bool) {
 
 // All returns a map of every cached URL to its absolute file path.
 func (idx *Index) All() map[string]string {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 	out := make(map[string]string, len(idx.entries))
 	for u, e := range idx.entries {
 		out[u] = filepath.Join(idx.dir, e.Filename)

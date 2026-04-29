@@ -1,9 +1,11 @@
 package spider
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -193,6 +195,73 @@ func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
 	}
 	if len(features) != 1 || features[0] != "Homebrew install" {
 		t.Errorf("Features: got %v", features)
+	}
+}
+
+func TestIndex_Record_concurrent(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 64
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			rawURL := fmt.Sprintf("https://docs.example.com/page-%d", i)
+			filename := fmt.Sprintf("file-%d.md", i)
+			if err := idx.Record(rawURL, filename); err != nil {
+				t.Errorf("Record(%q): %v", rawURL, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	all := idx.All()
+	if len(all) != n {
+		t.Fatalf("expected %d entries after concurrent Record, got %d", n, len(all))
+	}
+	for i := range n {
+		rawURL := fmt.Sprintf("https://docs.example.com/page-%d", i)
+		if !idx.Has(rawURL) {
+			t.Errorf("missing entry for %q", rawURL)
+		}
+	}
+}
+
+func TestIndex_ProductInfo_returnsStoredSummary(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := LoadIndex(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.SetProductSummary("A CLI tool.", []string{"gap analysis", "doctor"}); err != nil {
+		t.Fatal(err)
+	}
+
+	desc, features := idx.ProductInfo()
+	if desc != "A CLI tool." {
+		t.Errorf("ProductInfo desc: got %q, want %q", desc, "A CLI tool.")
+	}
+	if len(features) != 2 || features[0] != "gap analysis" || features[1] != "doctor" {
+		t.Errorf("ProductInfo features: got %v", features)
+	}
+}
+
+func TestIndex_ProductInfo_emptyByDefault(t *testing.T) {
+	idx, err := LoadIndex(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc, features := idx.ProductInfo()
+	if desc != "" {
+		t.Errorf("expected empty desc, got %q", desc)
+	}
+	if len(features) != 0 {
+		t.Errorf("expected empty features, got %v", features)
 	}
 }
 

@@ -202,10 +202,11 @@ func newAnalyzeCmd() *cobra.Command {
 			// Use cached synthesis when all pages were cache hits.
 			log.Infof("synthesizing product from %d pages...", len(analyses))
 			var productSummary analyzer.ProductSummary
-			if freshCount == 0 && idx.ProductSummary != "" {
+			cachedDesc, cachedFeatures := idx.ProductInfo()
+			if freshCount == 0 && cachedDesc != "" {
 				productSummary = analyzer.ProductSummary{
-					Description: idx.ProductSummary,
-					Features:    idx.AllFeatures,
+					Description: cachedDesc,
+					Features:    cachedFeatures,
 				}
 			} else {
 				productSummary, err = analyzer.SynthesizeProduct(ctx, tiering, analyses)
