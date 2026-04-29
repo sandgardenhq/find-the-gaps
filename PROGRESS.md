@@ -1049,3 +1049,23 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Did NOT defer the `index.json` save outside the worker. Mutex serializes them now; disk-write amplification (one save per fetched page) is wasteful but correct. Left as a separate perf-only follow-up rather than bundling into the bug fix.
   - Verification: `go test -race ./...` passes all packages; the original panic site is now provably safe under the race detector. End-to-end re-run on `~/workspace/bun` not executed by Claude (would burn LLM credits) — invite the user to confirm the crawl completes locally.
   - Files: `internal/spider/cache.go` (mutex + ProductInfo), `internal/spider/cache_test.go` (3 new tests + sync/fmt imports + rangeint modernization), `internal/cli/analyze.go` (use ProductInfo).
+
+
+## Task: per-tier LLM call counter with verbose summary - COMPLETE
+- Started: 2026-04-29 18:30 UTC
+- Tests: full repo green with `-race`; 8 new tests in `internal/cli/llm_counter_test.go`.
+- Coverage: 100% on every new function (`wrapWithCounter`, `Complete`, `CompleteJSON`, `CompleteWithTools`, `logLLMCallCounts`, `CallCounts`, `Total`). Package total: 89.9% (unchanged — uncovered statements are all pre-existing).
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run ./internal/cli/...` — 0 issues)
+- Completed: 2026-04-29 18:46 UTC
+- Notes:
+  - User asked for a per-tier LLM call counter, surfaced when `--verbose` is set, reported at the end of the run.
+  - **RED → GREEN, three cycles**:
+    1. `wrapWithCounter` wrapper — concurrent increments under `-race`, ToolLLMClient interface preservation.
+    2. `llmTiering.CallCounts()` + atomic counters wired through `newLLMTiering` so `Small()`/`Typical()`/`Large()` return counted wrappers.
+    3. `logLLMCallCounts(*llmTiering)` debug-level summary; emits at DebugLevel only (gated by existing `--verbose` log-level switch in `root.go`).
+  - **Thread-safety**: three `sync/atomic.Int64` fields on `llmTiering`. Lock-free, monotonic, zero allocations per call. Snapshot via `.Load()` at end of run.
+  - **Interface preservation**: `wrapWithCounter` returns `*countingToolClient` if inner is `analyzer.ToolLLMClient`, else `*countingClient`. The runtime assertion `tiering.Typical().(ToolLLMClient)` in `internal/analyzer/drift.go:68` keeps working.
+  - **Output format**: `LLM call counts: small=N typical=N large=N (total=N)` — emitted via `log.Debugf`, so it appears in stderr only when `-v`/`--verbose` is set; silent otherwise.
+  - **Why not always-info**: matched existing pattern (`log.Debug` everywhere else for verbose-gated info). No new flag, no new behavior without `-v`.
+  - Files: `internal/cli/llm_counter.go` (new), `internal/cli/llm_counter_test.go` (new), `internal/cli/llm_client.go` (atomic counter fields + `CallCounts` + `LLMCallCounts` type + wrap each tier in `newLLMTiering`), `internal/cli/analyze.go` (one-line call to `logLLMCallCounts(tiering)` before `return nil`).

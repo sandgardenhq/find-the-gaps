@@ -430,6 +430,7 @@ func newAnalyzeCmd() *cobra.Command {
 				len(scan.Files), len(pages), len(featureMap),
 				projectDir, projectDir, screenshotsLine, siteLine, extraLine)
 
+			logLLMCallCounts(tiering)
 			return nil
 		},
 	}
