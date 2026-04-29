@@ -3,6 +3,7 @@ package analyzer_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1089,6 +1090,38 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 	assert.Equal(t, 0, recorded[1].issuesCount)
 	assert.Equal(t, "cached", recorded[2].name)
 	assert.Equal(t, 1, recorded[2].issuesCount)
+}
+
+func TestDetectDrift_OnFeatureDoneError_Aborts(t *testing.T) {
+	typical := &driftStubClient{responses: []analyzer.ChatMessage{driftDone()}}
+	large := &driftStubClient{}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"b.go"}}, // must not be processed
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/a"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/b"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Page", nil }
+
+	calls := 0
+	onFeatureDone := func(_ string, _, _ []string, _ []analyzer.DriftIssue) error {
+		calls++
+		return errors.New("disk full")
+	}
+
+	_, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		nil, nil, onFeatureDone,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
+	assert.Equal(t, 1, calls, "second feature must not be processed after onFeatureDone error")
 }
 
 func TestBudgetForFeature(t *testing.T) {
