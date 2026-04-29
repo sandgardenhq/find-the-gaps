@@ -1,18 +1,12 @@
 package cli
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"time"
 
-	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
 
@@ -63,42 +57,7 @@ func newServeCmd() *cobra.Command {
 				return fmt.Errorf("no rendered site at %s — run `ftg analyze` first to generate it", siteDir)
 			}
 
-			ln, err := net.Listen("tcp", addr)
-			if err != nil {
-				return fmt.Errorf("listen on %s: %w", addr, err)
-			}
-
-			srv := &http.Server{
-				Handler:           http.FileServer(http.Dir(siteDir)),
-				ReadHeaderTimeout: 5 * time.Second,
-			}
-
-			url := fmt.Sprintf("http://%s/", ln.Addr().String())
-			_, _ = fmt.Fprintf(cc.OutOrStdout(), "serving %s at %s\n", siteDir, url)
-
-			if openFlag {
-				if err := openInBrowser(url); err != nil {
-					log.Warnf("could not open browser: %v", err)
-				}
-			}
-
-			errCh := make(chan error, 1)
-			go func() {
-				errCh <- srv.Serve(ln)
-			}()
-
-			select {
-			case <-cc.Context().Done():
-				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				_ = srv.Shutdown(shutdownCtx)
-				return nil
-			case err := <-errCh:
-				if errors.Is(err, http.ErrServerClosed) {
-					return nil
-				}
-				return fmt.Errorf("serve: %w", err)
-			}
+			return runHTTPServer(cc.Context(), cc.OutOrStdout(), siteDir, addr, openFlag)
 		},
 	}
 
