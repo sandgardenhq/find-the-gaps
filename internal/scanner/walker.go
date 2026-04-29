@@ -3,29 +3,23 @@ package scanner
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
-	gitignore "github.com/sabhiram/go-gitignore"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
 )
 
-// skippedDirs lists well-known dependency and build-artifact directories that
-// are never useful to scan, regardless of .gitignore configuration.
-// Keys are directory base-names (info.Name()), matched at any depth.
-var skippedDirs = map[string]bool{
-	"vendor":       true, // Go
-	"node_modules": true, // JavaScript / TypeScript
-	"__pycache__":  true, // Python
-	"venv":         true, // Python virtual environments
-	"target":       true, // Rust build artifacts (also skips any non-Rust dir named "target")
-}
+// Walk recursively walks repoRoot, calling fn for each non-skipped file.
+// Paths passed to fn are relative to repoRoot. It composes the embedded
+// default ignore list with the project's .gitignore and .ftgignore (if any)
+// and returns a Stats summary.
+func Walk(repoRoot string, fn func(path string, info os.FileInfo) error) (ignore.Stats, error) {
+	stats := ignore.Stats{}
 
-// Walk recursively walks repoRoot, calling fn for each non-ignored file.
-// Paths passed to fn are relative to repoRoot. Respects .gitignore patterns
-// and always skips .git/ and other hidden directories.
-func Walk(repoRoot string, fn func(path string, info os.FileInfo) error) error {
-	gi := loadGitignore(repoRoot)
+	matcher, err := ignore.Load(repoRoot)
+	if err != nil {
+		return stats, err
+	}
 
-	return filepath.Walk(repoRoot, func(absPath string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(repoRoot, func(absPath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -38,23 +32,9 @@ func Walk(repoRoot string, fn func(path string, info os.FileInfo) error) error {
 			return nil
 		}
 
-		// Always skip .git directory.
-		if info.IsDir() && rel == ".git" {
-			return filepath.SkipDir
-		}
-
-		// Skip hidden directories (but allow hidden files in root, like .gitignore itself).
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
-			return filepath.SkipDir
-		}
-
-		// Skip well-known dependency and build-artifact directories.
-		if info.IsDir() && skippedDirs[info.Name()] {
-			return filepath.SkipDir
-		}
-
-		// Skip gitignored paths.
-		if gi != nil && gi.MatchesPath(rel) {
+		decision := matcher.Match(rel, info.IsDir())
+		if decision.Skip {
+			stats.RecordSkip(decision.Reason)
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -65,18 +45,9 @@ func Walk(repoRoot string, fn func(path string, info os.FileInfo) error) error {
 			return nil
 		}
 
+		stats.RecordScanned()
 		return fn(rel, info)
 	})
-}
 
-func loadGitignore(repoRoot string) *gitignore.GitIgnore {
-	giPath := filepath.Join(repoRoot, ".gitignore")
-	if _, err := os.Stat(giPath); os.IsNotExist(err) {
-		return nil
-	}
-	gi, err := gitignore.CompileIgnoreFile(giPath)
-	if err != nil {
-		return nil
-	}
-	return gi
+	return stats, walkErr
 }

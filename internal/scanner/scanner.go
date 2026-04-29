@@ -30,7 +30,7 @@ func Scan(repoRoot string, opts Options) (*ProjectScan, error) {
 	var files []ScannedFile
 	langSet := make(map[string]bool)
 
-	if err := Walk(repoRoot, func(relPath string, info os.FileInfo) error {
+	if _, err := Walk(repoRoot, func(relPath string, info os.FileInfo) error {
 		ext := lang.Detect(relPath)
 		if ext == nil {
 			return nil
