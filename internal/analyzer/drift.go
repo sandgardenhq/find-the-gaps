@@ -27,6 +27,22 @@ const (
 	driftBudgetCeiling = 100
 )
 
+// CachedDriftEntry is one feature's persisted drift result, used by
+// DetectDrift to short-circuit the investigator+judge when inputs are
+// unchanged. Files and Pages must be sorted ascending; the lookup compares
+// them as sorted sets against the current run's inputs.
+type CachedDriftEntry struct {
+	Files  []string
+	Pages  []string
+	Issues []DriftIssue
+}
+
+// DriftFeatureDoneFunc fires after DetectDrift decides a feature's drift
+// result, whether the result came from a cache hit or a fresh investigate+judge.
+// Implementations typically persist the result so a future run can resume.
+// Files and Pages are sorted ascending. Return non-nil to abort detection.
+type DriftFeatureDoneFunc func(feature string, files, pages []string, issues []DriftIssue) error
+
 // budgetForFeature returns the investigator round budget for a single
 // feature's drift check. Each read_file and read_page tool call costs one
 // round; each note_observation call costs one round; slack covers re-reads
