@@ -20,14 +20,15 @@ type Options struct {
 // Scan walks repoRoot, extracts symbols and imports from each source file,
 // builds an import graph, writes a project.md report, and caches the result.
 // It returns the project scan, the per-layer skip statistics from the walk,
-// and any error. On a cache hit, the returned Stats is the zero value because
-// no walk was performed.
+// and any error. On a cache hit, Stats.Scanned mirrors the cached file count
+// so the user-visible summary stays truthful; per-layer skip counts are not
+// persisted in the cache today, so Stats.Skipped is always nil for cache hits.
 func Scan(repoRoot string, opts Options) (*ProjectScan, ignore.Stats, error) {
 	cache := NewScanCache(opts.CacheDir)
 
 	if !opts.NoCache {
 		if cached, err := cache.Load(); err == nil && cached != nil {
-			return cached, ignore.Stats{}, nil
+			return cached, ignore.Stats{Scanned: len(cached.Files)}, nil
 		}
 	}
 
