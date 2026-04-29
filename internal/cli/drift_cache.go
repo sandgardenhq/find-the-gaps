@@ -41,13 +41,21 @@ func loadDriftCache(path string) (map[string]analyzer.CachedDriftEntry, bool) {
 	}
 	out := make(map[string]analyzer.CachedDriftEntry, len(f.Entries))
 	for _, e := range f.Entries {
+		files := e.Files
+		if files == nil {
+			files = []string{}
+		}
+		pages := e.Pages
+		if pages == nil {
+			pages = []string{}
+		}
 		issues := e.Issues
 		if issues == nil {
 			issues = []analyzer.DriftIssue{}
 		}
 		out[e.Feature] = analyzer.CachedDriftEntry{
-			Files:  e.Files,
-			Pages:  e.Pages,
+			Files:  files,
+			Pages:  pages,
 			Issues: issues,
 		}
 	}
@@ -89,6 +97,13 @@ func saveDriftCache(path string, current map[string]analyzer.CachedDriftEntry) e
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	// os.CreateTemp produces 0o600; bring it in line with the other cache
+	// files (featuremap.json, codefeatures.json) which all use 0o644.
+	if err := tmp.Chmod(0o644); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
 		return err

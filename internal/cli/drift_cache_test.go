@@ -98,6 +98,31 @@ func TestSaveDriftCache_AtomicReplace(t *testing.T) {
 	for _, e := range entries {
 		assert.Equal(t, "drift.json", e.Name(), "unexpected leftover file: %s", e.Name())
 	}
+
+	// Mode must match the other cache files (0o644), not os.CreateTemp's 0o600 default.
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "drift.json must be 0o644 to match featuremap.json/codefeatures.json")
+}
+
+func TestLoadDriftCache_NilSlicesNormalized(t *testing.T) {
+	// A drift.json on disk with JSON null for files/pages/issues must round-trip
+	// to empty slices, not nil — otherwise equality checks against the current
+	// run's sorted slices would mis-classify these as cache misses.
+	path := filepath.Join(t.TempDir(), "drift.json")
+	raw := `{"features":["empty"],"entries":[{"feature":"empty","files":null,"pages":null,"issues":null}]}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o644))
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	entry, hasEntry := got["empty"]
+	require.True(t, hasEntry)
+	assert.NotNil(t, entry.Files, "Files must be normalized to empty slice, not nil")
+	assert.NotNil(t, entry.Pages, "Pages must be normalized to empty slice, not nil")
+	assert.NotNil(t, entry.Issues, "Issues must be normalized to empty slice, not nil")
+	assert.Empty(t, entry.Files)
+	assert.Empty(t, entry.Pages)
+	assert.Empty(t, entry.Issues)
 }
 
 // indexOf is strings.Index inlined to avoid an extra import in the test file.
