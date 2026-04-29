@@ -71,8 +71,17 @@ type DriftProgressFunc func(accumulated []DriftFinding) error
 //
 // pageReader reads the cached content of a doc page by URL. repoRoot is the
 // absolute path to the repository root, used to constrain read_file access.
-// onFinding is called after each feature with findings is processed; pass nil
-// to skip incremental callbacks.
+//
+// cached supplies prior drift results keyed by feature name; pass nil to run
+// every feature fresh. A cache hit reuses Issues without invoking the
+// investigator or judge. (Lookup logic is wired in a follow-up commit.)
+//
+// onFinding fires after each feature whose result has at least one issue,
+// receiving the accumulated findings slice; pass nil to skip incremental
+// callbacks. onFeatureDone fires after every completed feature regardless
+// of issue count (cache-hit or fresh), receiving sorted files and pages plus
+// the resolved issues; pass nil to skip persistence callbacks. Returning an
+// error from either callback aborts detection.
 func DetectDrift(
 	ctx context.Context,
 	tiering LLMTiering,
@@ -84,7 +93,7 @@ func DetectDrift(
 	onFinding DriftProgressFunc,
 	onFeatureDone DriftFeatureDoneFunc,
 ) ([]DriftFinding, error) {
-	_ = cached
+	_ = cached // TODO(Task 3): remove once cache lookup is wired
 	investigator, ok := tiering.Typical().(ToolLLMClient)
 	if !ok {
 		return nil, fmt.Errorf("DetectDrift: typical tier does not support tool use (required for the drift investigator); configure --llm-typical with a tool-use-capable provider (anthropic or openai)")
