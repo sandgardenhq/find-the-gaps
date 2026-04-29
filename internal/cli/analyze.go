@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
 	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 	"github.com/spf13/cobra"
@@ -118,14 +120,17 @@ func newAnalyzeCmd() *cobra.Command {
 				CacheDir: filepath.Join(projectDir, "scan"),
 				NoCache:  noCache,
 			}
-			scan, err := scanner.Scan(repoPath, scanOpts)
+			scan, stats, err := scanner.Scan(repoPath, scanOpts)
 			if err != nil {
 				return fmt.Errorf("scan failed: %w", err)
 			}
 			log.Debug("scan complete", "files", len(scan.Files))
 
+			if os.Getenv("FIND_THE_GAPS_QUIET") != "1" {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), formatScanSummary(stats))
+			}
+
 			if docsURL == "" {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "scanned %d files\n", len(scan.Files))
 				return nil
 			}
 
@@ -453,4 +458,22 @@ func newAnalyzeCmd() *cobra.Command {
 		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
 
 	return cmd
+}
+
+// formatScanSummary builds the one-line summary printed after a scan.
+// Zero skips: "scanned %d files, skipped 0".
+// Non-zero: "scanned %d files, skipped %d (defaults: X, .gitignore: Y, .ftgignore: Z)"
+// with zero-count layer segments suppressed.
+func formatScanSummary(s ignore.Stats) string {
+	skipped := s.SkippedTotal()
+	if skipped == 0 {
+		return fmt.Sprintf("scanned %d files, skipped 0", s.Scanned)
+	}
+	parts := make([]string, 0, 3)
+	for _, name := range []string{"defaults", ".gitignore", ".ftgignore"} {
+		if n := s.Skipped[name]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s: %d", name, n))
+		}
+	}
+	return fmt.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
 }
