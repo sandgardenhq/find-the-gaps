@@ -157,11 +157,7 @@ Replace `matcher.go` body. Note: Task 1 left `Matcher` empty and there is no `la
 ```go
 package ignore
 
-import (
-	"fmt"
-
-	gitignore "github.com/sabhiram/go-gitignore"
-)
+import gitignore "github.com/sabhiram/go-gitignore"
 
 type Decision struct {
 	Skip   bool
@@ -179,6 +175,11 @@ type layer struct {
 
 // newMatcherFromLayers compiles the given source strings in the given order.
 // Exposed for tests only — production code uses Load.
+//
+// The (*Matcher, error) signature is forward-looking: today every path
+// succeeds (sabhiram/go-gitignore's CompileIgnoreLines does not return
+// an error), but Task 6's Load needs the error channel for os.ReadFile.
+// Keeping it now avoids a churning signature change later.
 func newMatcherFromLayers(sources map[string]string, order []string) (*Matcher, error) {
 	m := &Matcher{}
 	for _, name := range order {
@@ -186,10 +187,7 @@ func newMatcherFromLayers(sources map[string]string, order []string) (*Matcher, 
 		if !ok {
 			continue
 		}
-		gi, err := gitignore.CompileIgnoreLines(splitLines(src)...)
-		if err != nil {
-			return nil, fmt.Errorf("compile %s: %w", name, err)
-		}
+		gi := gitignore.CompileIgnoreLines(splitLines(src)...)
 		m.layers = append(m.layers, layer{name: name, gi: gi})
 	}
 	return m, nil
