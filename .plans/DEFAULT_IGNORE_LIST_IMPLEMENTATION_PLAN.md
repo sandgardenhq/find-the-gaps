@@ -356,9 +356,15 @@ EOF
 
 ## Task 4: Directory matching — gitignore's trailing-slash semantics
 
+> **Plan correction (2026-04-29):** the plan originally framed this as test-only.
+> `sabhiram/go-gitignore`'s API is string-only — it does NOT honour an `isDir`
+> hint internally. Real fix: in `Match`, when `isDir` is true and `relPath`
+> doesn't already end in `/`, append `/` to the probe before per-layer `check`.
+> Implemented in commit `be4d759`.
+
 **Files:**
 - Modify: `internal/scanner/ignore/matcher_test.go`
-- Confirm no change needed in `matcher.go` (the lib handles it)
+- Modify: `internal/scanner/ignore/matcher.go` (4-line probe construction in `Match`)
 
 **Step 1: Write the failing test**
 

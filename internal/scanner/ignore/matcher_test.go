@@ -87,9 +87,9 @@ func TestMatch_directoryPattern(t *testing.T) {
 	if got := m.Match("build/output.txt", false); !got.Skip {
 		t.Errorf("build/ should match files inside; got %+v", got)
 	}
-	// Sanity: a file literally named "build" (no slash) — gitignore semantics
-	// say `build/` matches dirs only. We accept whatever the lib decides; this
-	// test pins current behaviour.
+	if got := m.Match("build", false); got.Skip {
+		t.Errorf("build/ pattern should not match a regular file named 'build'; got %+v", got)
+	}
 }
 
 func TestMatch_floatingBasename(t *testing.T) {
