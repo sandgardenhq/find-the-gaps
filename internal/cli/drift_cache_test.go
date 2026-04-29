@@ -105,6 +105,78 @@ func TestSaveDriftCache_AtomicReplace(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "drift.json must be 0o644 to match featuremap.json/codefeatures.json")
 }
 
+func TestIsDriftCacheHit(t *testing.T) {
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files: []string{"auth.go", "session.go"},
+			Pages: []string{"https://docs.example.com/auth"},
+		},
+	}
+
+	cases := []struct {
+		name      string
+		mapArg    map[string]analyzer.CachedDriftEntry
+		key       string
+		files     []string
+		pages     []string
+		wantHit   bool
+		assertion string
+	}{
+		{
+			name:      "exact match → hit",
+			mapArg:    cached,
+			key:       "auth",
+			files:     []string{"auth.go", "session.go"},
+			pages:     []string{"https://docs.example.com/auth"},
+			wantHit:   true,
+			assertion: "identical sorted slices must match",
+		},
+		{
+			name:      "missing key → miss",
+			mapArg:    cached,
+			key:       "search",
+			files:     []string{"search.go"},
+			pages:     []string{"https://docs.example.com/search"},
+			wantHit:   false,
+			assertion: "key not in cache must return false",
+		},
+		{
+			name:      "files differ → miss",
+			mapArg:    cached,
+			key:       "auth",
+			files:     []string{"auth.go"},
+			pages:     []string{"https://docs.example.com/auth"},
+			wantHit:   false,
+			assertion: "shorter file list with same prefix must not match",
+		},
+		{
+			name:      "pages differ → miss",
+			mapArg:    cached,
+			key:       "auth",
+			files:     []string{"auth.go", "session.go"},
+			pages:     []string{"https://docs.example.com/old"},
+			wantHit:   false,
+			assertion: "different page list must not match",
+		},
+		{
+			name:      "nil cached map → miss",
+			mapArg:    nil,
+			key:       "auth",
+			files:     []string{"auth.go"},
+			pages:     []string{"https://docs.example.com/auth"},
+			wantHit:   false,
+			assertion: "nil cached map (first run or --no-cache) must return false without panic",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isDriftCacheHit(tc.mapArg, tc.key, tc.files, tc.pages)
+			assert.Equal(t, tc.wantHit, got, tc.assertion)
+		})
+	}
+}
+
 func TestLoadDriftCache_NilSlicesNormalized(t *testing.T) {
 	// A drift.json on disk with JSON null for files/pages/issues must round-trip
 	// to empty slices, not nil — otherwise equality checks against the current

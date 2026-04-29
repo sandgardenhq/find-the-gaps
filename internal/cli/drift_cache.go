@@ -25,6 +25,18 @@ type driftCacheEntry struct {
 	Issues  []analyzer.DriftIssue `json:"issues"`
 }
 
+// isDriftCacheHit reports whether cached has an entry for name whose Files
+// and Pages match the given slices exactly. Both inputs and the cached
+// entry's slices must be sorted ascending; this is element-wise comparison.
+// A nil cached map always returns false.
+func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, files, pages []string) bool {
+	c, ok := cached[name]
+	if !ok {
+		return false
+	}
+	return stringSliceEqual(c.Files, files) && stringSliceEqual(c.Pages, pages)
+}
+
 // loadDriftCache reads a drift cache from path. Returns (nil, false) on
 // missing file, parse error, or any I/O error — callers proceed cold on miss.
 func loadDriftCache(path string) (map[string]analyzer.CachedDriftEntry, bool) {

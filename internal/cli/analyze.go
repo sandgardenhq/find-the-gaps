@@ -358,9 +358,7 @@ func newAnalyzeCmd() *cobra.Command {
 			liveCache := make(map[string]analyzer.CachedDriftEntry, len(featureMap))
 			hits, fresh := 0, 0
 			onFeatureDone := func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
-				if c, ok := cached[name]; ok &&
-					stringSliceEqual(c.Files, files) &&
-					stringSliceEqual(c.Pages, pages) {
+				if isDriftCacheHit(cached, name, files, pages) {
 					hits++
 				} else {
 					fresh++
