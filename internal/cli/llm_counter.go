@@ -47,8 +47,12 @@ type countingToolClient struct {
 	tool analyzer.ToolLLMClient
 }
 
+// CompleteWithTools attaches a per-turn callback so the counter records one
+// real LLM round-trip per agent-loop turn. Counting at the outer call would
+// undercount tool-using paths, where one CompleteWithTools fans out to N
+// turns inside runAgentLoop.
 func (c *countingToolClient) CompleteWithTools(ctx context.Context, messages []analyzer.ChatMessage, tools []analyzer.Tool, opts ...analyzer.AgentOption) (analyzer.AgentResult, error) {
-	c.counter.Add(1)
+	opts = append(opts, analyzer.WithTurnCallback(func() { c.counter.Add(1) }))
 	return c.tool.CompleteWithTools(ctx, messages, tools, opts...)
 }
 

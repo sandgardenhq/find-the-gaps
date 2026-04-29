@@ -1069,3 +1069,21 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - **Output format**: `LLM call counts: small=N typical=N large=N (total=N)` — emitted via `log.Debugf`, so it appears in stderr only when `-v`/`--verbose` is set; silent otherwise.
   - **Why not always-info**: matched existing pattern (`log.Debug` everywhere else for verbose-gated info). No new flag, no new behavior without `-v`.
   - Files: `internal/cli/llm_counter.go` (new), `internal/cli/llm_counter_test.go` (new), `internal/cli/llm_client.go` (atomic counter fields + `CallCounts` + `LLMCallCounts` type + wrap each tier in `newLLMTiering`), `internal/cli/analyze.go` (one-line call to `logLLMCallCounts(tiering)` before `return nil`).
+
+
+## Task: review fixes — defer summary on every exit, count per-turn for tool calls - COMPLETE
+- Started: 2026-04-29 18:50 UTC
+- Tests: full repo green with `-race` (every package); 5 new tests added.
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run ./...` — 0 issues)
+- Completed: 2026-04-29 18:58 UTC
+- Notes:
+  - Self-review surfaced two issues with the per-tier LLM call counter that landed in the prior task. Both fixed here under TDD.
+  - **#2 — summary missed on non-success returns**: previously the summary printed only on the final success path. With ~24 error-return paths in `analyze.go` and an early `return nil` on the zero-pages branch, `--verbose` runs that exited anywhere other than the very end never showed counts. Fix: replaced the success-path call with `defer logLLMCallCounts(tiering)` placed immediately after `newLLMTiering` succeeds. New test `TestAnalyze_verbose_logsCallCountsOnNonSuccessPath` exercises the zero-pages early return; RED first, then GREEN.
+  - **#1 — `CompleteWithTools` undercounted multi-turn agent loops**: the wrapper incremented once per outer call. `BifrostClient.CompleteWithTools` -> `runAgentLoop` actually issues one LLM call per turn, so a 5-turn drift-detection agent counted as 1. Fix (Option B from review): added `WithTurnCallback(fn func()) AgentOption` to `internal/analyzer/agent_loop.go`; `runAgentLoop` invokes `cfg.onTurn` immediately after each successful `next(...)` call. `countingToolClient.CompleteWithTools` now appends `analyzer.WithTurnCallback(func() { c.counter.Add(1) })` to the opts and stops counting at the outer call. Counts every actual LLM round-trip on every termination path (success, ErrMaxRounds, mid-loop error).
+  - **Cross-package test surface**: cli's wrapper test needed to drive an AgentOption-based hook from outside the analyzer package, but `agentConfig` is unexported. Added `analyzer.OnTurnFromOptionsForTesting(opts ...AgentOption) func()` — a 5-line helper that applies opts to a fresh config and returns the captured callback. Doc comment flags it as not for production use.
+  - **RED → GREEN, two cycles**:
+    1. `WithTurnCallback`: 3 tests in `agent_loop_test.go` covering happy path (2 successful turns -> 2 callbacks), failing turn (1 success then error -> 1 callback), and `ErrMaxRounds` (3 attempted turns -> 3 callbacks). Initially RED (`undefined: WithTurnCallback`), then GREEN after adding the option + `cfg.onTurn` invocation.
+    2. Wrapper per-turn: replaced `TestWrapWithCounter_IncrementsOnCompleteWithTools` (which asserted the buggy `counter==1`) with `TestWrapWithCounter_CompleteWithTools_CountsPerTurn` (5 turns -> counter=5) and `TestWrapWithCounter_CompleteWithTools_SingleTurn` (1 turn -> counter=1). RED first, then GREEN after wiring the wrapper to attach `WithTurnCallback`.
+  - **Defer placement**: the original PROGRESS note for the prior task said the success-path call was correct; review caught that it skips every error path. The defer covers all 25+ exit paths from `tiering` construction onward.
+  - Files: `internal/analyzer/agent_loop.go` (new `WithTurnCallback`, `cfg.onTurn` field, post-turn invocation, `OnTurnFromOptionsForTesting` helper), `internal/analyzer/agent_loop_test.go` (3 new tests), `internal/cli/llm_counter.go` (wrapper attaches callback instead of counting at outer call), `internal/cli/llm_counter_test.go` (revised fakeToolLLMClient + 2 new tests + non-success-path defer test), `internal/cli/analyze.go` (defer right after tiering construction; success-path call removed).

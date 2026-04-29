@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,14 +24,27 @@ func (fakeLLMClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSc
 }
 
 // fakeToolLLMClient implements analyzer.ToolLLMClient (full tool support).
-type fakeToolLLMClient struct{}
+// CompleteWithTools simulates an N-turn agent loop by extracting the turn
+// callback from the supplied AgentOptions and invoking it once per simulated
+// turn — same effect as runAgentLoop firing the callback per round-trip,
+// without coupling this test to runAgentLoop internals.
+type fakeToolLLMClient struct {
+	turns int
+}
 
 func (fakeToolLLMClient) Complete(_ context.Context, _ string) (string, error) { return "", nil }
 func (fakeToolLLMClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, nil
 }
-func (fakeToolLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
-	return analyzer.AgentResult{}, nil
+func (f fakeToolLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool, opts ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+	turnCB := analyzer.OnTurnFromOptionsForTesting(opts...)
+	n := max(f.turns, 1)
+	for range n {
+		if turnCB != nil {
+			turnCB()
+		}
+	}
+	return analyzer.AgentResult{Rounds: n}, nil
 }
 
 func TestWrapWithCounter_IncrementsOnComplete(t *testing.T) {
@@ -57,9 +71,11 @@ func TestWrapWithCounter_IncrementsOnCompleteJSON(t *testing.T) {
 	}
 }
 
-func TestWrapWithCounter_IncrementsOnCompleteWithTools(t *testing.T) {
+// CompleteWithTools is a multi-turn agent loop. The wrapper must count one
+// per actual LLM round-trip (turn), not one per outer invocation.
+func TestWrapWithCounter_CompleteWithTools_CountsPerTurn(t *testing.T) {
 	var counter atomic.Int64
-	wrapped := wrapWithCounter(fakeToolLLMClient{}, &counter)
+	wrapped := wrapWithCounter(fakeToolLLMClient{turns: 5}, &counter)
 	tc, ok := wrapped.(analyzer.ToolLLMClient)
 	if !ok {
 		t.Fatal("wrapping a ToolLLMClient must yield a ToolLLMClient")
@@ -67,8 +83,22 @@ func TestWrapWithCounter_IncrementsOnCompleteWithTools(t *testing.T) {
 	if _, err := tc.CompleteWithTools(context.Background(), nil, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if got := counter.Load(); got != 5 {
+		t.Fatalf("counter after a 5-turn agent call = %d, want 5", got)
+	}
+}
+
+// A single-turn agent call (text reply on the first turn) must count as 1,
+// not 0 — the LLM still made one round-trip.
+func TestWrapWithCounter_CompleteWithTools_SingleTurn(t *testing.T) {
+	var counter atomic.Int64
+	wrapped := wrapWithCounter(fakeToolLLMClient{turns: 1}, &counter)
+	tc := wrapped.(analyzer.ToolLLMClient)
+	if _, err := tc.CompleteWithTools(context.Background(), nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got := counter.Load(); got != 1 {
-		t.Fatalf("counter after one CompleteWithTools = %d, want 1", got)
+		t.Fatalf("counter after a single-turn agent call = %d, want 1", got)
 	}
 }
 
@@ -183,6 +213,33 @@ func TestLogLLMCallCounts_InfoLevel_Silent(t *testing.T) {
 
 	if strings.Contains(buf.String(), "LLM call counts") {
 		t.Fatalf("summary must not appear at info level; got: %q", buf.String())
+	}
+}
+
+// TestAnalyze_verbose_logsCallCountsOnNonSuccessPath verifies the LLM call
+// summary is emitted once the tiering is built, regardless of which return
+// path the run takes. With mdfetch scrubbed from PATH the crawl yields zero
+// pages, which trips an early `return nil` at line ~199 of analyze.go that
+// previously bypassed the summary. The summary line must still appear.
+func TestAnalyze_verbose_logsCallCountsOnNonSuccessPath(t *testing.T) {
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(log.InfoLevel)
+	})
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("PATH", t.TempDir())
+
+	repo := t.TempDir()
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	_ = run(&stdout, &stderr, []string{
+		"--verbose", "analyze",
+		"--repo", repo,
+		"--cache-dir", cacheBase,
+		"--docs-url", "http://127.0.0.1:1/does-not-exist",
+	})
+	if !strings.Contains(stderr.String(), "LLM call counts") {
+		t.Fatalf("expected 'LLM call counts' summary in stderr on non-success path; got: %q", stderr.String())
 	}
 }
 
