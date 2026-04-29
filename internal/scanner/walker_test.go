@@ -131,6 +131,62 @@ func TestWalk_skipsGitDir(t *testing.T) {
 	}
 }
 
+func TestWalk_emptyDir(t *testing.T) {
+	dir := t.TempDir()
+	stats, err := Walk(dir, func(path string, _ os.FileInfo) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if stats.Scanned != 0 {
+		t.Errorf("Scanned = %d, want 0", stats.Scanned)
+	}
+}
+
+func TestWalk_nestedDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "internal/pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "internal/pkg/foo.go", "")
+	writeFile(t, dir, "main.go", "")
+
+	var found []string
+	if _, err := Walk(dir, func(path string, _ os.FileInfo) error {
+		found = append(found, path)
+		return nil
+	}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	sort.Strings(found)
+	if want := []string{"internal/pkg/foo.go", "main.go"}; !equal(found, want) {
+		t.Fatalf("found %v, want %v", found, want)
+	}
+}
+
+func TestWalk_skipsNestedDependencyDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pkg/node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "pkg/node_modules/lib.js", "")
+	writeFile(t, dir, "pkg/index.ts", "")
+
+	var found []string
+	if _, err := Walk(dir, func(path string, _ os.FileInfo) error {
+		found = append(found, path)
+		return nil
+	}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	for _, f := range found {
+		if strings.Contains(f, "node_modules") {
+			t.Errorf("nested node_modules should be skipped, found %q", f)
+		}
+	}
+}
+
 func TestWalk_callbackError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "main.go", "")

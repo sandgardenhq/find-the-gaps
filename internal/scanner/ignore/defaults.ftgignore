@@ -2,6 +2,9 @@
 # Composed in order with .gitignore (next) and .ftgignore (last).
 # Use ! in .ftgignore to re-include anything below.
 
+# Category: hidden directories (catch-all — any directory whose name starts with .)
+.*/
+
 # Category: VCS / IDE
 .git/
 .svn/
