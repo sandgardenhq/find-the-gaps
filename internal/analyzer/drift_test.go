@@ -907,8 +907,10 @@ func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
 }
 
 func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
-	// Investigator and judge stubs panic if invoked — they must not be called
-	// when the cache supplies an entry whose files+pages match the current run.
+	// Investigator (typical tier) and judge (large tier) must NOT run when
+	// the cache supplies an entry whose post-classify files+pages match the
+	// current run. The classifier (small tier) still runs per design — page
+	// classification is not cached in v1; see .plans/2026-04-29-drift-cache-design.md.
 	typical := &driftStubClient{} // empty responses; any call exhausts and panics
 	large := &driftStubClient{}   // judge must never run
 	small := &driftStubClient{
