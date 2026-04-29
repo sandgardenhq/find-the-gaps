@@ -18,7 +18,11 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 	"github.com/spf13/cobra"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
+
+var summaryPrinter = message.NewPrinter(language.English)
 
 type bothMapsResult struct {
 	codeMap analyzer.FeatureMap
@@ -463,17 +467,18 @@ func newAnalyzeCmd() *cobra.Command {
 // formatScanSummary builds the one-line summary printed after a scan.
 // Zero skips: "scanned %d files, skipped 0".
 // Non-zero: "scanned %d files, skipped %d (defaults: X, .gitignore: Y, .ftgignore: Z)"
-// with zero-count layer segments suppressed.
+// with zero-count layer segments suppressed. Counts use English thousands
+// separators so large repositories stay readable.
 func formatScanSummary(s ignore.Stats) string {
 	skipped := s.SkippedTotal()
 	if skipped == 0 {
-		return fmt.Sprintf("scanned %d files, skipped 0", s.Scanned)
+		return summaryPrinter.Sprintf("scanned %d files, skipped 0", s.Scanned)
 	}
 	parts := make([]string, 0, 3)
 	for _, name := range []string{"defaults", ".gitignore", ".ftgignore"} {
 		if n := s.Skipped[name]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s: %d", name, n))
+			parts = append(parts, summaryPrinter.Sprintf("%s: %d", name, n))
 		}
 	}
-	return fmt.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
+	return summaryPrinter.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
 }

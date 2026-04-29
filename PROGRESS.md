@@ -1053,3 +1053,15 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - README gained an `## Ignored files` section after `## Output` documenting defaults + `.ftgignore` override + the scan-summary line.
   - Backlog cleanup in this final commit: deleted tautological `TestDefaults_everyLineCompiles` (sabhiram/go-gitignore's `CompileIgnoreLines` never returns nil — assertion couldn't fail); deleted skipped `TestLoad_ftgignoreSyntaxError` after confirming the dep accepts every input (`getPatternFromLine` discards `regexp.Compile` errors with `_`); added `Build/` and `cmake-build-*/` test rows to `TestDefaults_skipsRepresentativeFiles`.
 
+
+## Scan Summary — Thousands Separators - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: `TestFormatScanSummary_thousandsSeparators` and `TestFormatScanSummary_smallCountsHaveNoCommas` (RED → GREEN); full repo `go test ./...` green
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - README's `## Ignored files` example showed `1,847` / `1,801` but the formatter used plain `%d`. Switched `formatScanSummary` to a package-level `message.NewPrinter(language.English)` so counts get English thousands separators (testscript scenarios with small counts pass unchanged because numbers under 1,000 don't get a separator).
+  - Investigated a suspected CRLF regression in `splitLines` and confirmed it is a non-issue: an empirical probe shows `sabhiram/go-gitignore`'s `CompileIgnoreLines` strips trailing `\r` for every pattern shape (globs, negations, double-stars), so leaving the splitter as-is is safe.
+
