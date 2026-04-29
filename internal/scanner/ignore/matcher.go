@@ -1,0 +1,172 @@
+// Package ignore composes layered gitignore-style rules and decides whether a
+// path should be skipped during a repository walk.
+package ignore
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	gitignore "github.com/sabhiram/go-gitignore"
+)
+
+// Load constructs a Matcher from the embedded defaults plus any .gitignore
+// and .ftgignore files at repoRoot.
+func Load(repoRoot string) (*Matcher, error) {
+	sources := map[string]string{"defaults": defaultsContent}
+	order := []string{"defaults"}
+
+	for _, name := range []string{".gitignore", ".ftgignore"} {
+		path := filepath.Join(repoRoot, name)
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		sources[name] = string(data)
+		order = append(order, name)
+	}
+
+	return newMatcherFromLayers(sources, order)
+}
+
+// Decision is the result of testing a path against the layered rules.
+type Decision struct {
+	Skip   bool
+	Reason string // name of the layer that decided, "" if no layer matched
+}
+
+// Matcher evaluates paths against an ordered list of gitignore layers.
+type Matcher struct {
+	layers []layer
+}
+
+type layer struct {
+	name string
+	// gi is the full layer (positive + negated lines) — used for skip detection.
+	gi *gitignore.GitIgnore
+	// negate captures only the layer's `!`-prefixed lines, with `!` stripped so
+	// the upstream library treats them as positives. Used to detect that this
+	// layer wants to re-include a path even if no other line in the layer
+	// matched. We need this because sabhiram/go-gitignore's MatchesPathHow
+	// returns (false, nil) when ONLY a negated pattern matches a path — it
+	// only signals negation when a positive match in the SAME GitIgnore is
+	// being undone. Across layers, that signal is invisible, so we track the
+	// negation set ourselves.
+	negate *gitignore.GitIgnore
+}
+
+// newMatcherFromLayers compiles the given source strings in the given order.
+// Exposed for tests only — production code uses Load.
+func newMatcherFromLayers(sources map[string]string, order []string) (*Matcher, error) {
+	m := &Matcher{}
+	for _, name := range order {
+		src, ok := sources[name]
+		if !ok {
+			continue
+		}
+		lines := splitLines(src)
+		gi := gitignore.CompileIgnoreLines(lines...)
+		negate := gitignore.CompileIgnoreLines(extractNegatedLines(lines)...)
+		m.layers = append(m.layers, layer{name: name, gi: gi, negate: negate})
+	}
+	return m, nil
+}
+
+// extractNegatedLines returns the `!`-prefixed lines with the `!` removed, so
+// they can be compiled as a separate GitIgnore whose positive matches signal
+// "this layer wants to re-include this path".
+func extractNegatedLines(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "!"); ok {
+			out = append(out, rest)
+		}
+	}
+	return out
+}
+
+func splitLines(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
+}
+
+type layerResult int
+
+const (
+	layerNoMatch layerResult = iota
+	layerSkip
+	layerNegate
+)
+
+func (l layer) check(relPath string) layerResult {
+	if l.gi.MatchesPath(relPath) {
+		return layerSkip
+	}
+	if l.negate != nil && l.negate.MatchesPath(relPath) {
+		return layerNegate
+	}
+	return layerNoMatch
+}
+
+// Stats tallies scanned and skipped paths during a walk.
+type Stats struct {
+	Scanned int
+	Skipped map[string]int
+}
+
+func (s *Stats) RecordScanned() {
+	s.Scanned++
+}
+
+func (s *Stats) RecordSkip(reason string) {
+	if s.Skipped == nil {
+		s.Skipped = make(map[string]int)
+	}
+	s.Skipped[reason]++
+}
+
+func (s *Stats) SkippedTotal() int {
+	total := 0
+	for _, n := range s.Skipped {
+		total += n
+	}
+	return total
+}
+
+// Match reports whether relPath should be skipped.
+//
+// sabhiram/go-gitignore's API is string-only — it does not honour an isDir
+// hint internally. To make directory patterns like "build/" match a directory
+// path supplied without a trailing slash, we append "/" to the probe path
+// when isDir is true. This lets the underlying matcher resolve dir-only
+// patterns the way gitignore semantics intend.
+func (m *Matcher) Match(relPath string, isDir bool) Decision {
+	probe := relPath
+	if isDir && !strings.HasSuffix(relPath, "/") {
+		probe = relPath + "/"
+	}
+	d := Decision{}
+	for _, l := range m.layers {
+		switch l.check(probe) {
+		case layerSkip:
+			d = Decision{Skip: true, Reason: l.name}
+		case layerNegate:
+			d = Decision{Skip: false, Reason: l.name}
+		}
+	}
+	return d
+}

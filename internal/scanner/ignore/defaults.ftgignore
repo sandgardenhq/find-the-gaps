@@ -1,0 +1,155 @@
+# Find the Gaps default ignore list.
+# Composed in order with .gitignore (next) and .ftgignore (last).
+# Use ! in .ftgignore to re-include anything below.
+
+# Category: hidden directories (catch-all — any directory whose name starts with .)
+.*/
+
+# Category: VCS / IDE
+.git/
+.svn/
+.hg/
+.idea/
+.vscode/
+.vs/
+
+# Category: dependencies
+node_modules/
+vendor/
+bower_components/
+.bundle/
+.pnpm/
+
+# Category: Python
+venv/
+.venv/
+env/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# Category: build artifacts
+dist/
+build/
+target/
+out/
+bin/
+obj/
+_build/
+cmake-build-*/
+Build/
+
+# Category: JVM
+.gradle/
+.mvn/
+classes/
+
+# Category: coverage
+coverage/
+.nyc_output/
+htmlcov/
+
+# Category: site / doc generators
+_site/
+public/
+.docusaurus/
+.next/
+.nuxt/
+.svelte-kit/
+
+# Category: test scaffolding
+tests/
+__tests__/
+spec/
+testdata/
+__fixtures__/
+__mocks__/
+
+# Category: lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+go.sum
+Cargo.lock
+Gemfile.lock
+Pipfile.lock
+poetry.lock
+composer.lock
+*.lockb
+
+# Category: test files
+*_test.go
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+*Test.java
+*Tests.swift
+*_spec.rb
+test_*.py
+*_test.py
+
+# Category: generated code
+*.pb.go
+*_pb2.py
+*_pb2.pyi
+*_pb.d.ts
+*.gen.go
+*.gen.ts
+*_generated.go
+*.g.dart
+
+# Category: minified / bundled
+*.min.js
+*.min.css
+*.bundle.js
+*.bundle.css
+*.map
+
+# Category: binaries / assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.ico
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.mp3
+*.mp4
+*.mov
+*.wav
+*.exe
+*.dll
+*.so
+*.dylib
+*.class
+*.jar
+*.war
+*.o
+*.a
+*.wasm
+*.bin
+*.dat
+
+# Category: OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Category: logs / dumps
+*.log
+*.tmp
+*.cache

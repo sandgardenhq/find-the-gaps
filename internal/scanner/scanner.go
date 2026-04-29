@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner/lang"
 )
 
@@ -18,19 +19,23 @@ type Options struct {
 
 // Scan walks repoRoot, extracts symbols and imports from each source file,
 // builds an import graph, writes a project.md report, and caches the result.
-func Scan(repoRoot string, opts Options) (*ProjectScan, error) {
+// It returns the project scan, the per-layer skip statistics from the walk,
+// and any error. On a cache hit, Stats.Scanned mirrors the cached file count
+// so the user-visible summary stays truthful; per-layer skip counts are not
+// persisted in the cache today, so Stats.Skipped is always nil for cache hits.
+func Scan(repoRoot string, opts Options) (*ProjectScan, ignore.Stats, error) {
 	cache := NewScanCache(opts.CacheDir)
 
 	if !opts.NoCache {
 		if cached, err := cache.Load(); err == nil && cached != nil {
-			return cached, nil
+			return cached, ignore.Stats{Scanned: len(cached.Files)}, nil
 		}
 	}
 
 	var files []ScannedFile
 	langSet := make(map[string]bool)
 
-	if err := Walk(repoRoot, func(relPath string, info os.FileInfo) error {
+	stats, err := Walk(repoRoot, func(relPath string, info os.FileInfo) error {
 		ext := lang.Detect(relPath)
 		if ext == nil {
 			return nil
@@ -53,8 +58,9 @@ func Scan(repoRoot string, opts Options) (*ProjectScan, error) {
 			Imports:  imports,
 		})
 		return nil
-	}); err != nil {
-		return nil, err
+	})
+	if err != nil {
+		return nil, stats, err
 	}
 
 	if files == nil {
@@ -84,7 +90,7 @@ func Scan(repoRoot string, opts Options) (*ProjectScan, error) {
 		_ = cache.Save(scan)
 	}
 
-	return scan, nil
+	return scan, stats, nil
 }
 
 func countLines(content []byte) int {
