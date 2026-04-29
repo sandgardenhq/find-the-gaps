@@ -948,6 +948,46 @@ func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
 	assert.Equal(t, 0, large.completeCalls, "judge must not run on cache hit")
 }
 
+func TestDetectDrift_CacheMissByFiles_RecomputesFresh(t *testing.T) {
+	// Cached entry's files don't match the current feature's files → recompute.
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+		},
+	}
+	large := &driftStubClient{completeFunc: judgeJSON("https://docs.example.com/auth", "Login signature changed.")}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go", "session.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	// Cached entry from a prior run when the feature only had auth.go.
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:  []string{"auth.go"}, // mismatch — current run has [auth.go, session.go]
+			Pages:  []string{"https://docs.example.com/auth"},
+			Issues: nil,
+		},
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Contains(t, findings[0].Issues[0].Issue, "Login signature changed")
+	assert.Greater(t, typical.calls, 0, "investigator must run on cache miss")
+}
+
 func TestBudgetForFeature(t *testing.T) {
 	cases := []struct {
 		name         string
