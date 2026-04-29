@@ -407,6 +407,226 @@ func TestServe_resolvesSiteDir_fromRepoAndCacheDir(t *testing.T) {
 	}
 }
 
+// forceInteractive sets the test override so the picker code path runs under
+// `go test` (which is otherwise non-TTY).
+func forceInteractive(t *testing.T, on bool) {
+	t.Helper()
+	prev := testInteractiveOverride
+	v := on
+	testInteractiveOverride = &v
+	t.Cleanup(func() { testInteractiveOverride = prev })
+}
+
+func TestServe_multipleProjects_invokesPickerAndServesChoice(t *testing.T) {
+	cacheBase := t.TempDir()
+	for _, name := range []string{"alpha", "beta"} {
+		siteDir := filepath.Join(cacheBase, name, "site")
+		if err := os.MkdirAll(siteDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("hello "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	originalPicker := huhSelectFn
+	huhSelectFn = func(opts []Project) (Project, error) {
+		for _, p := range opts {
+			if p.Name == "beta" {
+				return p, nil
+			}
+		}
+		return Project{}, errors.New("beta not in options")
+	}
+	t.Cleanup(func() { huhSelectFn = originalPicker })
+	forceInteractive(t, true)
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	t.Cleanup(cancel)
+
+	url := waitForServingURL(t, stdout)
+	resp, err := http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "hello beta") {
+		t.Errorf("served wrong project: body=%q", body)
+	}
+
+	cancel()
+	<-done
+}
+
+func TestServe_singleProject_skipsPicker(t *testing.T) {
+	cacheBase := t.TempDir()
+	siteDir := filepath.Join(cacheBase, "solo", "site")
+	if err := os.MkdirAll(siteDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(siteDir, "index.html"), []byte("solo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	originalPicker := huhSelectFn
+	huhSelectFn = func(opts []Project) (Project, error) {
+		called = true
+		return opts[0], nil
+	}
+	t.Cleanup(func() { huhSelectFn = originalPicker })
+	forceInteractive(t, true)
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	t.Cleanup(cancel)
+
+	_ = waitForServingURL(t, stdout)
+	if called {
+		t.Error("picker was called even though only one project exists")
+	}
+
+	cancel()
+	<-done
+}
+
+func TestServe_noProjects_errorsWithHint(t *testing.T) {
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	if code == 0 {
+		t.Fatalf("exit 0, want non-zero; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ftg analyze") {
+		t.Errorf("stderr should hint at `ftg analyze`, got %q", stderr.String())
+	}
+}
+
+func TestServe_projectFlag_shortCircuitsPicker(t *testing.T) {
+	cacheBase := t.TempDir()
+	for _, name := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(cacheBase, name, "site"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheBase, name, "site", "index.html"), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	called := false
+	originalPicker := huhSelectFn
+	huhSelectFn = func(opts []Project) (Project, error) {
+		called = true
+		return opts[0], nil
+	}
+	t.Cleanup(func() { huhSelectFn = originalPicker })
+
+	stdout, cancel, done := runServeAsync(t, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--project", "beta",
+		"--addr", "127.0.0.1:0",
+	})
+	t.Cleanup(cancel)
+
+	url := waitForServingURL(t, stdout)
+	resp, err := http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "beta") {
+		t.Errorf("served wrong project: body=%q", body)
+	}
+	if called {
+		t.Error("picker called despite --project being set")
+	}
+
+	cancel()
+	<-done
+}
+
+func TestServe_multipleProjects_nonInteractive_errorsWithList(t *testing.T) {
+	cacheBase := t.TempDir()
+	for _, name := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(cacheBase, name, "site"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cacheBase, name, "site", "index.html"), []byte("ok"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	forceInteractive(t, false)
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--addr", "127.0.0.1:0",
+	})
+	if code == 0 {
+		t.Fatalf("expected non-zero exit, stderr=%q", stderr.String())
+	}
+	for _, want := range []string{"--project", "alpha", "beta"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr missing %q: %q", want, stderr.String())
+		}
+	}
+}
+
+func TestServe_repoAndProject_mutuallyExclusive(t *testing.T) {
+	cacheBase := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cacheBase, "alpha", "site"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--repo", "/tmp/whatever",
+		"--project", "alpha",
+		"--addr", "127.0.0.1:0",
+	})
+	if code == 0 {
+		t.Fatalf("expected non-zero exit, stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "mutually exclusive") {
+		t.Errorf("stderr should explain --repo and --project conflict, got %q", stderr.String())
+	}
+}
+
+func TestServe_projectFlag_missingProject_errors(t *testing.T) {
+	cacheBase := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"serve",
+		"--cache-dir", cacheBase,
+		"--project", "ghost",
+		"--addr", "127.0.0.1:0",
+	})
+	if code == 0 {
+		t.Fatalf("expected non-zero exit, stderr=%q", stderr.String())
+	}
+	expected := filepath.Join(cacheBase, "ghost", "site")
+	if !strings.Contains(stderr.String(), expected) {
+		t.Errorf("stderr should name missing path %q, got %q", expected, stderr.String())
+	}
+}
+
 // `ftg serve --repo .` must resolve the site at <cache>/<repo>/site, not
 // <cache>/site. Without absolute-path resolution, filepath.Base(".") is "."
 // and filepath.Join collapses the project segment.
