@@ -1150,3 +1150,17 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Bug: `liveCache := make(...)` started empty, so the first save in a run overwrote `drift.json` with only the features processed so far in this run, evicting valid prior-run entries for not-yet-processed features. A killed run then forced fresh investigator+judge on the unprocessed remainder — defeating the cross-run resumability goal in `.plans/2026-04-29-drift-cache-design.md`.
   - Fix: extracted `seedDriftLiveCache(cached, featureMap)` in `internal/cli/drift_cache.go` and wired it into `analyze.go`. Initial `liveCache` now contains cached entries for every feature still in `featureMap`; entries for features removed upstream are not seeded, so the existing eviction-on-next-save behavior is preserved. Per-feature saves overwrite each entry as it completes.
   - RED→GREEN: TestSeedDriftLiveCache_NilCached_ReturnsEmptyMap; TestSeedDriftLiveCache_PreservesEntriesForFeaturesInMap; TestSeedDriftLiveCache_DropsFeaturesRemovedFromMap; TestSeedDriftLiveCache_EmptyFeatureMap_ReturnsEmpty.
+
+
+## Drift-Detection Cache - Skip-Save-On-Hit - COMPLETE
+- Started: 2026-04-30
+- Finished: 2026-04-30
+- Tests: 4 new unit tests (`TestNewDriftCachePersister_*` in `internal/cli/drift_cache_test.go`); all packages green via `go test ./... -count=1`.
+- Coverage: cli 88.1% (`newDriftCachePersister` 100%; `saveDriftCache` filesystem-error paths still uncovered as before).
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-30
+- Notes:
+  - Issue: `onFeatureDone` in `analyze.go` called `saveDriftCache` on every feature, including cache hits. Because `seedDriftLiveCache` already populated `liveCache` with the matching cached entry, the hit-path reassignment wrote identical bytes — and each call marshals the full map and performs temp-file + chmod + rename. With N cached features the per-run cost was O(N²) (each write re-marshals all N entries).
+  - Fix: extracted `newDriftCachePersister` in `internal/cli/drift_cache.go`. On cache hit it increments `*hits` and returns `nil` without touching disk; on miss it increments `*fresh`, updates `liveCache`, and persists. Crash safety is unchanged: a hit's entry is already on disk, so skipping the write loses no information.
+  - RED→GREEN: TestNewDriftCachePersister_CacheHit_DoesNotRewriteFile (sentinel-content check); TestNewDriftCachePersister_CacheMiss_NoEntry_Saves; TestNewDriftCachePersister_CacheMiss_FilesChanged_Saves; TestNewDriftCachePersister_SaveError_Propagated.

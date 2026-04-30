@@ -57,6 +57,26 @@ func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, f
 	return stringSliceEqual(c.Files, files) && stringSliceEqual(c.Pages, pages)
 }
 
+// newDriftCachePersister returns the analyzer.DriftFeatureDoneFunc used during
+// drift detection. On a cache hit the on-disk drift.json already contains the
+// matching entry, so it skips the save entirely; only fresh results trigger a
+// write. *hits and *fresh are incremented to track cache effectiveness.
+func newDriftCachePersister(
+	cached, liveCache map[string]analyzer.CachedDriftEntry,
+	driftCachePath string,
+	hits, fresh *int,
+) analyzer.DriftFeatureDoneFunc {
+	return func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
+		if isDriftCacheHit(cached, name, files, pages) {
+			*hits++
+			return nil
+		}
+		*fresh++
+		liveCache[name] = analyzer.CachedDriftEntry{Files: files, Pages: pages, Issues: issues}
+		return saveDriftCache(driftCachePath, liveCache)
+	}
+}
+
 // loadDriftCache reads a drift cache from path. Returns (nil, false) on
 // missing file, parse error, or any I/O error — callers proceed cold on miss.
 func loadDriftCache(path string) (map[string]analyzer.CachedDriftEntry, bool) {

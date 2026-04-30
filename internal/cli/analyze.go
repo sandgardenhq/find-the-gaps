@@ -361,15 +361,7 @@ func newAnalyzeCmd() *cobra.Command {
 			// not seeded and so are pruned on the next save.
 			liveCache := seedDriftLiveCache(cached, featureMap)
 			hits, fresh := 0, 0
-			onFeatureDone := func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
-				if isDriftCacheHit(cached, name, files, pages) {
-					hits++
-				} else {
-					fresh++
-				}
-				liveCache[name] = analyzer.CachedDriftEntry{Files: files, Pages: pages, Issues: issues}
-				return saveDriftCache(driftCachePath, liveCache)
-			}
+			onFeatureDone := newDriftCachePersister(cached, liveCache, driftCachePath, &hits, &fresh)
 
 			driftFindings, err := analyzer.DetectDrift(
 				ctx, tiering, featureMap, docsFeatureMap,

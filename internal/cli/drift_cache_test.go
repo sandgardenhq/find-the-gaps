@@ -263,3 +263,91 @@ func TestSeedDriftLiveCache_EmptyFeatureMap_ReturnsEmpty(t *testing.T) {
 	assert.NotNil(t, got)
 	assert.Empty(t, got)
 }
+
+// newDriftCachePersister tests — a cache hit must not rewrite drift.json,
+// because the on-disk entry already matches; a miss must rewrite it.
+
+func TestNewDriftCachePersister_CacheHit_DoesNotRewriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "drift.json")
+	sentinel := []byte(`SENTINEL_DO_NOT_OVERWRITE`)
+	require.NoError(t, os.WriteFile(path, sentinel, 0o644))
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:  []string{"auth.go"},
+			Pages:  []string{"https://docs.example.com/auth"},
+			Issues: []analyzer.DriftIssue{},
+		},
+	}
+	live := map[string]analyzer.CachedDriftEntry{"auth": cached["auth"]}
+	hits, fresh := 0, 0
+	persister := newDriftCachePersister(cached, live, path, &hits, &fresh)
+
+	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, hits)
+	assert.Equal(t, 0, fresh)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, sentinel, got, "cache hit must not rewrite drift.json")
+}
+
+func TestNewDriftCachePersister_CacheMiss_NoEntry_Saves(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "drift.json")
+
+	cached := map[string]analyzer.CachedDriftEntry{}
+	live := map[string]analyzer.CachedDriftEntry{}
+	hits, fresh := 0, 0
+	persister := newDriftCachePersister(cached, live, path, &hits, &fresh)
+
+	issues := []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "Stale."}}
+	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, issues)
+	require.NoError(t, err)
+	assert.Equal(t, 0, hits)
+	assert.Equal(t, 1, fresh)
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	require.Contains(t, got, "auth")
+	assert.Equal(t, []string{"auth.go"}, got["auth"].Files)
+	assert.Equal(t, issues, got["auth"].Issues)
+}
+
+func TestNewDriftCachePersister_CacheMiss_FilesChanged_Saves(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "drift.json")
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://docs.example.com/auth"}},
+	}
+	live := map[string]analyzer.CachedDriftEntry{"auth": cached["auth"]}
+	hits, fresh := 0, 0
+	persister := newDriftCachePersister(cached, live, path, &hits, &fresh)
+
+	err := persister("auth", []string{"auth.go", "session.go"}, []string{"https://docs.example.com/auth"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, hits)
+	assert.Equal(t, 1, fresh)
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	assert.Equal(t, []string{"auth.go", "session.go"}, got["auth"].Files)
+}
+
+func TestNewDriftCachePersister_SaveError_Propagated(t *testing.T) {
+	// Point at a directory that cannot be written to (the temp dir itself,
+	// passed as a path). os.CreateTemp inside a non-existent parent fails.
+	bogus := filepath.Join(t.TempDir(), "no-such-dir", "drift.json")
+
+	cached := map[string]analyzer.CachedDriftEntry{}
+	live := map[string]analyzer.CachedDriftEntry{}
+	hits, fresh := 0, 0
+	persister := newDriftCachePersister(cached, live, bogus, &hits, &fresh)
+
+	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, nil)
+	require.Error(t, err)
+	assert.Equal(t, 1, fresh, "fresh increment happens before save attempt")
+}
