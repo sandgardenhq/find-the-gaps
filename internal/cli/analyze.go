@@ -389,26 +389,7 @@ func newAnalyzeCmd() *cobra.Command {
 			var screenshotGaps []analyzer.ScreenshotGap
 			if !skipScreenshotCheck {
 				log.Infof("detecting missing screenshots...")
-				urls := make([]string, 0, len(pages))
-				for url := range pages {
-					urls = append(urls, url)
-				}
-				sort.Strings(urls)
-
-				var docPages []analyzer.DocPage
-				for _, url := range urls {
-					filePath := pages[url]
-					data, readErr := os.ReadFile(filePath)
-					if readErr != nil {
-						log.Warnf("skip page %s: %v", url, readErr)
-						continue
-					}
-					docPages = append(docPages, analyzer.DocPage{
-						URL:     url,
-						Path:    filePath,
-						Content: string(data),
-					})
-				}
+				docPages := buildScreenshotDocPages(pages, analyses)
 				progress := func(done, total int, page string) {
 					log.Infof("  [%d/%d] %s", done, total, page)
 				}
@@ -529,6 +510,41 @@ func filterDocsAnalyses(in []analyzer.PageAnalysis) []analyzer.PageAnalysis {
 		if a.IsDocs {
 			out = append(out, a)
 		}
+	}
+	return out
+}
+
+// buildScreenshotDocPages assembles the []analyzer.DocPage slice fed to
+// DetectScreenshotGaps, filtering out URLs whose analysis classified them as
+// non-docs. URLs without a corresponding analysis entry are excluded (the
+// realistic case is 1:1 with the analyze loop, so this defensive default
+// matches the "if we don't know, don't bother screenshotting" instinct).
+// Read errors on disk are logged and skipped, preserving prior behavior.
+func buildScreenshotDocPages(pages map[string]string, analyses []analyzer.PageAnalysis) []analyzer.DocPage {
+	isDocs := make(map[string]bool, len(analyses))
+	for _, a := range analyses {
+		isDocs[a.URL] = a.IsDocs
+	}
+	urls := make([]string, 0, len(pages))
+	for url := range pages {
+		if isDocs[url] {
+			urls = append(urls, url)
+		}
+	}
+	sort.Strings(urls)
+	out := make([]analyzer.DocPage, 0, len(urls))
+	for _, url := range urls {
+		filePath := pages[url]
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Warnf("skip page %s: %v", url, err)
+			continue
+		}
+		out = append(out, analyzer.DocPage{
+			URL:     url,
+			Path:    filePath,
+			Content: string(data),
+		})
 	}
 	return out
 }

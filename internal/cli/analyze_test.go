@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -700,4 +701,32 @@ func TestFilterDocsAnalyses_ExcludesNotDocs(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, "https://x/api", got[0].URL)
 	assert.Equal(t, "https://x/guide", got[1].URL)
+}
+
+func TestBuildScreenshotDocPages_SkipsNotDocs(t *testing.T) {
+	// Build a tmp dir with three pages on disk.
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "a.md")
+	bPath := filepath.Join(dir, "b.md")
+	cPath := filepath.Join(dir, "c.md")
+	require.NoError(t, os.WriteFile(aPath, []byte("docs A"), 0o644))
+	require.NoError(t, os.WriteFile(bPath, []byte("team B"), 0o644))
+	require.NoError(t, os.WriteFile(cPath, []byte("docs C"), 0o644))
+
+	pages := map[string]string{
+		"https://x/a":    aPath,
+		"https://x/team": bPath,
+		"https://x/c":    cPath,
+	}
+	analyses := []analyzer.PageAnalysis{
+		{URL: "https://x/a", IsDocs: true},
+		{URL: "https://x/team", IsDocs: false},
+		{URL: "https://x/c", IsDocs: true},
+	}
+	got := buildScreenshotDocPages(pages, analyses)
+
+	require.Len(t, got, 2)
+	urls := []string{got[0].URL, got[1].URL}
+	sort.Strings(urls)
+	assert.Equal(t, []string{"https://x/a", "https://x/c"}, urls)
 }
