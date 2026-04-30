@@ -1119,3 +1119,48 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
 - Notes:
   - README's `## Ignored files` example showed `1,847` / `1,801` but the formatter used plain `%d`. Switched `formatScanSummary` to a package-level `message.NewPrinter(language.English)` so counts get English thousands separators (testscript scenarios with small counts pass unchanged because numbers under 1,000 don't get a separator).
   - Investigated a suspected CRLF regression in `splitLines` and confirmed it is a non-issue: an empirical probe shows `sabhiram/go-gitignore`'s `CompileIgnoreLines` strips trailing `\r` for every pattern shape (globs, negations, double-stars), so leaving the splitter as-is is safe.
+
+
+## Drift-Detection Cache - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: 18 new (10 analyzer-side cache tests + 8 cli-side load/save/hit tests); all packages green via `go test ./... -count=1` (11 packages)
+- Coverage: analyzer 93.4%, cli 87.0% (`saveDriftCache` 64.7% — uncovered branches are filesystem-error paths that need fault injection; all other new functions 100%)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - Plan: `.plans/2026-04-29-drift-cache.md`; design: `.plans/2026-04-29-drift-cache-design.md`
+  - Per-feature drift cache at `<projectDir>/drift.json` with set-based invalidation (feature name + sorted files + sorted pages). Resume-from-crash: `onFeatureDone` callback persists incrementally after every completed feature.
+  - `analyzer.DetectDrift` gained two trailing params: `cached map[string]CachedDriftEntry` (nil = run all fresh) and `onFeatureDone DriftFeatureDoneFunc` (fires for every completion, hit or fresh). Cache lookup short-circuits investigator+judge; classifier (small tier) still runs per page (page-classification cache deferred).
+  - CLI side adds `internal/cli/drift_cache.go` with atomic temp-file + rename writes (chmod 0o644 to match peer cache files) and nil-slice normalization on load. `--no-cache` skips the read but still writes a fresh cache.
+  - End-of-stage log line: `drift cache: H hits, F fresh`.
+  - Code-review feedback applied: doc comment on `DetectDrift`, transitional `_ = cached` placeholder marked + later removed, `0o644` file-mode parity, nil `Files`/`Pages` normalization on load, extracted `isDriftCacheHit` helper for direct unit testing.
+
+
+## Drift-Detection Cache - Resume Fix - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: 4 new unit tests (`TestSeedDriftLiveCache_*` in `internal/cli/drift_cache_test.go`); all packages green via `go test ./... -count=1`.
+- Coverage: new `seedDriftLiveCache` 100%; package coverage unchanged at 87.2% (`saveDriftCache` filesystem-error paths still uncovered — same as prior task).
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - Bug: `liveCache := make(...)` started empty, so the first save in a run overwrote `drift.json` with only the features processed so far in this run, evicting valid prior-run entries for not-yet-processed features. A killed run then forced fresh investigator+judge on the unprocessed remainder — defeating the cross-run resumability goal in `.plans/2026-04-29-drift-cache-design.md`.
+  - Fix: extracted `seedDriftLiveCache(cached, featureMap)` in `internal/cli/drift_cache.go` and wired it into `analyze.go`. Initial `liveCache` now contains cached entries for every feature still in `featureMap`; entries for features removed upstream are not seeded, so the existing eviction-on-next-save behavior is preserved. Per-feature saves overwrite each entry as it completes.
+  - RED→GREEN: TestSeedDriftLiveCache_NilCached_ReturnsEmptyMap; TestSeedDriftLiveCache_PreservesEntriesForFeaturesInMap; TestSeedDriftLiveCache_DropsFeaturesRemovedFromMap; TestSeedDriftLiveCache_EmptyFeatureMap_ReturnsEmpty.
+
+
+## Drift-Detection Cache - Skip-Save-On-Hit - COMPLETE
+- Started: 2026-04-30
+- Finished: 2026-04-30
+- Tests: 4 new unit tests (`TestNewDriftCachePersister_*` in `internal/cli/drift_cache_test.go`); all packages green via `go test ./... -count=1`.
+- Coverage: cli 88.1% (`newDriftCachePersister` 100%; `saveDriftCache` filesystem-error paths still uncovered as before).
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-30
+- Notes:
+  - Issue: `onFeatureDone` in `analyze.go` called `saveDriftCache` on every feature, including cache hits. Because `seedDriftLiveCache` already populated `liveCache` with the matching cached entry, the hit-path reassignment wrote identical bytes — and each call marshals the full map and performs temp-file + chmod + rename. With N cached features the per-run cost was O(N²) (each write re-marshals all N entries).
+  - Fix: extracted `newDriftCachePersister` in `internal/cli/drift_cache.go`. On cache hit it increments `*hits` and returns `nil` without touching disk; on miss it increments `*fresh`, updates `liveCache`, and persists. Crash safety is unchanged: a hit's entry is already on disk, so skipping the write loses no information.
+  - RED→GREEN: TestNewDriftCachePersister_CacheHit_DoesNotRewriteFile (sentinel-content check); TestNewDriftCachePersister_CacheMiss_NoEntry_Saves; TestNewDriftCachePersister_CacheMiss_FilesChanged_Saves; TestNewDriftCachePersister_SaveError_Propagated.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -26,6 +27,22 @@ const (
 	// mapping has unrealistically many files or pages.
 	driftBudgetCeiling = 100
 )
+
+// CachedDriftEntry is one feature's persisted drift result, used by
+// DetectDrift to short-circuit the investigator+judge when inputs are
+// unchanged. Files and Pages must be sorted ascending; the lookup compares
+// them as sorted sets against the current run's inputs.
+type CachedDriftEntry struct {
+	Files  []string
+	Pages  []string
+	Issues []DriftIssue
+}
+
+// DriftFeatureDoneFunc fires after DetectDrift decides a feature's drift
+// result, whether the result came from a cache hit or a fresh investigate+judge.
+// Implementations typically persist the result so a future run can resume.
+// Files and Pages are sorted ascending. Return non-nil to abort detection.
+type DriftFeatureDoneFunc func(feature string, files, pages []string, issues []DriftIssue) error
 
 // budgetForFeature returns the investigator round budget for a single
 // feature's drift check. Each read_file and read_page tool call costs one
@@ -54,8 +71,17 @@ type DriftProgressFunc func(accumulated []DriftFinding) error
 //
 // pageReader reads the cached content of a doc page by URL. repoRoot is the
 // absolute path to the repository root, used to constrain read_file access.
-// onFinding is called after each feature with findings is processed; pass nil
-// to skip incremental callbacks.
+//
+// cached supplies prior drift results keyed by feature name; pass nil to run
+// every feature fresh. A cache hit reuses Issues without invoking the
+// investigator or judge. (Lookup logic is wired in a follow-up commit.)
+//
+// onFinding fires after each feature whose result has at least one issue,
+// receiving the accumulated findings slice; pass nil to skip incremental
+// callbacks. onFeatureDone fires after every completed feature regardless
+// of issue count (cache-hit or fresh), receiving sorted files and pages plus
+// the resolved issues; pass nil to skip persistence callbacks. Returning an
+// error from either callback aborts detection.
 func DetectDrift(
 	ctx context.Context,
 	tiering LLMTiering,
@@ -63,7 +89,9 @@ func DetectDrift(
 	docsMap DocsFeatureMap,
 	pageReader func(url string) (string, error),
 	repoRoot string,
+	cached map[string]CachedDriftEntry,
 	onFinding DriftProgressFunc,
+	onFeatureDone DriftFeatureDoneFunc,
 ) ([]DriftFinding, error) {
 	investigator, ok := tiering.Typical().(ToolLLMClient)
 	if !ok {
@@ -99,6 +127,32 @@ func DetectDrift(
 			continue
 		}
 
+		sortedFiles := sortedCopy(entry.Files)
+		sortedPages := sortedCopy(pages)
+
+		if cached != nil {
+			if c, ok := cached[entry.Feature.Name]; ok &&
+				equalStringSlice(c.Files, sortedFiles) &&
+				equalStringSlice(c.Pages, sortedPages) {
+				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
+				issues := c.Issues
+				if len(issues) > 0 {
+					findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
+					if onFinding != nil {
+						if err := onFinding(findings); err != nil {
+							return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
+						}
+					}
+				}
+				if onFeatureDone != nil {
+					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+						return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+					}
+				}
+				continue
+			}
+		}
+
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
@@ -107,12 +161,18 @@ func DetectDrift(
 		if err != nil {
 			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
+
 		if len(issues) > 0 {
 			findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
 			if onFinding != nil {
 				if err := onFinding(findings); err != nil {
 					return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
 				}
+			}
+		}
+		if onFeatureDone != nil {
+			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+				return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 			}
 		}
 	}
@@ -461,4 +521,25 @@ Content preview:
 		return false
 	}
 	return strings.Contains(strings.ToLower(resp), "yes")
+}
+
+// sortedCopy returns a sorted copy of s. The input is not modified.
+func sortedCopy(s []string) []string {
+	out := append([]string(nil), s...)
+	sort.Strings(out)
+	return out
+}
+
+// equalStringSlice reports whether a and b are equal element-wise. Both
+// must already be sorted; this is not a set comparison.
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

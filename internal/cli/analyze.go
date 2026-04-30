@@ -335,7 +335,6 @@ func newAnalyzeCmd() *cobra.Command {
 				data, err := os.ReadFile(path)
 				return string(data), err
 			}
-			// Build the list of code features that have at least one documentation page.
 			docCoveredFeatures := make([]string, 0, len(docsFeatureMap))
 			for _, entry := range docsFeatureMap {
 				if len(entry.Pages) > 0 {
@@ -345,10 +344,34 @@ func newAnalyzeCmd() *cobra.Command {
 			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
 				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
 			}
-			driftFindings, err := analyzer.DetectDrift(ctx, tiering, featureMap, docsFeatureMap, pageReader, repoPath, driftOnFinding)
+
+			driftCachePath := filepath.Join(projectDir, "drift.json")
+
+			var cached map[string]analyzer.CachedDriftEntry
+			if !noCache {
+				if loaded, ok := loadDriftCache(driftCachePath); ok {
+					cached = loaded
+					log.Infof("using cached drift results (%d features)", len(cached))
+				}
+			}
+
+			// Seed liveCache with prior cached entries for features still in
+			// featureMap so a partial run that crashes mid-drift doesn't evict
+			// not-yet-processed entries. Features removed from featureMap are
+			// not seeded and so are pruned on the next save.
+			liveCache := seedDriftLiveCache(cached, featureMap)
+			hits, fresh := 0, 0
+			onFeatureDone := newDriftCachePersister(cached, liveCache, driftCachePath, &hits, &fresh)
+
+			driftFindings, err := analyzer.DetectDrift(
+				ctx, tiering, featureMap, docsFeatureMap,
+				pageReader, repoPath,
+				cached, driftOnFinding, onFeatureDone,
+			)
 			if err != nil {
 				return fmt.Errorf("detect drift: %w", err)
 			}
+			log.Infof("drift cache: %d hits, %d fresh", hits, fresh)
 			log.Debugf("drift detection complete: %d findings", len(driftFindings))
 
 			var screenshotGaps []analyzer.ScreenshotGap
@@ -483,4 +506,18 @@ func formatScanSummary(s ignore.Stats) string {
 		}
 	}
 	return summaryPrinter.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
+}
+
+// stringSliceEqual reports element-wise equality. Both inputs must already be
+// sorted; this is not a set comparison.
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
