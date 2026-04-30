@@ -212,7 +212,7 @@ Global Flags:
 ### install-deps
 
 ```
-Install required external tools (mdfetch, hugo) if they are not already on $PATH. Already-present tools are skipped.
+Install required external tools (mdfetch, hugo). mdfetch is always reinstalled to pull the latest published version; hugo is skipped if already on $PATH.
 
 Usage:
   ftg install-deps [flags]
@@ -223,6 +223,8 @@ Flags:
 Global Flags:
   -v, --verbose   show debug logs
 ```
+
+Re-run `ftg install-deps` whenever you want to pick up a new `mdfetch` release — it always reinstalls `mdfetch` to the latest version on npm.
 
 ## Output
 

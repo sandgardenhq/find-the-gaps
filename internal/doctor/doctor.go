@@ -19,6 +19,7 @@ type Tool struct {
 	VersionArg  string              // argument that prints the version, e.g. "--version"
 	InstallHint string              // human-readable install fallback shown when automated install is unavailable
 	InstallCmds map[string][]string // GOOS → {cmd, arg1, ...} for automated install
+	Upgrade     bool                // when true, install-deps runs InstallCmds even if Binary is already on PATH (used to pull the latest published version)
 }
 
 // RequiredTools is the fixed list of external dependencies find-the-gaps needs.
@@ -27,11 +28,12 @@ var RequiredTools = []Tool{
 		Name:        "mdfetch",
 		Binary:      "mdfetch",
 		VersionArg:  "--version",
-		InstallHint: "npm install -g @sandgarden/mdfetch",
+		InstallHint: "npm install -g @sandgarden/mdfetch@latest",
+		Upgrade:     true,
 		InstallCmds: map[string][]string{
-			"darwin":  {"npm", "install", "-g", "@sandgarden/mdfetch"},
-			"linux":   {"npm", "install", "-g", "@sandgarden/mdfetch"},
-			"windows": {"npm", "install", "-g", "@sandgarden/mdfetch"},
+			"darwin":  {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
+			"linux":   {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
+			"windows": {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
 		},
 	},
 	{

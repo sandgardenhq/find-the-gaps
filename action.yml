@@ -67,7 +67,7 @@ runs:
 
     - name: Install mdfetch
       shell: bash
-      run: npm install -g @sandgarden/mdfetch
+      run: npm install -g @sandgarden/mdfetch@latest
 
     - name: Run analyze
       id: analyze

@@ -24,7 +24,7 @@ type Fetcher func(rawURL, outputPath string) error
 // MdfetchFetcher returns a Fetcher that shells out to the mdfetch binary.
 func MdfetchFetcher(opts Options) Fetcher {
 	return func(rawURL, outputPath string) error {
-		args := []string{rawURL, "-o", outputPath, "--all-links"}
+		args := []string{rawURL, "-o", outputPath, "--all-links", "--wrap-images"}
 		if opts.Timeout > 0 {
 			args = append(args, "--timeout", strconv.Itoa(opts.Timeout))
 		}
