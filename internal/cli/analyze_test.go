@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -704,7 +703,8 @@ func TestFilterDocsAnalyses_ExcludesNotDocs(t *testing.T) {
 }
 
 func TestBuildScreenshotDocPages_SkipsNotDocs(t *testing.T) {
-	// Build a tmp dir with three pages on disk.
+	// Build a tmp dir with three pages on disk. URL keys are intentionally
+	// out of lexical order so the sort assertion below is load-bearing.
 	dir := t.TempDir()
 	aPath := filepath.Join(dir, "a.md")
 	bPath := filepath.Join(dir, "b.md")
@@ -714,9 +714,9 @@ func TestBuildScreenshotDocPages_SkipsNotDocs(t *testing.T) {
 	require.NoError(t, os.WriteFile(cPath, []byte("docs C"), 0o644))
 
 	pages := map[string]string{
+		"https://x/c":    cPath,
 		"https://x/a":    aPath,
 		"https://x/team": bPath,
-		"https://x/c":    cPath,
 	}
 	analyses := []analyzer.PageAnalysis{
 		{URL: "https://x/a", IsDocs: true},
@@ -726,9 +726,34 @@ func TestBuildScreenshotDocPages_SkipsNotDocs(t *testing.T) {
 	got := buildScreenshotDocPages(pages, analyses)
 
 	require.Len(t, got, 2)
-	urls := []string{got[0].URL, got[1].URL}
-	sort.Strings(urls)
-	assert.Equal(t, []string{"https://x/a", "https://x/c"}, urls)
+	// Assert the helper's own sort behavior directly — do NOT re-sort the
+	// result first, or the assertion stops verifying anything.
+	assert.Equal(t, "https://x/a", got[0].URL)
+	assert.Equal(t, "https://x/c", got[1].URL)
+}
+
+func TestBuildScreenshotDocPages_SkipsReadErrors(t *testing.T) {
+	// A pages entry pointing at a non-existent file must be logged and
+	// skipped, not panicked or returned with empty content. This pins the
+	// helper's "preserve prior behavior on disk errors" contract.
+	dir := t.TempDir()
+	goodPath := filepath.Join(dir, "good.md")
+	require.NoError(t, os.WriteFile(goodPath, []byte("good"), 0o644))
+	missingPath := filepath.Join(dir, "missing.md") // never created
+
+	pages := map[string]string{
+		"https://x/good":    goodPath,
+		"https://x/missing": missingPath,
+	}
+	analyses := []analyzer.PageAnalysis{
+		{URL: "https://x/good", IsDocs: true},
+		{URL: "https://x/missing", IsDocs: true},
+	}
+	got := buildScreenshotDocPages(pages, analyses)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "https://x/good", got[0].URL)
+	assert.Equal(t, "good", got[0].Content)
 }
 
 func TestAllNotDocsGuard_TriggersOnAllFalse(t *testing.T) {
@@ -737,8 +762,23 @@ func TestAllNotDocsGuard_TriggersOnAllFalse(t *testing.T) {
 		{URL: "https://x/b", IsDocs: false},
 	})
 	require.Error(t, err)
+	// Pin the full error-message contract — these strings are the user-
+	// facing recovery hints and must not silently regress.
 	assert.Contains(t, err.Error(), "all 2 pages classified as non-docs")
+	assert.Contains(t, err.Error(), "refusing to produce a misleading report")
 	assert.Contains(t, err.Error(), "--no-cache")
+	assert.Contains(t, err.Error(), "file an issue")
+}
+
+func TestAllNotDocsGuard_TriggersOnSinglePage(t *testing.T) {
+	// N=1 case: a single non-docs page must trip the guard. The count in
+	// the message must say "1 page" — but the current impl uses the same
+	// "%d pages" template either way, which is the intended trade-off.
+	err := allNotDocsGuard([]analyzer.PageAnalysis{
+		{URL: "https://x/only", IsDocs: false},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all 1 pages classified as non-docs")
 }
 
 func TestAllNotDocsGuard_PassesOnAnyDocs(t *testing.T) {
@@ -764,6 +804,11 @@ func TestClassificationSummary_FormatsCounts(t *testing.T) {
 		{URL: "https://x/b", IsDocs: false},
 		{URL: "https://x/c", IsDocs: true},
 	})
+	assert.Contains(t, line, "classified:")
 	assert.Contains(t, line, "2 docs")
 	assert.Contains(t, line, "1 non-docs")
+	// The "(use -v to list)" parenthetical is the audit affordance — the
+	// design's chosen way to surface which URLs were dropped without a
+	// dedicated report file. Lock it down.
+	assert.Contains(t, line, "(use -v to list)")
 }
