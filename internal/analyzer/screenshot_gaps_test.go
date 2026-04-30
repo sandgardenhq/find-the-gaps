@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -234,6 +235,27 @@ func TestDetectScreenshotGaps_Progress(t *testing.T) {
 	assert.Equal(t, 2, calls[0].total)
 	assert.Equal(t, "https://example.com/a", calls[0].page)
 	assert.Equal(t, 2, calls[1].done)
+}
+
+func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
+	// Build content well above ScreenshotPromptBudget so truncation must fire.
+	// "lorem ipsum dolor sit amet " ≈ 6 tokens for cl100k_base; repeat enough
+	// to exceed the budget by a wide margin.
+	chunk := "lorem ipsum dolor sit amet consectetur adipiscing elit "
+	repeats := (ScreenshotPromptBudget / 6) * 3
+	big := strings.Repeat(chunk, repeats)
+
+	client := &fakeLLMClient{}
+	pages := []DocPage{{URL: "https://example.com/huge", Path: "/tmp/huge.md", Content: big}}
+
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+	require.Len(t, client.prompts, 1, "page should still be sent, just truncated")
+
+	sent := client.prompts[0]
+	got := countTokens(sent)
+	assert.Less(t, got, ScreenshotPromptBudget,
+		"prompt token count must fit inside ScreenshotPromptBudget after truncation")
 }
 
 func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
