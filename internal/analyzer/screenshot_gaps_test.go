@@ -237,6 +237,20 @@ func TestDetectScreenshotGaps_Progress(t *testing.T) {
 	assert.Equal(t, 2, calls[1].done)
 }
 
+func TestScreenshotPromptBudget_LeavesRoomForTokenizerDriftAndToolOverhead(t *testing.T) {
+	// The local estimator (cl100k_base) undercounts vs Claude's tokenizer on
+	// code-heavy reference docs by ~13% (observed: bun.com/reference/node/crypto
+	// produced 201,871 actual tokens at ~179K cl100k). Plus, the Anthropic
+	// CompleteJSON path forces a "respond" tool whose JSON Schema parameters
+	// the estimator does not see. The budget must absorb both.
+	const claudeInputWindow = 200_000
+	const expectedClaudeDrift = 1.20 // 13% drift + slack for tool/schema input
+	worstCaseClaudeTokens := int(float64(ScreenshotPromptBudget) * expectedClaudeDrift)
+	assert.LessOrEqual(t, worstCaseClaudeTokens, claudeInputWindow,
+		"ScreenshotPromptBudget=%d * %.2fx drift = %d must fit in Claude's %d input window",
+		ScreenshotPromptBudget, expectedClaudeDrift, worstCaseClaudeTokens, claudeInputWindow)
+}
+
 func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
 	// Build content well above ScreenshotPromptBudget so truncation must fire.
 	// "lorem ipsum dolor sit amet " ≈ 6 tokens for cl100k_base; repeat enough
