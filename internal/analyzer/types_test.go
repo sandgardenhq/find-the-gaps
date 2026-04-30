@@ -71,6 +71,21 @@ func TestChatMessage_CacheBreakpointFieldExists(t *testing.T) {
 	require.True(t, m.CacheBreakpoint)
 }
 
+func TestPageAnalysis_HasIsDocsField(t *testing.T) {
+	p := analyzer.PageAnalysis{
+		URL:     "https://example.com",
+		Summary: "x",
+		IsDocs:  false,
+	}
+	if p.IsDocs != false {
+		t.Errorf("IsDocs round-trip: got %v, want false", p.IsDocs)
+	}
+	p.IsDocs = true
+	if p.IsDocs != true {
+		t.Errorf("IsDocs round-trip: got %v, want true", p.IsDocs)
+	}
+}
+
 func TestScreenshotGap_ZeroValue(t *testing.T) {
 	var g analyzer.ScreenshotGap
 	assert.Equal(t, "", g.PageURL)
