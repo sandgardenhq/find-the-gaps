@@ -291,7 +291,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 	if err := idx.Record(docsURL, filename); err != nil {
 		t.Fatal(err)
 	}
-	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}); err != nil {
+	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := idx.SetProductSummary("A test product.", []string{"feature-one"}); err != nil {
@@ -398,7 +398,7 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pre-record the analysis in the index so the page is skipped in the analyze loop.
-	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}); err != nil {
+	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}, true); err != nil {
 		t.Fatal(err)
 	}
 	// Pre-cache the product summary so SynthesizeProduct is skipped.
@@ -504,7 +504,7 @@ func TestAnalyze_writesSiteAfterReports(t *testing.T) {
 	if err := idx.Record(docsURL, filename); err != nil {
 		t.Fatal(err)
 	}
-	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}); err != nil {
+	if err := idx.RecordAnalysis(docsURL, "Covers doc page.", []string{"feature-one"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := idx.SetProductSummary("A test product.", []string{"feature-one"}); err != nil {
@@ -597,7 +597,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 	if err := idx.Record(docsURL, filename); err != nil {
 		t.Fatal(err)
 	}
-	if err := idx.RecordAnalysis(docsURL, "A product.", []string{"feature-one"}); err != nil {
+	if err := idx.RecordAnalysis(docsURL, "A product.", []string{"feature-one"}, true); err != nil {
 		t.Fatal(err)
 	}
 	// Pre-cache the product summary so synthesis (Bifrost LLM call) is skipped.
