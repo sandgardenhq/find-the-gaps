@@ -2,14 +2,67 @@
 
 ## Unreleased
 
+## v0.2.0
+
+### Added
+- **Hugo-rendered report site.** `ftg analyze` now renders a Hextra-themed
+  static site at `<projectDir>/site/` alongside the markdown reports (#21).
+  Toggle with `--no-site`; choose layout via `--site-mode=mirror|expanded`;
+  preserve the generated Hugo source with `--keep-site-source`.
+- **`ftg serve`.** Local HTTP server for the rendered report site (#26),
+  with an interactive picker when the cache contains multiple projects (#32)
+  and an `--open` flag to launch the default browser.
+- **GitHub Action.** Find the Gaps now ships as a composite GitHub Action so
+  maintainers can run audits on a schedule, before a release, or on demand
+  without installing anything locally (#20). The action uploads a report
+  artifact and (optionally) opens or updates a tracking issue.
+- **Default ignore list.** A curated `defaults.ftgignore` ships in the binary
+  and is layered with the repo's `.gitignore` and an optional project-level
+  `.ftgignore` (#30). The scan summary in `ftg analyze` reports per-layer
+  skip counts.
+- **Drift-detection cache.** Analyze re-runs with unchanged inputs skip the
+  drift pass and reuse the previous `gaps.md` (#34, #37). Bust with
+  `--no-cache` or by deleting the report files.
+- **Docs-page classifier.** A binary `is_docs` classifier now filters drift
+  and screenshot detection to canonical documentation URLs, keeping
+  blog/team/careers pages out of the report (#38).
+- **Per-tier LLM call counter.** `-v` now prints a per-tier summary of LLM
+  calls and tokens used during analyze (#29).
+- **Prompt caching on Anthropic.** Bifrost prompt-caching breakpoints are
+  wired through analyze flows — the user-prompt cache, drift investigator
+  prompt, and a rotating breakpoint on the latest agent-loop message all
+  emit `cache_control` blocks. Cache usage is logged on every LLM call (#24).
+- **Drift detection split into investigator + judge.** A tool-use agent on
+  the typical tier (Sonnet) gathers evidence, then a single non-tool call on
+  the large tier (Opus) renders a verdict (#23). Includes a dynamic
+  turn-budget cap (#22).
+- **mdfetch upgrade behavior.** `ftg install-deps` now always reinstalls
+  mdfetch (`npm install -g @sandgarden/mdfetch@latest`) so re-running the
+  command picks up new releases (#40). hugo keeps skip-when-present.
+- **`--wrap-images`.** Spider invocations of mdfetch now pass
+  `--wrap-images` so screenshot detection can find images in the markdown
+  output (#40).
+
 ### Changed
-- Drift detection's tool-use requirement moved from the `large` tier to the
-  `typical` tier. The drift investigator now runs as a tool-use agent on the
-  typical tier (Sonnet by default); the large tier only makes a single
-  non-tool `CompleteJSON` call (the drift judge). As a result, `--llm-large`
-  may now name any supported provider (e.g. `ollama/...`), and `--llm-typical`
-  must name a provider that supports tool use (currently `anthropic` or
-  `openai`).
+- **Drift tier requirements (mildly breaking).** `--llm-large` may now name
+  any supported provider (e.g. `ollama/...`); `--llm-typical` must name a
+  tool-use-capable provider (currently `anthropic` or `openai`). Configs that
+  pointed `--llm-large` at a tool-use-only provider can be relaxed; configs
+  that pointed `--llm-typical` at a non-tool-use provider must be updated
+  (#23).
+- Screenshot-gap prompt tightened to reduce over-flagging (#31).
+- Hugo output formatting cleaned up (#25).
+
+### Fixed
+- Spider Index now guarded by a mutex so concurrent crawler workers cannot
+  trigger a `concurrent map writes` panic (#28).
+- `ftg analyze --repo` now resolves to an absolute path before deriving the
+  project name, so relative paths produce stable cache directories (#27).
+- Screenshot-gap prompt capped to fit Claude's 200K input window (#35) and
+  later tightened further to absorb tokenizer drift (#36).
+
+### Build / CI
+- Release build-job actions bumped to Node 24 majors (#19).
 
 ## v0.1.1
 
