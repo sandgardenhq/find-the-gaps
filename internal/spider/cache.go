@@ -22,6 +22,11 @@ type indexEntry struct {
 	FetchedAt time.Time `json:"fetched_at"`
 	Summary   string    `json:"summary,omitempty"`
 	Features  []string  `json:"features,omitempty"`
+	// IsDocs is a pointer so old cache files (no field) round-trip with nil.
+	// Nil on disk ↔ true in memory: the inclusive-by-default safety net for
+	// legacy caches written before the docs classifier shipped. See
+	// .plans/DOCS_CLASSIFIER_DESIGN.md "Edge cases".
+	IsDocs *bool `json:"is_docs,omitempty"`
 }
 
 type indexJSON struct {
@@ -86,26 +91,38 @@ func (idx *Index) Record(rawURL, filename string) error {
 	return idx.save()
 }
 
-// RecordAnalysis stores the LLM-produced summary and features for rawURL.
-func (idx *Index) RecordAnalysis(rawURL, summary string, features []string) error {
+// RecordAnalysis stores the LLM-produced summary, features, and docs
+// classification for rawURL. isDocs is recorded explicitly (even when false) so
+// nil remains reserved for "never written" — see Analysis for the legacy-cache
+// safety net.
+func (idx *Index) RecordAnalysis(rawURL, summary string, features []string, isDocs bool) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	e := idx.entries[rawURL]
 	e.Summary = summary
 	e.Features = features
+	e.IsDocs = &isDocs
 	idx.entries[rawURL] = e
 	return idx.save()
 }
 
-// Analysis returns the cached summary and features for rawURL, if present.
-func (idx *Index) Analysis(rawURL string) (summary string, features []string, ok bool) {
+// Analysis returns the cached summary, features, and docs classification for
+// rawURL, if present. When the on-disk entry has no is_docs field (a cache
+// written before the classifier shipped), isDocs is reported as true — the
+// inclusive-by-default safety net that prevents a legacy cache from silently
+// dropping every page out of the report.
+func (idx *Index) Analysis(rawURL string) (summary string, features []string, isDocs bool, ok bool) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	e, found := idx.entries[rawURL]
 	if !found || e.Summary == "" {
-		return "", nil, false
+		return "", nil, false, false
 	}
-	return e.Summary, e.Features, true
+	is := true // inclusive-by-default for old cache entries (nil on disk)
+	if e.IsDocs != nil {
+		is = *e.IsDocs
+	}
+	return e.Summary, e.Features, is, true
 }
 
 // SetProductSummary stores the product-level summary and feature list.
