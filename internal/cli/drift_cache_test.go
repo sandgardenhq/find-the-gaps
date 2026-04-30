@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/stretchr/testify/assert"
@@ -418,4 +419,40 @@ func TestComputeDriftInputHash_DifferentInputsDiffer(t *testing.T) {
 		{Feature: analyzer.CodeFeature{Name: "AUTH"}, Files: []string{"auth.go"}, Symbols: []string{"Login"}},
 	}
 	assert.NotEqual(t, h0, computeDriftInputHash(c3, dm), "feature name change must change hash")
+}
+
+func TestLoadDriftCacheFile_OldShape_NoComplete(t *testing.T) {
+	// Old drift.json (written by saveDriftCache today) must load with Complete == nil.
+	path := filepath.Join(t.TempDir(), "drift.json")
+	in := map[string]analyzer.CachedDriftEntry{
+		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://x/auth"}, Issues: []analyzer.DriftIssue{}},
+	}
+	require.NoError(t, saveDriftCache(path, in))
+
+	file, ok := loadDriftCacheFile(path)
+	require.True(t, ok)
+	assert.Nil(t, file.Complete)
+	require.Len(t, file.Entries, 1)
+	assert.Equal(t, "auth", file.Entries[0].Feature)
+}
+
+func TestSaveLoadDriftCacheComplete_RoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "drift.json")
+	in := map[string]analyzer.CachedDriftEntry{
+		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://x/auth"}, Issues: []analyzer.DriftIssue{}},
+	}
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	complete := &driftComplete{Hash: "abc123", CompletedAt: now}
+	require.NoError(t, saveDriftCacheComplete(path, in, complete))
+
+	file, ok := loadDriftCacheFile(path)
+	require.True(t, ok)
+	require.NotNil(t, file.Complete)
+	assert.Equal(t, "abc123", file.Complete.Hash)
+	assert.True(t, file.Complete.CompletedAt.Equal(now))
+}
+
+func TestLoadDriftCacheFile_FileNotExist_ReturnsFalse(t *testing.T) {
+	_, ok := loadDriftCacheFile(filepath.Join(t.TempDir(), "drift.json"))
+	assert.False(t, ok)
 }

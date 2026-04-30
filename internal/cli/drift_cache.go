@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
@@ -18,6 +19,7 @@ import (
 type driftCacheFile struct {
 	Features []string          `json:"features"`
 	Entries  []driftCacheEntry `json:"entries"`
+	Complete *driftComplete    `json:"complete,omitempty"`
 }
 
 type driftCacheEntry struct {
@@ -25,6 +27,15 @@ type driftCacheEntry struct {
 	Files   []string              `json:"files"`
 	Pages   []string              `json:"pages"`
 	Issues  []analyzer.DriftIssue `json:"issues"`
+}
+
+// driftComplete is the completion sentinel written by saveDriftCacheComplete.
+// Its Hash is the SHA-256 of the drift inputs (computeDriftInputHash); on
+// re-run, callers can short-circuit DetectDrift when the freshly computed
+// hash matches.
+type driftComplete struct {
+	Hash        string    `json:"hash"`
+	CompletedAt time.Time `json:"completedAt"`
 }
 
 // seedDriftLiveCache builds the initial liveCache for a drift run: cached
@@ -116,9 +127,32 @@ func loadDriftCache(path string) (map[string]analyzer.CachedDriftEntry, bool) {
 	return out, true
 }
 
+// loadDriftCacheFile returns the full driftCacheFile (entries + sentinel).
+// Returns (zero, false) on missing file, parse error, or any I/O error.
+func loadDriftCacheFile(path string) (driftCacheFile, bool) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return driftCacheFile{}, false
+	}
+	if err != nil {
+		return driftCacheFile{}, false
+	}
+	var f driftCacheFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return driftCacheFile{}, false
+	}
+	return f, true
+}
+
 // saveDriftCache writes current to path atomically (temp-file + rename).
 // Entries are sorted by feature name for stable diffs.
 func saveDriftCache(path string, current map[string]analyzer.CachedDriftEntry) error {
+	return saveDriftCacheComplete(path, current, nil)
+}
+
+// saveDriftCacheComplete writes the cache atomically with a completion sentinel.
+// Pass nil to write without one (equivalent to saveDriftCache).
+func saveDriftCacheComplete(path string, current map[string]analyzer.CachedDriftEntry, complete *driftComplete) error {
 	names := make([]string, 0, len(current))
 	for k := range current {
 		names = append(names, k)
@@ -139,12 +173,12 @@ func saveDriftCache(path string, current map[string]analyzer.CachedDriftEntry) e
 			Issues:  issues,
 		})
 	}
-	f := driftCacheFile{Features: names, Entries: entries}
+	f := driftCacheFile{Features: names, Entries: entries, Complete: complete}
+
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}
-
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".drift-*.tmp")
 	if err != nil {
 		return err
