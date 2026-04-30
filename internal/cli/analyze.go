@@ -210,6 +210,13 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
+			log.Infof("%s", classificationSummary(analyses))
+			for _, a := range analyses {
+				if !a.IsDocs {
+					log.Debugf("  non-docs: %s — %s", a.URL, a.Summary)
+				}
+			}
+
 			if err := allNotDocsGuard(analyses); err != nil {
 				return err
 			}
@@ -525,6 +532,22 @@ func allNotDocsGuard(analyses []analyzer.PageAnalysis) error {
 			"this is almost certainly a classifier mistake.\n"+
 			"re-run with --no-cache, or file an issue with the docs URL.",
 		len(analyses))
+}
+
+// classificationSummary returns the one-line audit log emitted after every
+// analyze run. The (use -v to list) parenthetical points users at the verbose
+// per-URL listing, which is the design's chosen audit signal under the
+// no-overrides v1: console-only, no markdown report, no dedicated file.
+func classificationSummary(analyses []analyzer.PageAnalysis) string {
+	docs, notDocs := 0, 0
+	for _, a := range analyses {
+		if a.IsDocs {
+			docs++
+		} else {
+			notDocs++
+		}
+	}
+	return fmt.Sprintf("classified: %d docs, %d non-docs (use -v to list)", docs, notDocs)
 }
 
 // filterDocsAnalyses returns the subset of analyses whose IsDocs flag is true.

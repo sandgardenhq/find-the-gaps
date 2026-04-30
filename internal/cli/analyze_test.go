@@ -757,3 +757,13 @@ func TestAllNotDocsGuard_PassesOnEmpty(t *testing.T) {
 	err := allNotDocsGuard(nil)
 	require.NoError(t, err)
 }
+
+func TestClassificationSummary_FormatsCounts(t *testing.T) {
+	line := classificationSummary([]analyzer.PageAnalysis{
+		{URL: "https://x/a", IsDocs: true},
+		{URL: "https://x/b", IsDocs: false},
+		{URL: "https://x/c", IsDocs: true},
+	})
+	assert.Contains(t, line, "2 docs")
+	assert.Contains(t, line, "1 non-docs")
+}
