@@ -29,6 +29,15 @@ import (
 //  4. mapping.md does NOT mention the team URL or the team page's features.
 //  5. The analyze command exits with code 0.
 //
+// LOAD-BEARING for Task 7 (screenshot filter): the fake LLM server's
+// screenshot-gap stub returns a non-empty gap whenever the prompt content
+// contains the team URL, and an empty gap list otherwise. If
+// buildScreenshotDocPages's IsDocs filter regresses, the team URL flows into
+// DetectScreenshotGaps, the stub fires a real gap, and WriteScreenshots
+// writes the team URL into screenshots.md — failing assertion 3. With the
+// filter intact, the team URL never reaches the stub, no gap is generated,
+// and the assertion holds. Mutation-tested.
+//
 // Trade-off (deliberate, per the task plan): the docs-side feature map is
 // pre-cached so MapFeaturesToDocs does not run. That means Task 6's
 // docsAnalyses/docsPages filter is NOT exercised end-to-end here — it is
@@ -39,6 +48,12 @@ import (
 // itself). The screenshot filter (Task 7) and the audit log line (Task 9)
 // ARE exercised end-to-end, which the task description names as the most
 // critical assertions.
+//
+// Assertions 2 (gaps.md) and 4 (mapping.md) are trivially satisfied today —
+// no team-URL data feeds the inputs that produce those reports in this
+// fixture (empty docs feature map → no drift; no docs mapping LLM call). They
+// remain as future-regression guards: if either report ever starts pulling
+// from raw page analyses, they would need to honor IsDocs too.
 func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 	apiURL := "https://docs.example.com/api"
 	teamURL := "https://docs.example.com/team"
@@ -98,11 +113,12 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 		filepath.Join(projectDir, "docsfeaturemap.json"),
 		[]string{"feature-one"}, docsFM))
 
-	// Fake LLM server: dispatches by inspecting the request body. AnalyzePage
-	// includes the URL and "is_docs" guidance in the prompt, so we can match
-	// on URL substring + the prompt's "is_docs" anchor. The screenshot pass
-	// uses the screenshot_gaps_response schema and a distinct prompt; we
-	// detect it by the "screenshot is ESSENTIAL" anchor.
+	// Fake LLM server: dispatches by the response_format schema name in the
+	// request body. Each LLM helper calls CompleteJSON with a distinct schema
+	// (analyze_page_response, screenshot_gaps_response, synthesize_response),
+	// so matching on the schema name is precise and avoids accidentally
+	// matching on prompt text fragments. Within AnalyzePage calls, dispatch
+	// on which URL the prompt is targeting.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
@@ -117,14 +133,20 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 			})
 		}
 
-		// Dispatch primarily on the response_format schema name so we don't
-		// accidentally match on prompt text fragments. Within the page-level
-		// AnalyzePage calls, dispatch on the URL the prompt is targeting.
 		switch {
 		case strings.Contains(s, `"name":"screenshot_gaps_response"`),
 			strings.Contains(s, `"name": "screenshot_gaps_response"`):
-			// Screenshot pass: empty gaps regardless of page.
-			respond(`{"gaps":[]}`)
+			// Screenshot pass. The page URL is embedded in the prompt
+			// (buildScreenshotPrompt writes "URL: %s"), so if the team URL
+			// reaches here, Task 7's filter has regressed — return a
+			// non-empty gap that names the team URL so WriteScreenshots
+			// leaks it into screenshots.md and assertion 3 fails loudly.
+			// All other pages get an empty gap list.
+			if strings.Contains(s, teamURL) {
+				respond(`{"gaps":[{"quoted_passage":"team photo","should_show":"team page UI","suggested_alt":"team","insertion_hint":"after the heading"}]}`)
+			} else {
+				respond(`{"gaps":[]}`)
+			}
 		case strings.Contains(s, `"name":"synthesize_response"`),
 			strings.Contains(s, `"name": "synthesize_response"`):
 			// Synthesize fires because at least one page was analyzed fresh
