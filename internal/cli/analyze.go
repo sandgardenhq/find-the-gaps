@@ -285,6 +285,17 @@ func newAnalyzeCmd() *cobra.Command {
 				return false
 			}()
 
+			// Filter docs-side input on IsDocs so blog/marketing/team pages
+			// don't pollute the docs feature map. The code-side mapping (built
+			// from `scan`) is independent and unfiltered.
+			docsAnalyses := filterDocsAnalyses(analyses)
+			docsPages := make(map[string]string, len(docsAnalyses))
+			for _, a := range docsAnalyses {
+				if filePath, ok := pages[a.URL]; ok {
+					docsPages[a.URL] = filePath
+				}
+			}
+
 			if !codeMapCached || !docsMapCached {
 				log.Infof("mapping %d features across code and docs in parallel...", len(codeFeatures))
 				// Only wire batch callbacks for the maps that are actually being computed;
@@ -303,7 +314,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
 					ctx, tiering, codeFeatures,
-					scan, pages, workers, analyzer.DocsMapperPageBudget,
+					scan, docsPages, workers, analyzer.DocsMapperPageBudget,
 					noSymbols,
 					codeBatchFn,
 					docsBatchFn,
@@ -507,6 +518,19 @@ func formatScanSummary(s ignore.Stats) string {
 		}
 	}
 	return summaryPrinter.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
+}
+
+// filterDocsAnalyses returns the subset of analyses whose IsDocs flag is true.
+// Used to exclude non-docs pages (blogs, marketing, team, legal) from the docs
+// feature map so drift detection cannot match code features against them.
+func filterDocsAnalyses(in []analyzer.PageAnalysis) []analyzer.PageAnalysis {
+	out := make([]analyzer.PageAnalysis, 0, len(in))
+	for _, a := range in {
+		if a.IsDocs {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // stringSliceEqual reports element-wise equality. Both inputs must already be

@@ -689,3 +689,15 @@ func TestAnalyzeCmd_HasSkipScreenshotCheckFlag(t *testing.T) {
 	assert.Equal(t, "false", f.DefValue)
 	assert.Contains(t, f.Usage, "screenshot")
 }
+
+func TestFilterDocsAnalyses_ExcludesNotDocs(t *testing.T) {
+	analyses := []analyzer.PageAnalysis{
+		{URL: "https://x/api", Summary: "API", IsDocs: true},
+		{URL: "https://x/team", Summary: "Team", IsDocs: false},
+		{URL: "https://x/guide", Summary: "Guide", IsDocs: true},
+	}
+	got := filterDocsAnalyses(analyses)
+	require.Len(t, got, 2)
+	assert.Equal(t, "https://x/api", got[0].URL)
+	assert.Equal(t, "https://x/guide", got[1].URL)
+}
