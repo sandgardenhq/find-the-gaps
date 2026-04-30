@@ -486,3 +486,17 @@ func TestDriftFindingsFromCache_EmptyCache_ReturnsNil(t *testing.T) {
 	out := driftFindingsFromCache(map[string]analyzer.CachedDriftEntry{}, fm)
 	assert.Empty(t, out)
 }
+
+func TestDriftFindingsFromCache_FeatureNotInCache_Skipped(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "newish"}, Files: []string{"new.go"}},
+	}
+	cache := map[string]analyzer.CachedDriftEntry{
+		"auth": {Issues: []analyzer.DriftIssue{{Page: "https://x/a", Issue: "Stale."}}},
+		// "newish" intentionally absent — feature added after last drift run.
+	}
+	out := driftFindingsFromCache(cache, fm)
+	require.Len(t, out, 1)
+	assert.Equal(t, "auth", out[0].Feature)
+}
