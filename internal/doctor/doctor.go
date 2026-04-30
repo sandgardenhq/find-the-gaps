@@ -1,5 +1,5 @@
-// Package doctor checks that the external tool find-the-gaps shells out to
-// (mdfetch) is installed and reports a clear install hint if not.
+// Package doctor checks that the external tools find-the-gaps shells out to
+// (mdfetch, hugo) are installed and reports a clear install hint if not.
 package doctor
 
 import (
