@@ -24,6 +24,13 @@ import (
 
 var summaryPrinter = message.NewPrinter(language.English)
 
+// tieringFactory builds the per-run analyzer.LLMTiering. Tests override this
+// to inject stub clients (e.g., a counting ToolLLMClient for the drift
+// investigator) without rebuilding the whole analyze harness.
+var tieringFactory func(small, typical, large string) (analyzer.LLMTiering, error) = func(small, typical, large string) (analyzer.LLMTiering, error) {
+	return newLLMTiering(small, typical, large)
+}
+
 type bothMapsResult struct {
 	codeMap analyzer.FeatureMap
 	err     error
@@ -147,11 +154,13 @@ func newAnalyzeCmd() *cobra.Command {
 			if llmLarge == "" {
 				llmLarge = os.Getenv("FIND_THE_GAPS_LLM_LARGE")
 			}
-			tiering, err := newLLMTiering(llmSmall, llmTypical, llmLarge)
+			tiering, err := tieringFactory(llmSmall, llmTypical, llmLarge)
 			if err != nil {
 				return fmt.Errorf("LLM client: %w", err)
 			}
-			defer logLLMCallCounts(tiering)
+			if t, ok := tiering.(*llmTiering); ok {
+				defer logLLMCallCounts(t)
+			}
 
 			log.Infof("crawling %s", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
@@ -341,38 +350,67 @@ func newAnalyzeCmd() *cobra.Command {
 					docCoveredFeatures = append(docCoveredFeatures, entry.Feature)
 				}
 			}
-			driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
-				return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
-			}
 
 			driftCachePath := filepath.Join(projectDir, "drift.json")
+			gapsPath := filepath.Join(projectDir, "gaps.md")
+			wantHash := computeDriftInputHash(featureMap, docsFeatureMap)
 
-			var cached map[string]analyzer.CachedDriftEntry
-			if !noCache {
-				if loaded, ok := loadDriftCache(driftCachePath); ok {
-					cached = loaded
-					log.Infof("using cached drift results (%d features)", len(cached))
+			driftSkipped := false
+			var driftFindings []analyzer.DriftFinding
+
+			if !noCache && codeMapCached && docsMapCached {
+				if file, ok := loadDriftCacheFile(driftCachePath); ok && file.Complete != nil && file.Complete.Hash == wantHash {
+					if _, statErr := os.Stat(gapsPath); statErr == nil {
+						cachedMap := driftCacheEntriesToMap(file.Entries)
+						driftFindings = driftFindingsFromCache(cachedMap, featureMap)
+						driftSkipped = true
+						log.Infof("drift: cache complete, skipping (hash %s…)", wantHash[:8])
+					}
 				}
 			}
 
-			// Seed liveCache with prior cached entries for features still in
-			// featureMap so a partial run that crashes mid-drift doesn't evict
-			// not-yet-processed entries. Features removed from featureMap are
-			// not seeded and so are pruned on the next save.
-			liveCache := seedDriftLiveCache(cached, featureMap)
-			hits, fresh := 0, 0
-			onFeatureDone := newDriftCachePersister(cached, liveCache, driftCachePath, &hits, &fresh)
+			if !driftSkipped {
+				driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
+					return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
+				}
 
-			driftFindings, err := analyzer.DetectDrift(
-				ctx, tiering, featureMap, docsFeatureMap,
-				pageReader, repoPath,
-				cached, driftOnFinding, onFeatureDone,
-			)
-			if err != nil {
-				return fmt.Errorf("detect drift: %w", err)
+				var cached map[string]analyzer.CachedDriftEntry
+				if !noCache {
+					if loaded, ok := loadDriftCache(driftCachePath); ok {
+						cached = loaded
+						log.Infof("using cached drift results (%d features)", len(cached))
+					}
+				}
+
+				// Seed liveCache with prior cached entries for features still in
+				// featureMap so a partial run that crashes mid-drift doesn't evict
+				// not-yet-processed entries. Features removed from featureMap are
+				// not seeded and so are pruned on the next save.
+				liveCache := seedDriftLiveCache(cached, featureMap)
+				hits, fresh := 0, 0
+				onFeatureDone := newDriftCachePersister(cached, liveCache, driftCachePath, &hits, &fresh)
+
+				driftFindings, err = analyzer.DetectDrift(
+					ctx, tiering, featureMap, docsFeatureMap,
+					pageReader, repoPath,
+					cached, driftOnFinding, onFeatureDone,
+				)
+				if err != nil {
+					return fmt.Errorf("detect drift: %w", err)
+				}
+				log.Infof("drift cache: %d hits, %d fresh", hits, fresh)
+				log.Debugf("drift detection complete: %d findings", len(driftFindings))
+
+				// Stamp completion sentinel so the next no-op re-run can skip
+				// the drift pass entirely. UTC for byte-stable JSON across
+				// machines and timezones.
+				if err := saveDriftCacheComplete(driftCachePath, liveCache, &driftComplete{
+					Hash:        wantHash,
+					CompletedAt: time.Now().UTC(),
+				}); err != nil {
+					return fmt.Errorf("save drift completion: %w", err)
+				}
 			}
-			log.Infof("drift cache: %d hits, %d fresh", hits, fresh)
-			log.Debugf("drift detection complete: %d findings", len(driftFindings))
 
 			var screenshotGaps []analyzer.ScreenshotGap
 			if !skipScreenshotCheck {
@@ -410,8 +448,16 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
-				return fmt.Errorf("write gaps: %w", err)
+			// driftSkipped is load-bearing here: driftFindingsFromCache returns
+			// findings sorted by feature name, while a live DetectDrift run
+			// returns them in featureMap insertion order. Re-running WriteGaps
+			// with the cache-rebuilt slice would reorder gaps.md on every
+			// no-op re-run, defeating the byte-identical guarantee callers
+			// downstream (site.Build, diff tools) rely on. Skip the rewrite.
+			if !driftSkipped {
+				if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
+					return fmt.Errorf("write gaps: %w", err)
+				}
 			}
 			if !skipScreenshotCheck {
 				if err := reporter.WriteScreenshots(projectDir, screenshotGaps); err != nil {
@@ -446,6 +492,10 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			gapsLine := "  " + projectDir + "/gaps.md"
+			if driftSkipped {
+				gapsLine += " (cached, drift unchanged)"
+			}
 			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
 			if skipScreenshotCheck {
 				screenshotsLine += " (skipped)"
@@ -459,9 +509,9 @@ func newAnalyzeCmd() *cobra.Command {
 				extraLine = "\n  " + projectDir + "/site-src/"
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n  %s/gaps.md\n%s\n%s%s\n",
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s%s\n",
 				len(scan.Files), len(pages), len(featureMap),
-				projectDir, projectDir, screenshotsLine, siteLine, extraLine)
+				projectDir, gapsLine, screenshotsLine, siteLine, extraLine)
 
 			return nil
 		},

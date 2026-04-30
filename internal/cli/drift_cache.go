@@ -249,6 +249,30 @@ func computeDriftInputHash(fm analyzer.FeatureMap, dm analyzer.DocsFeatureMap) s
 	return hex.EncodeToString(sum[:])
 }
 
+// driftCacheEntriesToMap converts the on-disk slice form back to a map keyed
+// by feature name. Mirrors the nil-slice normalization that loadDriftCache
+// performs so callers see identical CachedDriftEntry shapes regardless of
+// which loader produced them.
+func driftCacheEntriesToMap(entries []driftCacheEntry) map[string]analyzer.CachedDriftEntry {
+	m := make(map[string]analyzer.CachedDriftEntry, len(entries))
+	for _, e := range entries {
+		issues := e.Issues
+		if issues == nil {
+			issues = []analyzer.DriftIssue{}
+		}
+		files := e.Files
+		if files == nil {
+			files = []string{}
+		}
+		pages := e.Pages
+		if pages == nil {
+			pages = []string{}
+		}
+		m[e.Feature] = analyzer.CachedDriftEntry{Files: files, Pages: pages, Issues: issues}
+	}
+	return m
+}
+
 // driftFindingsFromCache rebuilds DriftFindings from per-feature cache
 // entries, restricted to features present in featureMap. Features with
 // zero issues do not produce a finding (matches DetectDrift's contract).
