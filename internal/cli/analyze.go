@@ -528,9 +528,9 @@ func allNotDocsGuard(analyses []analyzer.PageAnalysis) error {
 		}
 	}
 	return fmt.Errorf(
-		"all %d pages classified as non-docs; refusing to produce a misleading report.\n"+
-			"this is almost certainly a classifier mistake.\n"+
-			"re-run with --no-cache, or file an issue with the docs URL.",
+		"all %d pages classified as non-docs; refusing to produce a misleading report "+
+			"(this is almost certainly a classifier mistake; "+
+			"re-run with --no-cache, or file an issue with the docs URL)",
 		len(analyses))
 }
 

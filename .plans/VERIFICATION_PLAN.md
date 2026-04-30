@@ -255,6 +255,32 @@ Before any scenario runs:
 
 ---
 
+### Scenario 12: Docs Page Classifier
+
+**Context**: A real public docs site that contains both `/docs/`-style pages and a non-docs section (blog, customer stories, team page, or similar). Verifies that the binary `is_docs` classifier correctly excludes non-docs pages from drift and screenshot detection without dropping canonical documentation.
+
+**Steps**:
+1. Pick a real open-source project whose docs site fits the criteria (suggested: Cobra, Bubble Tea, or any project with `/blog/` alongside `/docs/`).
+2. Clone the repo at a pinned commit.
+3. Run `find-the-gaps analyze --repo <path> --docs-url <url>`.
+4. Inspect stdout for the classification summary line.
+5. Re-run with `-v` and capture the per-URL non-docs list.
+6. Inspect `<projectDir>/gaps.md` for any drift findings whose page URL is under blog/team/careers/legal paths.
+7. Inspect `<projectDir>/screenshots.md` for any screenshot suggestions on non-docs URLs.
+8. Re-run with `--no-cache` and verify classifications are stable on a stable input.
+
+**Success Criteria**:
+- [ ] Stdout contains a `classified: N docs, M non-docs` line where M ≥ 1 (the non-docs section was detected).
+- [ ] At `-v`, the per-URL non-docs list includes at least one URL from the expected non-docs section.
+- [ ] `gaps.md` contains zero drift findings whose page URL is under `/blog/`, `/team/`, `/careers/`, `/legal/`, `/customers/` (or whichever non-docs paths the chosen site has).
+- [ ] `screenshots.md` contains zero entries whose page URL is in the same set.
+- [ ] At least one page known to be canonical docs (e.g., `/docs/api/`, `/reference/`, `/guide/`) appears in `mapping.md`.
+- [ ] The `--no-cache` re-run produces classifications that match the cached run on stable input.
+
+**If Blocked**: If the classifier flags an ambiguous page (e.g., a `/changelog` page) as not-docs, capture the URL + the verbose output line for it and ask the developer before adjusting. The classifier's inclusive-by-default rule means changelogs SHOULD be classified as docs; a misclassification is a real prompt-tuning signal, not noise.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
