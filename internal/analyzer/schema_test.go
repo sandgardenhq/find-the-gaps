@@ -8,6 +8,37 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
+func TestAnalyzePageSchema_IncludesIsDocsField(t *testing.T) {
+	var doc map[string]any
+	if err := json.Unmarshal(analyzer.AnalyzePageSchemaForTest().Doc, &doc); err != nil {
+		t.Fatalf("schema doc must be valid JSON: %v", err)
+	}
+	props, ok := doc["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("schema must have properties object")
+	}
+	isDocs, ok := props["is_docs"].(map[string]any)
+	if !ok {
+		t.Fatal("schema must declare is_docs property")
+	}
+	if isDocs["type"] != "boolean" {
+		t.Errorf("is_docs type: got %v, want boolean", isDocs["type"])
+	}
+	required, ok := doc["required"].([]any)
+	if !ok {
+		t.Fatal("schema must have required array")
+	}
+	found := false
+	for _, r := range required {
+		if r == "is_docs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("is_docs must be in required[]")
+	}
+}
+
 func TestJSONSchema_Validate_ObjectWithType_OK(t *testing.T) {
 	s := analyzer.JSONSchema{
 		Name: "foo",

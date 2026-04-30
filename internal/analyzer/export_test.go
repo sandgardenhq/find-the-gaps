@@ -22,3 +22,6 @@ func ExportedMapPageToFeatures(
 func ExportedBudgetForFeature(files, pages int) int {
 	return budgetForFeature(files, pages)
 }
+
+// AnalyzePageSchemaForTest exposes analyzePageSchema for black-box tests.
+func AnalyzePageSchemaForTest() JSONSchema { return analyzePageSchema }

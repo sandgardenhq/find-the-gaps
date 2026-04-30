@@ -18,9 +18,10 @@ var analyzePageSchema = JSONSchema{
       "type": "object",
       "properties": {
         "summary":  {"type": "string"},
-        "features": {"type": "array", "items": {"type": "string"}}
+        "features": {"type": "array", "items": {"type": "string"}},
+        "is_docs":  {"type": "boolean"}
       },
-      "required": ["summary", "features"],
+      "required": ["summary", "features", "is_docs"],
       "additionalProperties": false
     }`),
 }
