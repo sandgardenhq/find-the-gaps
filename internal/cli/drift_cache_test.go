@@ -367,3 +367,21 @@ func TestComputeDriftInputHash_Deterministic(t *testing.T) {
 	assert.NotEmpty(t, h1)
 	assert.Len(t, h1, 64, "expect hex SHA-256")
 }
+
+func TestComputeDriftInputHash_OrderIndependent(t *testing.T) {
+	fm1 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha"}, Files: []string{"a1.go", "a2.go"}, Symbols: []string{"A1"}},
+		{Feature: analyzer.CodeFeature{Name: "beta"}, Files: []string{"b1.go"}, Symbols: []string{"B1"}},
+	}
+	fm2 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "beta"}, Files: []string{"b1.go"}, Symbols: []string{"B1"}},
+		{Feature: analyzer.CodeFeature{Name: "alpha"}, Files: []string{"a2.go", "a1.go"}, Symbols: []string{"A1"}},
+	}
+	dm1 := analyzer.DocsFeatureMap{
+		{Feature: "alpha", Pages: []string{"https://x/1", "https://x/2"}},
+	}
+	dm2 := analyzer.DocsFeatureMap{
+		{Feature: "alpha", Pages: []string{"https://x/2", "https://x/1"}},
+	}
+	assert.Equal(t, computeDriftInputHash(fm1, dm1), computeDriftInputHash(fm2, dm2))
+}
