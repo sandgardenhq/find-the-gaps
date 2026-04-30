@@ -351,3 +351,19 @@ func TestNewDriftCachePersister_SaveError_Propagated(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 1, fresh, "fresh increment happens before save attempt")
 }
+
+func TestComputeDriftInputHash_Deterministic(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go", "session.go"}, Symbols: []string{"Login", "Logout"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}, Symbols: []string{"Query"}},
+	}
+	dm := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/search"}},
+	}
+	h1 := computeDriftInputHash(fm, dm)
+	h2 := computeDriftInputHash(fm, dm)
+	assert.Equal(t, h1, h2)
+	assert.NotEmpty(t, h1)
+	assert.Len(t, h1, 64, "expect hex SHA-256")
+}

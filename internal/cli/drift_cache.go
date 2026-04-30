@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -169,4 +171,46 @@ func saveDriftCache(path string, current map[string]analyzer.CachedDriftEntry) e
 		return err
 	}
 	return nil
+}
+
+// computeDriftInputHash returns a hex SHA-256 of the inputs that the drift
+// pass consumes from upstream (featureMap files+symbols, docsMap pages).
+// It is independent of map iteration order — entries are sorted by feature
+// name and slice contents are sorted before hashing.
+func computeDriftInputHash(fm analyzer.FeatureMap, dm analyzer.DocsFeatureMap) string {
+	type fEntry struct {
+		Name    string   `json:"name"`
+		Files   []string `json:"files"`
+		Symbols []string `json:"symbols"`
+	}
+	type dEntry struct {
+		Name  string   `json:"name"`
+		Pages []string `json:"pages"`
+	}
+	type payload struct {
+		Features []fEntry `json:"features"`
+		Docs     []dEntry `json:"docs"`
+	}
+
+	feats := make([]fEntry, 0, len(fm))
+	for _, e := range fm {
+		files := append([]string(nil), e.Files...)
+		syms := append([]string(nil), e.Symbols...)
+		sort.Strings(files)
+		sort.Strings(syms)
+		feats = append(feats, fEntry{Name: e.Feature.Name, Files: files, Symbols: syms})
+	}
+	sort.Slice(feats, func(i, j int) bool { return feats[i].Name < feats[j].Name })
+
+	docs := make([]dEntry, 0, len(dm))
+	for _, e := range dm {
+		pages := append([]string(nil), e.Pages...)
+		sort.Strings(pages)
+		docs = append(docs, dEntry{Name: e.Feature, Pages: pages})
+	}
+	sort.Slice(docs, func(i, j int) bool { return docs[i].Name < docs[j].Name })
+
+	data, _ := json.Marshal(payload{Features: feats, Docs: docs})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
