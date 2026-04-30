@@ -248,3 +248,30 @@ func computeDriftInputHash(fm analyzer.FeatureMap, dm analyzer.DocsFeatureMap) s
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
+
+// driftFindingsFromCache rebuilds DriftFindings from per-feature cache
+// entries, restricted to features present in featureMap. Features with
+// zero issues do not produce a finding (matches DetectDrift's contract).
+// Output is sorted by feature name for stable diffs.
+func driftFindingsFromCache(cache map[string]analyzer.CachedDriftEntry, fm analyzer.FeatureMap) []analyzer.DriftFinding {
+	if len(cache) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(fm))
+	for _, e := range fm {
+		names = append(names, e.Feature.Name)
+	}
+	sort.Strings(names)
+	out := make([]analyzer.DriftFinding, 0)
+	for _, name := range names {
+		c, ok := cache[name]
+		if !ok || len(c.Issues) == 0 {
+			continue
+		}
+		out = append(out, analyzer.DriftFinding{Feature: name, Issues: c.Issues})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

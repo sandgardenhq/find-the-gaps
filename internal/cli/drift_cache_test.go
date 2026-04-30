@@ -456,3 +456,33 @@ func TestLoadDriftCacheFile_FileNotExist_ReturnsFalse(t *testing.T) {
 	_, ok := loadDriftCacheFile(filepath.Join(t.TempDir(), "drift.json"))
 	assert.False(t, ok)
 }
+
+func TestDriftFindingsFromCache_ReturnsOnlyFeaturesInFeatureMap(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
+	}
+	cache := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Issues: []analyzer.DriftIssue{{Page: "https://x/auth", Issue: "Stale."}},
+		},
+		"search": {
+			Issues: []analyzer.DriftIssue{}, // zero issues — not a finding
+		},
+		"removed": {
+			Issues: []analyzer.DriftIssue{{Page: "https://x/r", Issue: "Should not appear."}},
+		},
+	}
+	out := driftFindingsFromCache(cache, fm)
+	require.Len(t, out, 1)
+	assert.Equal(t, "auth", out[0].Feature)
+	assert.Equal(t, "Stale.", out[0].Issues[0].Issue)
+}
+
+func TestDriftFindingsFromCache_EmptyCache_ReturnsNil(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	out := driftFindingsFromCache(map[string]analyzer.CachedDriftEntry{}, fm)
+	assert.Empty(t, out)
+}
