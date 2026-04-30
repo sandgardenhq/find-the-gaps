@@ -452,8 +452,10 @@ func newAnalyzeCmd() *cobra.Command {
 			// findings sorted by feature name, while a live DetectDrift run
 			// returns them in featureMap insertion order. Re-running WriteGaps
 			// with the cache-rebuilt slice would reorder gaps.md on every
-			// no-op re-run, defeating the byte-identical guarantee callers
-			// downstream (site.Build, diff tools) rely on. Skip the rewrite.
+			// no-op re-run, churning the file's bytes for external tooling
+			// (git diffs, hash-based watchers) that reads gaps.md directly.
+			// site.Build keys drift by feature name in a map and is order-
+			// insensitive, so it does not need this gate — gaps.md does.
 			if !driftSkipped {
 				if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
 					return fmt.Errorf("write gaps: %w", err)
