@@ -210,6 +210,10 @@ func newAnalyzeCmd() *cobra.Command {
 				return nil
 			}
 
+			if err := allNotDocsGuard(analyses); err != nil {
+				return err
+			}
+
 			// Use cached synthesis when all pages were cache hits.
 			log.Infof("synthesizing product from %d pages...", len(analyses))
 			var productSummary analyzer.ProductSummary
@@ -499,6 +503,28 @@ func formatScanSummary(s ignore.Stats) string {
 		}
 	}
 	return summaryPrinter.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
+}
+
+// allNotDocsGuard returns an error when every page in analyses is classified
+// as non-docs. It exists to make the "silent zero-output" failure mode noisy
+// and recoverable: under inclusive-by-default classification, getting all
+// non-docs almost certainly means the classifier was wrong, not that the site
+// has no docs. The empty-input case is handled by the caller's existing
+// "0 pages analyzed" branch and must not double-fire here.
+func allNotDocsGuard(analyses []analyzer.PageAnalysis) error {
+	if len(analyses) == 0 {
+		return nil
+	}
+	for _, a := range analyses {
+		if a.IsDocs {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"all %d pages classified as non-docs; refusing to produce a misleading report.\n"+
+			"this is almost certainly a classifier mistake.\n"+
+			"re-run with --no-cache, or file an issue with the docs URL.",
+		len(analyses))
 }
 
 // filterDocsAnalyses returns the subset of analyses whose IsDocs flag is true.

@@ -730,3 +730,30 @@ func TestBuildScreenshotDocPages_SkipsNotDocs(t *testing.T) {
 	sort.Strings(urls)
 	assert.Equal(t, []string{"https://x/a", "https://x/c"}, urls)
 }
+
+func TestAllNotDocsGuard_TriggersOnAllFalse(t *testing.T) {
+	err := allNotDocsGuard([]analyzer.PageAnalysis{
+		{URL: "https://x/a", IsDocs: false},
+		{URL: "https://x/b", IsDocs: false},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all 2 pages classified as non-docs")
+	assert.Contains(t, err.Error(), "--no-cache")
+}
+
+func TestAllNotDocsGuard_PassesOnAnyDocs(t *testing.T) {
+	err := allNotDocsGuard([]analyzer.PageAnalysis{
+		{URL: "https://x/a", IsDocs: false},
+		{URL: "https://x/b", IsDocs: true},
+	})
+	require.NoError(t, err)
+}
+
+func TestAllNotDocsGuard_PassesOnEmpty(t *testing.T) {
+	// An empty analyses slice means "no pages were analyzed at all"
+	// (e.g., crawl produced nothing). That's a different failure mode
+	// and is handled by the existing "0 pages analyzed" branch; the
+	// guard must not double-fire here.
+	err := allNotDocsGuard(nil)
+	require.NoError(t, err)
+}
