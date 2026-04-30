@@ -206,3 +206,60 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+func TestSeedDriftLiveCache_NilCached_ReturnsEmptyMap(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	got := seedDriftLiveCache(nil, fm)
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
+}
+
+func TestSeedDriftLiveCache_PreservesEntriesForFeaturesInMap(t *testing.T) {
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:  []string{"auth.go"},
+			Pages:  []string{"https://docs.example.com/auth"},
+			Issues: []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "Stale."}},
+		},
+		"search": {
+			Files:  []string{"search.go"},
+			Pages:  []string{"https://docs.example.com/search"},
+			Issues: []analyzer.DriftIssue{},
+		},
+	}
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
+	}
+	got := seedDriftLiveCache(cached, fm)
+	require.Len(t, got, 2)
+	assert.Equal(t, cached["auth"], got["auth"])
+	assert.Equal(t, cached["search"], got["search"])
+}
+
+func TestSeedDriftLiveCache_DropsFeaturesRemovedFromMap(t *testing.T) {
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth":    {Files: []string{"auth.go"}, Pages: []string{"https://docs.example.com/auth"}},
+		"search":  {Files: []string{"search.go"}, Pages: []string{"https://docs.example.com/search"}},
+		"removed": {Files: []string{"old.go"}, Pages: []string{"https://docs.example.com/old"}},
+	}
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
+	}
+	got := seedDriftLiveCache(cached, fm)
+	require.Len(t, got, 2)
+	_, hasRemoved := got["removed"]
+	assert.False(t, hasRemoved, "features no longer in featureMap must not be seeded")
+}
+
+func TestSeedDriftLiveCache_EmptyFeatureMap_ReturnsEmpty(t *testing.T) {
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://docs.example.com/auth"}},
+	}
+	got := seedDriftLiveCache(cached, analyzer.FeatureMap{})
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
+}

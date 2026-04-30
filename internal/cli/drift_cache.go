@@ -25,6 +25,26 @@ type driftCacheEntry struct {
 	Issues  []analyzer.DriftIssue `json:"issues"`
 }
 
+// seedDriftLiveCache builds the initial liveCache for a drift run: cached
+// entries are copied for every feature still present in featureMap, and
+// features no longer in featureMap are dropped. This preserves
+// not-yet-processed-but-still-valid entries across partial runs (so a
+// killed run leaves drift.json with the union of fresh results and prior
+// cache values), while still evicting features removed upstream on the
+// next save.
+func seedDriftLiveCache(cached map[string]analyzer.CachedDriftEntry, featureMap analyzer.FeatureMap) map[string]analyzer.CachedDriftEntry {
+	live := make(map[string]analyzer.CachedDriftEntry, len(featureMap))
+	if len(cached) == 0 {
+		return live
+	}
+	for _, entry := range featureMap {
+		if c, ok := cached[entry.Feature.Name]; ok {
+			live[entry.Feature.Name] = c
+		}
+	}
+	return live
+}
+
 // isDriftCacheHit reports whether cached has an entry for name whose Files
 // and Pages match the given slices exactly. Both inputs and the cached
 // entry's slices must be sorted ascending; this is element-wise comparison.

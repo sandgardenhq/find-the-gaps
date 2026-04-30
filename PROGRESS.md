@@ -1136,3 +1136,17 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - CLI side adds `internal/cli/drift_cache.go` with atomic temp-file + rename writes (chmod 0o644 to match peer cache files) and nil-slice normalization on load. `--no-cache` skips the read but still writes a fresh cache.
   - End-of-stage log line: `drift cache: H hits, F fresh`.
   - Code-review feedback applied: doc comment on `DetectDrift`, transitional `_ = cached` placeholder marked + later removed, `0o644` file-mode parity, nil `Files`/`Pages` normalization on load, extracted `isDriftCacheHit` helper for direct unit testing.
+
+
+## Drift-Detection Cache - Resume Fix - COMPLETE
+- Started: 2026-04-29
+- Finished: 2026-04-29
+- Tests: 4 new unit tests (`TestSeedDriftLiveCache_*` in `internal/cli/drift_cache_test.go`); all packages green via `go test ./... -count=1`.
+- Coverage: new `seedDriftLiveCache` 100%; package coverage unchanged at 87.2% (`saveDriftCache` filesystem-error paths still uncovered — same as prior task).
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-04-29
+- Notes:
+  - Bug: `liveCache := make(...)` started empty, so the first save in a run overwrote `drift.json` with only the features processed so far in this run, evicting valid prior-run entries for not-yet-processed features. A killed run then forced fresh investigator+judge on the unprocessed remainder — defeating the cross-run resumability goal in `.plans/2026-04-29-drift-cache-design.md`.
+  - Fix: extracted `seedDriftLiveCache(cached, featureMap)` in `internal/cli/drift_cache.go` and wired it into `analyze.go`. Initial `liveCache` now contains cached entries for every feature still in `featureMap`; entries for features removed upstream are not seeded, so the existing eviction-on-next-save behavior is preserved. Per-feature saves overwrite each entry as it completes.
+  - RED→GREEN: TestSeedDriftLiveCache_NilCached_ReturnsEmptyMap; TestSeedDriftLiveCache_PreservesEntriesForFeaturesInMap; TestSeedDriftLiveCache_DropsFeaturesRemovedFromMap; TestSeedDriftLiveCache_EmptyFeatureMap_ReturnsEmpty.

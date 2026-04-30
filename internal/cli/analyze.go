@@ -355,7 +355,11 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			liveCache := make(map[string]analyzer.CachedDriftEntry, len(featureMap))
+			// Seed liveCache with prior cached entries for features still in
+			// featureMap so a partial run that crashes mid-drift doesn't evict
+			// not-yet-processed entries. Features removed from featureMap are
+			// not seeded and so are pruned on the next save.
+			liveCache := seedDriftLiveCache(cached, featureMap)
 			hits, fresh := 0, 0
 			onFeatureDone := func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
 				if isDriftCacheHit(cached, name, files, pages) {
