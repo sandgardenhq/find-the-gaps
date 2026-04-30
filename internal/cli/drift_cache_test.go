@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/stretchr/testify/assert"
@@ -350,4 +351,152 @@ func TestNewDriftCachePersister_SaveError_Propagated(t *testing.T) {
 	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, nil)
 	require.Error(t, err)
 	assert.Equal(t, 1, fresh, "fresh increment happens before save attempt")
+}
+
+func TestComputeDriftInputHash_Deterministic(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go", "session.go"}, Symbols: []string{"Login", "Logout"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}, Symbols: []string{"Query"}},
+	}
+	dm := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/search"}},
+	}
+	h1 := computeDriftInputHash(fm, dm)
+	h2 := computeDriftInputHash(fm, dm)
+	assert.Equal(t, h1, h2)
+	assert.NotEmpty(t, h1)
+	assert.Len(t, h1, 64, "expect hex SHA-256")
+}
+
+func TestComputeDriftInputHash_OrderIndependent(t *testing.T) {
+	fm1 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha"}, Files: []string{"a1.go", "a2.go"}, Symbols: []string{"A1"}},
+		{Feature: analyzer.CodeFeature{Name: "beta"}, Files: []string{"b1.go"}, Symbols: []string{"B1"}},
+	}
+	fm2 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "beta"}, Files: []string{"b1.go"}, Symbols: []string{"B1"}},
+		{Feature: analyzer.CodeFeature{Name: "alpha"}, Files: []string{"a2.go", "a1.go"}, Symbols: []string{"A1"}},
+	}
+	dm1 := analyzer.DocsFeatureMap{
+		{Feature: "alpha", Pages: []string{"https://x/1", "https://x/2"}},
+	}
+	dm2 := analyzer.DocsFeatureMap{
+		{Feature: "alpha", Pages: []string{"https://x/2", "https://x/1"}},
+	}
+	assert.Equal(t, computeDriftInputHash(fm1, dm1), computeDriftInputHash(fm2, dm2))
+}
+
+func TestComputeDriftInputHash_DifferentInputsDiffer(t *testing.T) {
+	base := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}, Symbols: []string{"Login"}},
+	}
+	dm := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://x/auth"}},
+	}
+	h0 := computeDriftInputHash(base, dm)
+
+	// Change a file
+	c1 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go", "session.go"}, Symbols: []string{"Login"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(c1, dm), "files change must change hash")
+
+	// Change a symbol
+	c2 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}, Symbols: []string{"Login", "Logout"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(c2, dm), "symbols change must change hash")
+
+	// Change a page
+	dm2 := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://x/auth", "https://x/auth2"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(base, dm2), "pages change must change hash")
+
+	// Change a feature name
+	c3 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "AUTH"}, Files: []string{"auth.go"}, Symbols: []string{"Login"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(c3, dm), "feature name change must change hash")
+}
+
+func TestLoadDriftCacheFile_OldShape_NoComplete(t *testing.T) {
+	// Old drift.json (written by saveDriftCache today) must load with Complete == nil.
+	path := filepath.Join(t.TempDir(), "drift.json")
+	in := map[string]analyzer.CachedDriftEntry{
+		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://x/auth"}, Issues: []analyzer.DriftIssue{}},
+	}
+	require.NoError(t, saveDriftCache(path, in))
+
+	file, ok := loadDriftCacheFile(path)
+	require.True(t, ok)
+	assert.Nil(t, file.Complete)
+	require.Len(t, file.Entries, 1)
+	assert.Equal(t, "auth", file.Entries[0].Feature)
+}
+
+func TestSaveLoadDriftCacheComplete_RoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "drift.json")
+	in := map[string]analyzer.CachedDriftEntry{
+		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://x/auth"}, Issues: []analyzer.DriftIssue{}},
+	}
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	complete := &driftComplete{Hash: "abc123", CompletedAt: now}
+	require.NoError(t, saveDriftCacheComplete(path, in, complete))
+
+	file, ok := loadDriftCacheFile(path)
+	require.True(t, ok)
+	require.NotNil(t, file.Complete)
+	assert.Equal(t, "abc123", file.Complete.Hash)
+	assert.True(t, file.Complete.CompletedAt.Equal(now))
+}
+
+func TestLoadDriftCacheFile_FileNotExist_ReturnsFalse(t *testing.T) {
+	_, ok := loadDriftCacheFile(filepath.Join(t.TempDir(), "drift.json"))
+	assert.False(t, ok)
+}
+
+func TestDriftFindingsFromCache_ReturnsOnlyFeaturesInFeatureMap(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"search.go"}},
+	}
+	cache := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Issues: []analyzer.DriftIssue{{Page: "https://x/auth", Issue: "Stale."}},
+		},
+		"search": {
+			Issues: []analyzer.DriftIssue{}, // zero issues — not a finding
+		},
+		"removed": {
+			Issues: []analyzer.DriftIssue{{Page: "https://x/r", Issue: "Should not appear."}},
+		},
+	}
+	out := driftFindingsFromCache(cache, fm)
+	require.Len(t, out, 1)
+	assert.Equal(t, "auth", out[0].Feature)
+	assert.Equal(t, "Stale.", out[0].Issues[0].Issue)
+}
+
+func TestDriftFindingsFromCache_EmptyCache_ReturnsNil(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	out := driftFindingsFromCache(map[string]analyzer.CachedDriftEntry{}, fm)
+	assert.Empty(t, out)
+}
+
+func TestDriftFindingsFromCache_FeatureNotInCache_Skipped(t *testing.T) {
+	fm := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "newish"}, Files: []string{"new.go"}},
+	}
+	cache := map[string]analyzer.CachedDriftEntry{
+		"auth": {Issues: []analyzer.DriftIssue{{Page: "https://x/a", Issue: "Stale."}}},
+		// "newish" intentionally absent — feature added after last drift run.
+	}
+	out := driftFindingsFromCache(cache, fm)
+	require.Len(t, out, 1)
+	assert.Equal(t, "auth", out[0].Feature)
 }
