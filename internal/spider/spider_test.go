@@ -116,6 +116,28 @@ func TestMdfetchFetcher_alwaysPassesAllLinks(t *testing.T) {
 	}
 }
 
+func TestMdfetchFetcher_alwaysPassesWrapImages(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	fakeBin := filepath.Join(dir, "mdfetch")
+	script := "#!/bin/sh\nprintf '%s\n' \"$@\" > " + argsFile + "\n"
+	if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	fetch := MdfetchFetcher(Options{CacheDir: t.TempDir()})
+	_ = fetch("https://docs.example.com", filepath.Join(t.TempDir(), "out.md"))
+
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("args file not written: %v", err)
+	}
+	if !strings.Contains(string(got), "--wrap-images") {
+		t.Errorf("expected --wrap-images in mdfetch args, got: %s", got)
+	}
+}
+
 func TestMdfetchFetcher_withTimeoutAndRetries_passesFlags(t *testing.T) {
 	// Point PATH to an empty dir so mdfetch is not found — we just want the
 	// exec.Command call to include the extra flags (we observe the error).
