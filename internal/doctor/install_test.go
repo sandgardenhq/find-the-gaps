@@ -11,13 +11,13 @@ import (
 
 func TestRunInstall_AlreadyInstalled_Skips(t *testing.T) {
 	tools := []Tool{{
-		Name:   "mdfetch",
-		Binary: "mdfetch",
+		Name:   "hugo",
+		Binary: "hugo",
 		InstallCmds: map[string][]string{
-			"darwin": {"npm", "install", "-g", "@sandgarden/mdfetch"},
+			"darwin": {"brew", "install", "hugo"},
 		},
 	}}
-	lookup := func(binary string) bool { return binary == "mdfetch" }
+	lookup := func(binary string) bool { return binary == "hugo" }
 	var ran []string
 	runner := func(_ context.Context, _, _ io.Writer, name string, _ ...string) error {
 		ran = append(ran, name)
@@ -33,6 +33,62 @@ func TestRunInstall_AlreadyInstalled_Skips(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "already installed") {
 		t.Errorf("stdout missing 'already installed'; got %q", stdout.String())
+	}
+}
+
+func TestRunInstall_UpgradeTrue_RunsEvenWhenPresent(t *testing.T) {
+	tools := []Tool{{
+		Name:    "mdfetch",
+		Binary:  "mdfetch",
+		Upgrade: true,
+		InstallCmds: map[string][]string{
+			"darwin": {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
+		},
+	}}
+	lookup := func(binary string) bool { return binary == "mdfetch" } // present
+	var ran [][]string
+	runner := func(_ context.Context, _, _ io.Writer, name string, args ...string) error {
+		ran = append(ran, append([]string{name}, args...))
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runInstall(context.Background(), tools, "darwin", &stdout, &stderr, lookup, runner)
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if len(ran) != 1 {
+		t.Fatalf("expected install command to run for Upgrade=true tool, got %d invocations: %v", len(ran), ran)
+	}
+	want := []string{"npm", "install", "-g", "@sandgarden/mdfetch@latest"}
+	for i, a := range want {
+		if ran[0][i] != a {
+			t.Errorf("cmd arg[%d] = %q, want %q", i, ran[0][i], a)
+		}
+	}
+}
+
+func TestRequiredTools_MdfetchUpgradesToLatest(t *testing.T) {
+	var mdfetch *Tool
+	for i := range RequiredTools {
+		if RequiredTools[i].Name == "mdfetch" {
+			mdfetch = &RequiredTools[i]
+			break
+		}
+	}
+	if mdfetch == nil {
+		t.Fatal("mdfetch entry missing from RequiredTools")
+	}
+	if !mdfetch.Upgrade {
+		t.Error("mdfetch RequiredTools entry must have Upgrade=true so install-deps re-runs npm and pulls the latest published version")
+	}
+	for goos, cmd := range mdfetch.InstallCmds {
+		joined := strings.Join(cmd, " ")
+		if !strings.Contains(joined, "@sandgarden/mdfetch@latest") {
+			t.Errorf("mdfetch InstallCmds[%q] = %q, want it to pin @latest", goos, joined)
+		}
+	}
+	if !strings.Contains(mdfetch.InstallHint, "@sandgarden/mdfetch@latest") {
+		t.Errorf("mdfetch InstallHint = %q, want it to pin @latest", mdfetch.InstallHint)
 	}
 }
 
@@ -116,6 +172,10 @@ func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.0.0")
 	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
+	// mdfetch has Upgrade=true, so install-deps re-runs `npm install -g ...`
+	// even when mdfetch is already on PATH. Provide a fake npm that succeeds
+	// so the test exercises the upgrade path without needing real npm.
+	writeFakeBin(t, dir, "npm", "")
 	t.Setenv("PATH", dir)
 
 	var stdout, stderr bytes.Buffer
@@ -123,8 +183,12 @@ func TestRunInstall_PublicFunc_AllPresent_ReturnsZero(t *testing.T) {
 	if code != 0 {
 		t.Errorf("code = %d, want 0; stderr=%q", code, stderr.String())
 	}
+	// hugo still uses skip-when-present, so the substring should appear.
 	if !strings.Contains(stdout.String(), "already installed") {
-		t.Errorf("stdout missing 'already installed'; got %q", stdout.String())
+		t.Errorf("stdout missing 'already installed' (expected for hugo); got %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Installing mdfetch") {
+		t.Errorf("stdout missing 'Installing mdfetch' (expected because mdfetch.Upgrade=true); got %q", stdout.String())
 	}
 }
 

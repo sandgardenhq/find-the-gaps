@@ -29,7 +29,7 @@ func runInstall(
 ) int {
 	exitCode := 0
 	for _, t := range tools {
-		if lookup(t.Binary) {
+		if lookup(t.Binary) && !t.Upgrade {
 			_, _ = fmt.Fprintf(stdout, "%-8s already installed, skipping.\n", t.Name)
 			continue
 		}
