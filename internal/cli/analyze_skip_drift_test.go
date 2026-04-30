@@ -41,7 +41,25 @@ func (s *skipDriftStubClient) CompleteWithTools(_ context.Context, _ []analyzer.
 	}, nil
 }
 
-func (s *skipDriftStubClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+func (s *skipDriftStubClient) CompleteJSON(_ context.Context, _ string, schema analyzer.JSONSchema) (json.RawMessage, error) {
+	// Return responses shaped to each schema so that re-runs which bypass
+	// upstream caches can still rebuild non-empty featureMap / docsFeatureMap
+	// and reach the drift step. Without these, the rebuild is empty and drift
+	// never fires, masking the behavior we want to pin.
+	//
+	// The mapper response intentionally lists ["main.go","extra.go"] so a
+	// rebuild produces a featureMap that does NOT match the seeded drift-cache
+	// entry (which lists only ["main.go"]). That guarantees the per-feature
+	// drift cache misses on rebuilds, so the investigator MUST fire, giving us
+	// a clean call-counter signal.
+	switch schema.Name {
+	case "code_features_response":
+		return json.RawMessage(`{"features":[{"name":"feature-one","description":"Does feature one.","layer":"cli","user_facing":true}]}`), nil
+	case "map_response":
+		return json.RawMessage(`{"entries":[{"feature":"feature-one","files":["main.go","extra.go"],"symbols":["Run"]}]}`), nil
+	case "map_page_response":
+		return json.RawMessage(`{"features":["feature-one"]}`), nil
+	}
 	return json.RawMessage(`{}`), nil
 }
 
@@ -241,5 +259,130 @@ func TestAnalyzeSkipsDriftOnSecondRun(t *testing.T) {
 	}
 	if _, err := os.Stat(gapsPath); err != nil {
 		t.Errorf("gaps.md must be re-created after a forced re-run: %v", err)
+	}
+}
+
+// TestAnalyzeNoCacheFlagDefeatsDriftSkip pins the `!noCache` guard in the skip
+// block at analyze.go:361. A future refactor that drops this guard would let
+// `--no-cache` re-runs silently consume the cached drift sentinel; this test
+// catches that.
+func TestAnalyzeNoCacheFlagDefeatsDriftSkip(t *testing.T) {
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	projectDir := filepath.Join(cacheBase, projectName)
+
+	seedSkipDriftFixture(t, repoDir, projectDir, docsURL)
+
+	stub := &skipDriftStubClient{}
+	prevFactory := tieringFactory
+	t.Cleanup(func() { tieringFactory = prevFactory })
+	tieringFactory = func(_, _, _ string) (analyzer.LLMTiering, error) {
+		return &skipDriftStubTiering{client: stub, counter: analyzer.NewTiktokenCounter()}, nil
+	}
+
+	args := []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--skip-screenshot-check",
+		"--no-site",
+	}
+
+	driftPath := filepath.Join(projectDir, "drift.json")
+
+	// --- Cold run lands a complete sentinel. ---
+	var stdout1, stderr1 bytes.Buffer
+	if code := run(&stdout1, &stderr1, args); code != 0 {
+		t.Fatalf("cold run failed (code=%d): stdout=%q stderr=%q", code, stdout1.String(), stderr1.String())
+	}
+	coldCalls := stub.toolCalls.Load()
+	require.Greater(t, coldCalls, int64(0), "investigator must fire on cold run")
+
+	coldFile, ok := loadDriftCacheFile(driftPath)
+	require.True(t, ok, "drift.json must exist after cold run")
+	require.NotNil(t, coldFile.Complete, "drift.json must carry a completion sentinel")
+	require.NotEmpty(t, coldFile.Complete.Hash, "completion hash must be set")
+
+	// --- Second run with --no-cache must defeat the skip. ---
+	noCacheArgs := append([]string{}, args...)
+	noCacheArgs = append(noCacheArgs, "--no-cache")
+
+	var stdout2, stderr2 bytes.Buffer
+	if code := run(&stdout2, &stderr2, noCacheArgs); code != 0 {
+		t.Fatalf("--no-cache run failed (code=%d): stdout=%q stderr=%q", code, stdout2.String(), stderr2.String())
+	}
+	require.Greater(t, stub.toolCalls.Load(), coldCalls,
+		"--no-cache must force investigator to re-fire; skip path must NOT engage")
+
+	combined2 := stdout2.String() + stderr2.String()
+	if strings.Contains(combined2, "(cached, drift unchanged)") {
+		t.Errorf("--no-cache run must NOT annotate gaps.md as cached; got: %s", combined2)
+	}
+}
+
+// TestAnalyzeUpstreamCacheMissDefeatsDriftSkip pins the `codeMapCached` guard
+// in the skip block at analyze.go:361. Deleting featuremap.json forces the
+// upstream feature-map step to re-run, which must in turn force drift to
+// re-run — even though the drift sentinel itself is still on disk.
+func TestAnalyzeUpstreamCacheMissDefeatsDriftSkip(t *testing.T) {
+	docsURL := "https://docs.example.com/page"
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	projectDir := filepath.Join(cacheBase, projectName)
+
+	seedSkipDriftFixture(t, repoDir, projectDir, docsURL)
+
+	stub := &skipDriftStubClient{}
+	prevFactory := tieringFactory
+	t.Cleanup(func() { tieringFactory = prevFactory })
+	tieringFactory = func(_, _, _ string) (analyzer.LLMTiering, error) {
+		return &skipDriftStubTiering{client: stub, counter: analyzer.NewTiktokenCounter()}, nil
+	}
+
+	args := []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", docsURL,
+		"--skip-screenshot-check",
+		"--no-site",
+	}
+
+	driftPath := filepath.Join(projectDir, "drift.json")
+	featureMapPath := filepath.Join(projectDir, "featuremap.json")
+
+	// --- Cold run lands a complete sentinel. ---
+	var stdout1, stderr1 bytes.Buffer
+	if code := run(&stdout1, &stderr1, args); code != 0 {
+		t.Fatalf("cold run failed (code=%d): stdout=%q stderr=%q", code, stdout1.String(), stderr1.String())
+	}
+	coldCalls := stub.toolCalls.Load()
+	require.Greater(t, coldCalls, int64(0), "investigator must fire on cold run")
+
+	coldFile, ok := loadDriftCacheFile(driftPath)
+	require.True(t, ok, "drift.json must exist after cold run")
+	require.NotNil(t, coldFile.Complete, "drift.json must carry a completion sentinel")
+
+	// --- Delete featuremap.json so codeMapCached evaluates false. ---
+	require.NoError(t, os.Remove(featureMapPath))
+	if _, statErr := os.Stat(featureMapPath); !os.IsNotExist(statErr) {
+		t.Fatalf("featuremap.json should have been removed; stat err=%v", statErr)
+	}
+
+	// --- Second run with the same args must defeat the skip. ---
+	var stdout2, stderr2 bytes.Buffer
+	if code := run(&stdout2, &stderr2, args); code != 0 {
+		t.Fatalf("upstream-miss run failed (code=%d): stdout=%q stderr=%q", code, stdout2.String(), stderr2.String())
+	}
+	require.Greater(t, stub.toolCalls.Load(), coldCalls,
+		"upstream featureMap cache miss must force investigator to re-fire; skip path must NOT engage")
+
+	combined2 := stdout2.String() + stderr2.String()
+	if strings.Contains(combined2, "(cached, drift unchanged)") {
+		t.Errorf("upstream cache miss run must NOT annotate gaps.md as cached; got: %s", combined2)
 	}
 }
