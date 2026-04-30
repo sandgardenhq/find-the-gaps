@@ -11,11 +11,20 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-// ScreenshotPromptBudget caps the per-page screenshot-detection prompt size.
-// Set well below Claude's 200K input window to leave room for the JSON tool
-// schema, a few thousand response tokens, and slack between the local
-// cl100k_base estimate and the provider's exact tokenizer.
-const ScreenshotPromptBudget = 180_000
+// ScreenshotPromptBudget caps the per-page screenshot-detection prompt size,
+// measured by the local cl100k_base estimator. It must absorb two sources of
+// drift between what we measure and what Claude charges:
+//   - Tokenizer drift: cl100k_base undercounts vs Claude's tokenizer on
+//     code-heavy reference pages by ~13% in practice (observed:
+//     bun.com/reference/node/crypto produced 201,871 actual tokens at ~179K
+//     cl100k under a 180K budget).
+//   - Tool-use overhead: the Anthropic CompleteJSON path injects a forced
+//     "respond" tool whose JSON Schema parameters count toward the input
+//     window but are not visible to our local estimator.
+//
+// 150K * a 1.2x worst-case drift factor stays under the 200K window with
+// headroom for the response.
+const ScreenshotPromptBudget = 150_000
 
 // imageRef is one image occurrence on a docs page.
 type imageRef struct {
