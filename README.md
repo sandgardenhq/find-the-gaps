@@ -51,7 +51,7 @@ Run `ftg doctor` at any time to check that they are available and see their dete
 brew install sandgardenhq/tap/find-the-gaps
 ```
 
-The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs `ftg install-deps` during post-install to fetch `mdfetch` from npm. Run `ftg doctor` after install to confirm everything is wired up.
+The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs `ftg install-deps` during post-install to fetch `mdfetch` (via npm) and `hugo` (via brew). Run `ftg doctor` after install to confirm everything is wired up.
 
 ### Other platforms
 
@@ -59,12 +59,18 @@ The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs
 go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest
 ```
 
-Or build from source:
+`go install` names the binary after its source directory, so the result is `find-the-gaps`. Alias or symlink it to `ftg` to match the rest of this README:
+
+```sh
+ln -s "$(go env GOPATH)/bin/find-the-gaps" "$(go env GOPATH)/bin/ftg"
+```
+
+Or build from source — `make build` produces `./ftg` directly:
 
 ```sh
 git clone https://github.com/sandgardenhq/find-the-gaps.git
 cd find-the-gaps
-make build   # produces ./ftg
+make build
 ```
 
 Then install the required external tools:
@@ -84,9 +90,10 @@ Usage:
 Available Commands:
   analyze      Analyze a codebase against its documentation site for gaps.
   completion   Generate the autocompletion script for the specified shell
-  doctor       Check that the required external tool (mdfetch) is installed.
+  doctor       Check that the required external tools (mdfetch, hugo) are installed.
   help         Help about any command
-  install-deps Install the required external tool (mdfetch).
+  install-deps Install required external tools (mdfetch, hugo).
+  serve        Serve the find-the-gaps report site over HTTP.
 
 Flags:
   -h, --help      help for ftg
@@ -105,17 +112,20 @@ Usage:
   ftg analyze [flags]
 
 Flags:
-      --cache-dir string     base directory for all cached results (default ".find-the-gaps")
-      --docs-url string      URL of the documentation site to analyze
-  -h, --help                 help for analyze
-      --llm-large string     large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
-      --llm-small string     small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
-      --llm-typical string   typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
-      --no-cache             force full re-scan, ignoring any cached results
-      --no-symbols           map features to files only, skipping symbol-level analysis
-      --repo string              path to the repository to analyze (default ".")
-      --skip-screenshot-check    skip the missing-screenshot detection pass
-      --workers int              number of parallel mdfetch workers (default 5)
+      --cache-dir string        base directory for all cached results (default ".find-the-gaps")
+      --docs-url string         URL of the documentation site to analyze
+  -h, --help                    help for analyze
+      --keep-site-source        preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
+      --llm-large string        large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
+      --llm-small string        small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
+      --llm-typical string      typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
+      --no-cache                force full re-scan, ignoring any cached results
+      --no-site                 skip the Hugo site build; markdown reports still emitted
+      --no-symbols              map features to files only, skipping symbol-level analysis
+      --repo string             path to the repository to analyze (default ".")
+      --site-mode string        site content shape: "mirror" or "expanded" (default "mirror")
+      --skip-screenshot-check   skip the missing-screenshot detection pass
+      --workers int             number of parallel mdfetch workers (default 5)
 
 Global Flags:
   -v, --verbose   show debug logs
@@ -175,6 +185,7 @@ Flags:
       --cache-dir string   base directory containing analyze output (default ".find-the-gaps")
   -h, --help               help for serve
       --open               open the served URL in the default browser after the server is up
+      --project string     name of an analyzed project under <cache-dir>/; bypasses the picker
       --repo string        path to the repository whose report should be served (default ".")
 
 Global Flags:
@@ -186,7 +197,7 @@ Pass `--open` to launch the report in your default browser. Pass `--addr 127.0.0
 ### doctor
 
 ```
-Check that the required external tool (mdfetch) is installed.
+Check that the required external tools (mdfetch, hugo) are installed.
 
 Usage:
   ftg doctor [flags]
@@ -201,7 +212,7 @@ Global Flags:
 ### install-deps
 
 ```
-Install mdfetch if it is not already on $PATH. An already-present tool is skipped.
+Install required external tools (mdfetch, hugo) if they are not already on $PATH. Already-present tools are skipped.
 
 Usage:
   ftg install-deps [flags]
