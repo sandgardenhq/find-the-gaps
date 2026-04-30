@@ -11,6 +11,12 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+// ScreenshotPromptBudget caps the per-page screenshot-detection prompt size.
+// Set well below Claude's 200K input window to leave room for the JSON tool
+// schema, a few thousand response tokens, and slack between the local
+// cl100k_base estimate and the provider's exact tokenizer.
+const ScreenshotPromptBudget = 180_000
+
 // imageRef is one image occurrence on a docs page.
 type imageRef struct {
 	AltText        string
@@ -177,6 +183,31 @@ Populate "gaps" with one object per REMAINING gap. Each object must have:
 Return an empty "gaps" array if nothing meets the bar. This is the expected outcome for most pages.`, pageURL, coverageSummary, content)
 }
 
+// fitContentToBudget returns content sized so that the assembled
+// screenshot-gap prompt fits inside budget tokens (using the local cl100k_base
+// estimator). The returned bool is false when the prompt overhead alone — URL,
+// instructions, coverage map — already exceeds the budget; callers should skip
+// the page in that case.
+func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef, budget int) (string, bool) {
+	// Margin absorbs (a) drift between cl100k_base and the provider's exact
+	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
+	// on repetitive content.
+	const margin = 1_000
+	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage))
+	available := budget - overhead - margin
+	if available < 100 {
+		return "", false
+	}
+	contentTokens := countTokens(content)
+	if contentTokens <= available {
+		return content, true
+	}
+	keepChars := min(int(float64(len(content))*float64(available)/float64(contentTokens)), len(content))
+	log.Warnf("screenshot-gaps: truncating %s (%d → ~%d tokens) to fit %d budget",
+		pageURL, contentTokens, available, budget)
+	return content[:keepChars], true
+}
+
 // screenshotResponseItem is one raw item in the LLM's response for a
 // screenshot-gap detection call.
 type screenshotResponseItem struct {
@@ -243,7 +274,15 @@ func DetectScreenshotGaps(
 	for i, page := range pages {
 		refs := extractImages(page.Content)
 		coverage := buildCoverageMap(refs)
-		prompt := buildScreenshotPrompt(page.URL, page.Content, coverage)
+		content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
+		if !ok {
+			log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
+			if progress != nil {
+				progress(i+1, total, page.URL)
+			}
+			continue
+		}
+		prompt := buildScreenshotPrompt(page.URL, content, coverage)
 		raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 		if err != nil {
 			return nil, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
