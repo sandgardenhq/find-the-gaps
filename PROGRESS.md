@@ -1164,3 +1164,25 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Issue: `onFeatureDone` in `analyze.go` called `saveDriftCache` on every feature, including cache hits. Because `seedDriftLiveCache` already populated `liveCache` with the matching cached entry, the hit-path reassignment wrote identical bytes — and each call marshals the full map and performs temp-file + chmod + rename. With N cached features the per-run cost was O(N²) (each write re-marshals all N entries).
   - Fix: extracted `newDriftCachePersister` in `internal/cli/drift_cache.go`. On cache hit it increments `*hits` and returns `nil` without touching disk; on miss it increments `*fresh`, updates `liveCache`, and persists. Crash safety is unchanged: a hit's entry is already on disk, so skipping the write loses no information.
   - RED→GREEN: TestNewDriftCachePersister_CacheHit_DoesNotRewriteFile (sentinel-content check); TestNewDriftCachePersister_CacheMiss_NoEntry_Saves; TestNewDriftCachePersister_CacheMiss_FilesChanged_Saves; TestNewDriftCachePersister_SaveError_Propagated.
+
+
+## Docs Page Classifier - COMPLETE
+- Started: 2026-04-30
+- Finished: 2026-04-30
+- Tests: 741 passing, 0 failing across 11 packages (`go test ./... -count=1`). New tests added across Tasks 1-11:
+  - analyzer: `TestAnalyzePageSchema_IncludesIsDocsField`, `TestPageAnalysis_HasIsDocsField`, `TestAnalyzePage_IsDocsTrue`, `TestAnalyzePage_IsDocsFalse`, `TestAnalyzePage_IsDocsMissing_DefaultsTrue`, `TestAnalyzePage_PromptIncludesClassificationRule`
+  - spider: `TestIndex_RecordAnalysis_PersistsIsDocs`, `TestIndex_Analysis_OldCacheWithoutIsDocs_DefaultsTrue`
+  - cli helpers: `TestFilterDocsAnalyses_ExcludesNotDocs`, `TestBuildScreenshotDocPages_SkipsNotDocs`, `TestBuildScreenshotDocPages_SkipsReadErrors`, `TestAllNotDocsGuard_TriggersOnAllFalse`, `TestAllNotDocsGuard_TriggersOnSinglePage`, `TestAllNotDocsGuard_PassesOnAnyDocs`, `TestAllNotDocsGuard_PassesOnEmpty`, `TestClassificationSummary_FormatsCounts`
+  - cli end-to-end: `TestAnalyzeEndToEnd_FiltersNonDocs`
+- Coverage: analyzer 93.5%, spider 95.2%, cli 89.7% (lifted from 89.4% pre-existing); all new classifier helpers (`filterDocsAnalyses`, `buildScreenshotDocPages`, `allNotDocsGuard`, `classificationSummary`) at 100%.
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues; staticcheck ST1005 on the all-non-docs error string was caught and rephrased as a single sentence with parenthetical guidance)
+- Completed: 2026-04-30
+- Notes:
+  - Plan: `.plans/IMPLEMENTATION_PLAN.md` (Tasks 1-12); design: `.plans/DOCS_CLASSIFIER_DESIGN.md`.
+  - Binary classifier wired into `AnalyzePage`: schema gains `is_docs` boolean (required), prompt rewritten with the docs/non-docs rule and inclusive-by-default guardrail, response struct uses `*bool` so a missing field defaults to true.
+  - `PageAnalysis.IsDocs` and the spider cache's `indexEntry.IsDocs` are both `*bool`-on-disk so legacy cache entries written before this branch default to true on re-load (no forced re-classification).
+  - Drift filter consumes `IsDocs` via `filterDocsAnalyses`, producing a docs-only feature map; screenshot input is built by `buildScreenshotDocPages`, which only reads files for `IsDocs=true` URLs.
+  - Hard-floor `allNotDocsGuard` refuses to produce a report when every analyzed page classified as non-docs — the design's worst-case failure mode under inclusive-by-default. Error message points users at `--no-cache` as the escape hatch.
+  - `classificationSummary` emits one INFO line per run; verbose-level (`-v`) lists each non-docs URL plus its summary so users can audit silently-dropped pages.
+  - Inclusive-by-default rule throughout: false negatives (real docs marked non-docs and silently dropped) are worse than false positives (blog/team pages slipping through and getting drift-checked unnecessarily). No overrides v1; `--no-cache` is the documented escape hatch.

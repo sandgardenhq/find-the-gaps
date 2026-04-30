@@ -7,6 +7,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestURLToFilename_isStable(t *testing.T) {
@@ -176,7 +179,7 @@ func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
 	if err := idx.Record("https://example.com", "abc.md"); err != nil {
 		t.Fatal(err)
 	}
-	if err := idx.RecordAnalysis("https://example.com", "Covers install.", []string{"Homebrew install"}); err != nil {
+	if err := idx.RecordAnalysis("https://example.com", "Covers install.", []string{"Homebrew install"}, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +189,7 @@ func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, features, ok := idx2.Analysis("https://example.com")
+	summary, features, _, ok := idx2.Analysis("https://example.com")
 	if !ok {
 		t.Fatal("expected analysis to be found")
 	}
@@ -196,6 +199,48 @@ func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
 	if len(features) != 1 || features[0] != "Homebrew install" {
 		t.Errorf("Features: got %v", features)
 	}
+}
+
+func TestIndex_RecordAnalysis_PersistsIsDocs(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := LoadIndex(dir)
+	require.NoError(t, err)
+	require.NoError(t, idx.Record("https://x/a", "a.md"))
+	require.NoError(t, idx.RecordAnalysis("https://x/a", "summary", []string{"f"}, false))
+
+	// Reload from disk
+	idx2, err := LoadIndex(dir)
+	require.NoError(t, err)
+	summary, features, isDocs, ok := idx2.Analysis("https://x/a")
+	require.True(t, ok)
+	assert.Equal(t, "summary", summary)
+	assert.Equal(t, []string{"f"}, features)
+	assert.False(t, isDocs)
+}
+
+func TestIndex_Analysis_OldCacheWithoutIsDocs_DefaultsTrue(t *testing.T) {
+	// Simulate a cache file written by a previous build with no is_docs field.
+	// Critical invariant: nil on disk ↔ true in memory. This is the legacy-cache
+	// safety net. If this regresses, old caches silently classify all pages as
+	// non-docs and the report goes empty.
+	dir := t.TempDir()
+	raw := `{
+	  "pages": {
+	    "https://x/a": {
+	      "filename": "a.md",
+	      "fetched_at": "2025-01-01T00:00:00Z",
+	      "summary": "old",
+	      "features": ["f"]
+	    }
+	  }
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.json"), []byte(raw), 0o644))
+
+	idx, err := LoadIndex(dir)
+	require.NoError(t, err)
+	_, _, isDocs, ok := idx.Analysis("https://x/a")
+	require.True(t, ok)
+	assert.True(t, isDocs, "old cache without is_docs must default to true (inclusive)")
 }
 
 func TestIndex_Record_concurrent(t *testing.T) {

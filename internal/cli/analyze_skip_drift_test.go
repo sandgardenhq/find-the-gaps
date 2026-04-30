@@ -94,7 +94,7 @@ func seedSkipDriftFixture(t *testing.T, repoDir, projectDir, docsURL string) {
 	filename := spider.URLToFilename(docsURL)
 	require.NoError(t, os.WriteFile(filepath.Join(docsDir, filename), []byte("# Doc page\n\nFeature one is documented.\n"), 0o644))
 	require.NoError(t, idx.Record(docsURL, filename))
-	require.NoError(t, idx.RecordAnalysis(docsURL, "Covers feature one.", []string{"feature-one"}))
+	require.NoError(t, idx.RecordAnalysis(docsURL, "Covers feature one.", []string{"feature-one"}, true))
 	require.NoError(t, idx.SetProductSummary("A test product.", []string{"feature-one"}))
 
 	require.NoError(t, os.MkdirAll(projectDir, 0o755))

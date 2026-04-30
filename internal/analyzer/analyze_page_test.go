@@ -12,7 +12,7 @@ import (
 
 func TestAnalyzePage_ExtractsSummaryAndFeatures(t *testing.T) {
 	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
-		"analyze_page_response": json.RawMessage(`{"summary":"Covers Homebrew install.","features":["Homebrew install","go install"]}`),
+		"analyze_page_response": json.RawMessage(`{"summary":"Covers Homebrew install.","features":["Homebrew install","go install"],"is_docs":true}`),
 	}}
 
 	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://docs.example.com/install", "# Install\nUse brew.")
@@ -41,7 +41,7 @@ func TestAnalyzePage_ExtractsSummaryAndFeatures(t *testing.T) {
 
 func TestAnalyzePage_EmptyFeatures_OK(t *testing.T) {
 	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
-		"analyze_page_response": json.RawMessage(`{"summary":"A page.","features":[]}`),
+		"analyze_page_response": json.RawMessage(`{"summary":"A page.","features":[],"is_docs":true}`),
 	}}
 	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c}, "https://example.com", "content")
 	if err != nil {
@@ -65,7 +65,7 @@ func TestAnalyzePage_ClientError_Propagates(t *testing.T) {
 
 func TestAnalyzePage_UsesSmallTier(t *testing.T) {
 	small := &fakeClient{jsonResponses: map[string]json.RawMessage{
-		"analyze_page_response": json.RawMessage(`{"summary":"Small tier used.","features":["x"]}`),
+		"analyze_page_response": json.RawMessage(`{"summary":"Small tier used.","features":["x"],"is_docs":true}`),
 	}}
 	typical := &fakeClient{}
 	large := &fakeClient{}
@@ -85,5 +85,70 @@ func TestAnalyzePage_UsesSmallTier(t *testing.T) {
 	}
 	if len(large.receivedPrompts) != 0 {
 		t.Errorf("large tier must not receive prompts, got %d", len(large.receivedPrompts))
+	}
+}
+
+func TestAnalyzePage_IsDocsTrue(t *testing.T) {
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(`{"summary":"API ref.","features":["x"],"is_docs":true}`),
+	}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/api", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsDocs != true {
+		t.Errorf("IsDocs: got %v, want true", got.IsDocs)
+	}
+}
+
+func TestAnalyzePage_IsDocsFalse(t *testing.T) {
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(`{"summary":"Team page.","features":[],"is_docs":false}`),
+	}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/team", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsDocs != false {
+		t.Errorf("IsDocs: got %v, want false", got.IsDocs)
+	}
+}
+
+func TestAnalyzePage_IsDocsMissing_DefaultsTrue(t *testing.T) {
+	// Inclusive-by-default: a malformed response missing is_docs
+	// must NOT silently drop the page; treat as docs.
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(`{"summary":"Old cache shape.","features":["x"]}`),
+	}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/x", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsDocs != true {
+		t.Errorf("missing is_docs must default to true (false-negative-averse), got %v", got.IsDocs)
+	}
+}
+
+func TestAnalyzePage_PromptIncludesClassificationRule(t *testing.T) {
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(`{"summary":"x","features":[],"is_docs":true}`),
+	}}
+	_, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://example.com", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.receivedPrompts) == 0 {
+		t.Fatal("expected a prompt")
+	}
+	p := c.receivedPrompts[0]
+	if !strings.Contains(p, "is_docs") {
+		t.Error("prompt must reference is_docs")
+	}
+	if !strings.Contains(p, "Default to docs when unsure") {
+		t.Error("prompt must include the inclusive-by-default guardrail")
 	}
 }

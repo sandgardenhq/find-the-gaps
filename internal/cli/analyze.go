@@ -185,12 +185,13 @@ func newAnalyzeCmd() *cobra.Command {
 			freshCount := 0
 			pageNum := 0
 			for url, filePath := range pages {
-				if summary, features, ok := idx.Analysis(url); ok {
+				if summary, features, isDocs, ok := idx.Analysis(url); ok {
 					log.Debug("page cache hit", "url", url)
 					analyses = append(analyses, analyzer.PageAnalysis{
 						URL:      url,
 						Summary:  summary,
 						Features: features,
+						IsDocs:   isDocs,
 					})
 					continue
 				}
@@ -205,7 +206,7 @@ func newAnalyzeCmd() *cobra.Command {
 					log.Warnf("skipping %s: %v", url, analyzeErr)
 					continue
 				}
-				if recErr := idx.RecordAnalysis(url, pa.Summary, pa.Features); recErr != nil {
+				if recErr := idx.RecordAnalysis(url, pa.Summary, pa.Features, pa.IsDocs); recErr != nil {
 					return fmt.Errorf("record analysis: %w", recErr)
 				}
 				analyses = append(analyses, pa)
@@ -216,6 +217,17 @@ func newAnalyzeCmd() *cobra.Command {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "scanned %d files, fetched %d pages, 0 pages analyzed\n",
 					len(scan.Files), len(pages))
 				return nil
+			}
+
+			log.Infof("%s", classificationSummary(analyses))
+			for _, a := range analyses {
+				if !a.IsDocs {
+					log.Debugf("  non-docs: %s — %s", a.URL, a.Summary)
+				}
+			}
+
+			if err := allNotDocsGuard(analyses); err != nil {
+				return err
 			}
 
 			// Use cached synthesis when all pages were cache hits.
@@ -293,6 +305,17 @@ func newAnalyzeCmd() *cobra.Command {
 				return false
 			}()
 
+			// Filter docs-side input on IsDocs so blog/marketing/team pages
+			// don't pollute the docs feature map. The code-side mapping (built
+			// from `scan`) is independent and unfiltered.
+			docsAnalyses := filterDocsAnalyses(analyses)
+			docsPages := make(map[string]string, len(docsAnalyses))
+			for _, a := range docsAnalyses {
+				if filePath, ok := pages[a.URL]; ok {
+					docsPages[a.URL] = filePath
+				}
+			}
+
 			if !codeMapCached || !docsMapCached {
 				log.Infof("mapping %d features across code and docs in parallel...", len(codeFeatures))
 				// Only wire batch callbacks for the maps that are actually being computed;
@@ -311,7 +334,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 				freshCodeMap, freshDocsMap, mapErr := runBothMaps(
 					ctx, tiering, codeFeatures,
-					scan, pages, workers, analyzer.DocsMapperPageBudget,
+					scan, docsPages, workers, analyzer.DocsMapperPageBudget,
 					noSymbols,
 					codeBatchFn,
 					docsBatchFn,
@@ -415,26 +438,7 @@ func newAnalyzeCmd() *cobra.Command {
 			var screenshotGaps []analyzer.ScreenshotGap
 			if !skipScreenshotCheck {
 				log.Infof("detecting missing screenshots...")
-				urls := make([]string, 0, len(pages))
-				for url := range pages {
-					urls = append(urls, url)
-				}
-				sort.Strings(urls)
-
-				var docPages []analyzer.DocPage
-				for _, url := range urls {
-					filePath := pages[url]
-					data, readErr := os.ReadFile(filePath)
-					if readErr != nil {
-						log.Warnf("skip page %s: %v", url, readErr)
-						continue
-					}
-					docPages = append(docPages, analyzer.DocPage{
-						URL:     url,
-						Path:    filePath,
-						Content: string(data),
-					})
-				}
+				docPages := buildScreenshotDocPages(pages, analyses)
 				progress := func(done, total int, page string) {
 					log.Infof("  [%d/%d] %s", done, total, page)
 				}
@@ -558,6 +562,92 @@ func formatScanSummary(s ignore.Stats) string {
 		}
 	}
 	return summaryPrinter.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
+}
+
+// allNotDocsGuard returns an error when every page in analyses is classified
+// as non-docs. It exists to make the "silent zero-output" failure mode noisy
+// and recoverable: under inclusive-by-default classification, getting all
+// non-docs almost certainly means the classifier was wrong, not that the site
+// has no docs. The empty-input case is handled by the caller's existing
+// "0 pages analyzed" branch and must not double-fire here.
+func allNotDocsGuard(analyses []analyzer.PageAnalysis) error {
+	if len(analyses) == 0 {
+		return nil
+	}
+	for _, a := range analyses {
+		if a.IsDocs {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"all %d pages classified as non-docs; refusing to produce a misleading report "+
+			"(this is almost certainly a classifier mistake; "+
+			"re-run with --no-cache, or file an issue with the docs URL)",
+		len(analyses))
+}
+
+// classificationSummary returns the one-line audit log emitted after every
+// analyze run. The (use -v to list) parenthetical points users at the verbose
+// per-URL listing, which is the design's chosen audit signal under the
+// no-overrides v1: console-only, no markdown report, no dedicated file.
+func classificationSummary(analyses []analyzer.PageAnalysis) string {
+	docs, notDocs := 0, 0
+	for _, a := range analyses {
+		if a.IsDocs {
+			docs++
+		} else {
+			notDocs++
+		}
+	}
+	return fmt.Sprintf("classified: %d docs, %d non-docs (use -v to list)", docs, notDocs)
+}
+
+// filterDocsAnalyses returns the subset of analyses whose IsDocs flag is true.
+// Used to exclude non-docs pages (blogs, marketing, team, legal) from the docs
+// feature map so drift detection cannot match code features against them.
+func filterDocsAnalyses(in []analyzer.PageAnalysis) []analyzer.PageAnalysis {
+	out := make([]analyzer.PageAnalysis, 0, len(in))
+	for _, a := range in {
+		if a.IsDocs {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// buildScreenshotDocPages assembles the []analyzer.DocPage slice fed to
+// DetectScreenshotGaps, filtering out URLs whose analysis classified them as
+// non-docs. URLs without a corresponding analysis entry are excluded (the
+// realistic case is 1:1 with the analyze loop, so this defensive default
+// matches the "if we don't know, don't bother screenshotting" instinct).
+// Read errors on disk are logged and skipped, preserving prior behavior.
+func buildScreenshotDocPages(pages map[string]string, analyses []analyzer.PageAnalysis) []analyzer.DocPage {
+	isDocs := make(map[string]bool, len(analyses))
+	for _, a := range analyses {
+		isDocs[a.URL] = a.IsDocs
+	}
+	urls := make([]string, 0, len(pages))
+	for url := range pages {
+		if isDocs[url] {
+			urls = append(urls, url)
+		}
+	}
+	sort.Strings(urls)
+	out := make([]analyzer.DocPage, 0, len(urls))
+	for _, url := range urls {
+		filePath := pages[url]
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Warnf("skip page %s: %v", url, err)
+			continue
+		}
+		out = append(out, analyzer.DocPage{
+			URL:     url,
+			Path:    filePath,
+			Content: string(data),
+		})
+	}
+	return out
 }
 
 // stringSliceEqual reports element-wise equality. Both inputs must already be
