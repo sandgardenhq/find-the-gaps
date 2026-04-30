@@ -385,3 +385,37 @@ func TestComputeDriftInputHash_OrderIndependent(t *testing.T) {
 	}
 	assert.Equal(t, computeDriftInputHash(fm1, dm1), computeDriftInputHash(fm2, dm2))
 }
+
+func TestComputeDriftInputHash_DifferentInputsDiffer(t *testing.T) {
+	base := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}, Symbols: []string{"Login"}},
+	}
+	dm := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://x/auth"}},
+	}
+	h0 := computeDriftInputHash(base, dm)
+
+	// Change a file
+	c1 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go", "session.go"}, Symbols: []string{"Login"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(c1, dm), "files change must change hash")
+
+	// Change a symbol
+	c2 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}, Symbols: []string{"Login", "Logout"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(c2, dm), "symbols change must change hash")
+
+	// Change a page
+	dm2 := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://x/auth", "https://x/auth2"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(base, dm2), "pages change must change hash")
+
+	// Change a feature name
+	c3 := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "AUTH"}, Files: []string{"auth.go"}, Symbols: []string{"Login"}},
+	}
+	assert.NotEqual(t, h0, computeDriftInputHash(c3, dm), "feature name change must change hash")
+}
