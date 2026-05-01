@@ -20,6 +20,10 @@ func (s *stubToolClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JS
 	return nil, nil
 }
 
+func (s *stubToolClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (s *stubToolClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
 	return analyzer.AgentResult{}, nil
 }

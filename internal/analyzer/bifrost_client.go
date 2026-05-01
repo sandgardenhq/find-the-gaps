@@ -200,10 +200,12 @@ func (c *BifrostClient) CompleteWithTools(ctx context.Context, messages []ChatMe
 	return runAgentLoop(ctx, c.completeOneTurn, messages, tools, opts...)
 }
 
-// completeOneTurn issues a single Bifrost chat completion and translates the
-// result back to a ChatMessage. It is the turnFunc passed to runAgentLoop.
-func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error) {
-	// Convert our ChatMessage slice to Bifrost schema messages.
+// renderBifrostMessages converts the analyzer's []ChatMessage into Bifrost's
+// []schemas.ChatMessage, applying provider-specific caching (Anthropic only)
+// and multimodal content-block translation. Shared by completeOneTurn and the
+// CompleteJSON / CompleteJSONMultimodal paths so all entry points speak the
+// same wire format.
+func (c *BifrostClient) renderBifrostMessages(messages []ChatMessage) []schemas.ChatMessage {
 	bifrostMsgs := make([]schemas.ChatMessage, 0, len(messages))
 	for _, m := range messages {
 		bm := schemas.ChatMessage{}
@@ -263,6 +265,13 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 		}
 		bifrostMsgs = append(bifrostMsgs, bm)
 	}
+	return bifrostMsgs
+}
+
+// completeOneTurn issues a single Bifrost chat completion and translates the
+// result back to a ChatMessage. It is the turnFunc passed to runAgentLoop.
+func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMessage, tools []Tool) (ChatMessage, error) {
+	bifrostMsgs := c.renderBifrostMessages(messages)
 
 	// Convert our Tool slice to Bifrost ChatTool slice.
 	bifrostTools := make([]schemas.ChatTool, len(tools))
@@ -339,25 +348,54 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 //   - OpenAI: native response_format={"type":"json_schema","json_schema":{...}}
 //     with strict=true — the model's content is a JSON string conforming to
 //     schema.Doc.
+//
+// The flat-prompt entry point preserves existing semantics: callers that pass
+// a plain prompt get the same Anthropic cache breakpoint as before. Both
+// CompleteJSON and CompleteJSONMultimodal share completeJSONMessages once the
+// inputs are normalized to a []ChatMessage.
 func (c *BifrostClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+	// CacheBreakpoint=true preserves the existing behavior: on Anthropic, the
+	// user prompt becomes a cached content block via renderBifrostMessages.
+	// Other providers ignore the flag entirely.
+	msgs := []ChatMessage{{Role: "user", Content: prompt, CacheBreakpoint: true}}
+	return c.completeJSONMessages(ctx, msgs, schema)
+}
+
+// CompleteJSONMultimodal is the multimodal sibling of CompleteJSON: callers
+// supply pre-built messages (typically with ContentBlocks carrying image URLs)
+// instead of a flat prompt string. Schema-forcing and response parsing are
+// identical to CompleteJSON. Used by the screenshot vision relevance pass.
+//
+// Note: image-bearing user messages do NOT request Anthropic prompt caching.
+// Caching multimodal blocks is a separate decision; today the relevance pass
+// makes one batched call per page, so caching offers no measurable savings.
+func (c *BifrostClient) CompleteJSONMultimodal(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
+	return c.completeJSONMessages(ctx, messages, schema)
+}
+
+// completeJSONMessages is the shared schema-forcing + parsing path used by
+// both CompleteJSON (flat prompt) and CompleteJSONMultimodal (pre-built
+// messages). Provider dispatch:
+//   - Anthropic: forced "respond" tool whose Parameters equals schema.Doc.
+//   - OpenAI / Ollama: response_format=json_schema with strict=true. Bifrost's
+//     Ollama provider delegates chat completions to the OpenAI handler so the
+//     same code path serves both.
+func (c *BifrostClient) completeJSONMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	switch c.provider {
 	case schemas.Anthropic:
-		return c.completeJSONAnthropic(ctx, prompt, schema)
+		return c.completeJSONAnthropicMessages(ctx, messages, schema)
 	case schemas.OpenAI, schemas.Ollama:
-		// Bifrost's Ollama provider delegates chat completions to the OpenAI handler
-		// (providers/ollama/ollama.go → openai.HandleOpenAIChatCompletionRequest),
-		// so response_format=json_schema passes through unchanged.
-		return c.completeJSONOpenAI(ctx, prompt, schema)
+		return c.completeJSONOpenAIMessages(ctx, messages, schema)
 	default:
 		return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)
 	}
 }
 
-// completeJSONOpenAI uses OpenAI's native structured outputs via
+// completeJSONOpenAIMessages uses OpenAI's native structured outputs via
 // response_format={"type":"json_schema","json_schema":{"name":..., "strict":true,
 // "schema": schema.Doc}}. The assistant message content is a JSON string
 // conforming to the schema.
-func (c *BifrostClient) completeJSONOpenAI(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	rf := map[string]any{
 		"type": "json_schema",
 		"json_schema": map[string]any{
@@ -372,12 +410,7 @@ func (c *BifrostClient) completeJSONOpenAI(ctx context.Context, prompt string, s
 	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
 		Provider: c.provider,
 		Model:    c.model,
-		Input: []schemas.ChatMessage{
-			{
-				Role:    schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{ContentStr: schemas.Ptr(prompt)},
-			},
-		},
+		Input:    c.renderBifrostMessages(messages),
 		Params: &schemas.ChatParameters{
 			ResponseFormat:      &rfIface,
 			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
@@ -406,11 +439,11 @@ func (c *BifrostClient) completeJSONOpenAI(ctx context.Context, prompt string, s
 	return raw, nil
 }
 
-// completeJSONAnthropic forces the model to emit structured output by registering
-// a single tool named "respond" whose parameters schema equals schema.Doc and
-// setting tool_choice to require that tool. The tool's call arguments are the
-// parse-guaranteed JSON response.
-func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+// completeJSONAnthropicMessages forces the model to emit structured output by
+// registering a single tool named "respond" whose parameters schema equals
+// schema.Doc and setting tool_choice to require that tool. The tool's call
+// arguments are the parse-guaranteed JSON response.
+func (c *BifrostClient) completeJSONAnthropicMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	const respondToolName = "respond"
 
 	var params schemas.ToolFunctionParameters
@@ -437,17 +470,7 @@ func (c *BifrostClient) completeJSONAnthropic(ctx context.Context, prompt string
 	resp, bifrostErr := c.client.ChatCompletionRequest(bifrostCtx, &schemas.BifrostChatRequest{
 		Provider: c.provider,
 		Model:    c.model,
-		Input: []schemas.ChatMessage{
-			{
-				Role: schemas.ChatMessageRoleUser,
-				// Promote the user prompt to a content block carrying ephemeral
-				// cache_control so retries (and any deterministic re-send within
-				// the 5m TTL) read from cache. The respond tool deliberately
-				// does NOT carry CacheControl — Bifrost v1.5.2's tool-level path
-				// is non-deterministic; see design doc's Bifrost API Findings.
-				Content: anthropicCachedContent(prompt),
-			},
-		},
+		Input:    c.renderBifrostMessages(messages),
 		Params: &schemas.ChatParameters{
 			Tools:               []schemas.ChatTool{tool},
 			ToolChoice:          toolChoice,

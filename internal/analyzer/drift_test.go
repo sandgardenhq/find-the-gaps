@@ -86,6 +86,10 @@ func (s *driftStubClient) CompleteJSON(ctx context.Context, prompt string, _ ana
 	return json.RawMessage(raw), nil
 }
 
+func (s *driftStubClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (s *driftStubClient) Capabilities() analyzer.ModelCapabilities {
 	return analyzer.ModelCapabilities{}
 }
@@ -104,6 +108,10 @@ func (s *driftStubClientWithErr) CompleteWithTools(_ context.Context, _ []analyz
 }
 
 func (s *driftStubClientWithErr) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, s.err
+}
+
+func (s *driftStubClientWithErr) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, s.err
 }
 
@@ -769,6 +777,10 @@ func (fakeNonToolClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JS
 	return nil, nil
 }
 
+func (fakeNonToolClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (fakeNonToolClient) Capabilities() analyzer.ModelCapabilities {
 	return analyzer.ModelCapabilities{}
 }
@@ -808,6 +820,10 @@ type fakeToolClient struct {
 func (f *fakeToolClient) Complete(_ context.Context, _ string) (string, error) { return "", nil }
 
 func (f *fakeToolClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (f *fakeToolClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, nil
 }
 

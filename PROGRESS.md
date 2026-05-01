@@ -1186,3 +1186,23 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Hard-floor `allNotDocsGuard` refuses to produce a report when every analyzed page classified as non-docs — the design's worst-case failure mode under inclusive-by-default. Error message points users at `--no-cache` as the escape hatch.
   - `classificationSummary` emits one INFO line per run; verbose-level (`-v`) lists each non-docs URL plus its summary so users can audit silently-dropped pages.
   - Inclusive-by-default rule throughout: false negatives (real docs marked non-docs and silently dropped) are worse than false positives (blog/team pages slipping through and getting drift-checked unnecessarily). No overrides v1; `--no-cache` is the documented escape hatch.
+
+
+## Task 8 (vision-image-analysis): Multimodal JSON method + relevance pass - COMPLETE
+- Started: 2026-05-01
+- Tests: ALL passing across all packages (`go test ./...` clean).
+  - New: `TestRelevancePass_ParsesImageIssuesAndVerdicts`, `TestRelevancePass_BatchesAtFiveImages`,
+    `TestCompleteJSONMultimodal_OpenAI_RendersImageBlocksAndForcesSchema`,
+    `TestCompleteJSONMultimodal_Anthropic_RendersImageBlocksAndForcesRespondTool`,
+    `TestWrapWithCounter_IncrementsOnCompleteJSONMultimodal`.
+- Coverage: `internal/analyzer` 93.0% (up from 92.8%); `internal/cli` 92.5%. Both above 90% gate.
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - `LLMClient` gains `CompleteJSONMultimodal(ctx, []ChatMessage, JSONSchema)` — the multimodal sibling of `CompleteJSON`. Both share `completeJSONMessages` so schema-forcing + parsing live in one place; `CompleteJSON` now builds a one-element `[]ChatMessage{{Role:"user", Content:prompt, CacheBreakpoint:true}}` and delegates.
+  - Refactor extracts `(*BifrostClient).renderBifrostMessages` from `completeOneTurn` so multimodal user messages flow through the same provider-aware rendering as the agent loop. `ContentBlocks` win over `Content`/`ContentStr`; Anthropic cache_control is applied only on Anthropic; image blocks pass `ImageURLStruct{URL: ...}` unchanged.
+  - `relevancePass(ctx, client, page, refs)` walks `splitImageBatches(refs, 5)` and calls `CompleteJSONMultimodal` per batch. Indices are numbered globally (img-1, img-2, …) so verdicts and issues from different batches merge collision-free.
+  - New types: `ImageIssue` (PageURL/Index/Src/Reason/SuggestedAction), `ImageVerdict` (Index/Matches), and the schema `screenshot_image_relevance` with the two-array shape.
+  - `// PROMPT:` block on `buildRelevancePrompt` documents the index naming convention, the relevance criterion ("does prose accurately describe what the image shows"), and the JSON shape.
+  - Fakes updated (added a 1–3 line `CompleteJSONMultimodal` stub each): analyzer-side `fakeClient`, `stubToolClient`, `fakeLLMClient` (screenshot test), `driftStubClient`, `driftStubClientWithErr`, `fakeNonToolClient`, `fakeToolClient`, `fakeDynamicClient`; cli-side `countingClient` (counts the call), `fakeLLMClient`, `fakeToolLLMClient`, `stubLLMClient`, `skipDriftStubClient`. Plus a new `fakeJSONClient` in the relevance test that captures messages + counts calls atomically.

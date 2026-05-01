@@ -174,6 +174,22 @@ func (f *fakeLLMClient) CompleteJSON(ctx context.Context, prompt string, _ JSONS
 	return json.RawMessage(raw), nil
 }
 
+// CompleteJSONMultimodal mirrors CompleteJSON but reads the prompt off the
+// first text content block. Tests that exercise the vision path should use a
+// dedicated fake (see fakeJSONClient in screenshot_gaps_relevance_test.go);
+// this stub exists so fakeLLMClient still satisfies LLMClient.
+func (f *fakeLLMClient) CompleteJSONMultimodal(ctx context.Context, msgs []ChatMessage, _ JSONSchema) (json.RawMessage, error) {
+	prompt := ""
+	if len(msgs) > 0 {
+		prompt = msgs[0].Content
+	}
+	raw, err := f.Complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
 func (f *fakeLLMClient) Capabilities() ModelCapabilities { return ModelCapabilities{} }
 
 func TestDetectScreenshotGaps_NoPages(t *testing.T) {

@@ -117,6 +117,124 @@ func TestCompleteOneTurn_OpenAICompatRendersImageContentBlocks(t *testing.T) {
 	assert.Nil(t, imageBlock.CacheControl, "OpenAI lane must not carry cache_control")
 }
 
+// TestCompleteJSONMultimodal_OpenAI_RendersImageBlocksAndForcesSchema asserts
+// that the multimodal JSON entry point on the OpenAI lane (a) renders the
+// caller's ContentBlocks onto the wire request unchanged and (b) still forces
+// the response_format=json_schema structured-output path. This pins the
+// pipeline used by the screenshot vision relevance pass.
+func TestCompleteJSONMultimodal_OpenAI_RendersImageBlocksAndForcesSchema(t *testing.T) {
+	content := `{"image_issues":[],"verdicts":[]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &content}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+
+	const imageURL = "https://example.com/figure-12.png"
+	msgs := []ChatMessage{{
+		Role: "user",
+		ContentBlocks: []ContentBlock{
+			{Type: ContentBlockText, Text: "Does this image match the prose?"},
+			{Type: ContentBlockImageURL, ImageURL: imageURL},
+		},
+	}}
+	got, err := client.CompleteJSONMultimodal(context.Background(), msgs, JSONSchema{
+		Name: "screenshot_image_relevance",
+		Doc: []byte(`{
+		  "type": "object",
+		  "properties": {
+		    "image_issues": {"type": "array"},
+		    "verdicts":     {"type": "array"}
+		  },
+		  "required": ["image_issues","verdicts"],
+		  "additionalProperties": false
+		}`),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, content, string(got))
+
+	req := fake.lastRequest
+	require.NotNil(t, req)
+	require.NotNil(t, req.Params, "Params must be set for the JSON-schema response_format")
+	require.NotNil(t, req.Params.ResponseFormat, "OpenAI lane must force response_format=json_schema")
+
+	// Wire-level: the ContentBlocks must reach the request unchanged.
+	require.Len(t, req.Input, 1)
+	wireMsg := req.Input[0]
+	require.NotNil(t, wireMsg.Content)
+	assert.Nil(t, wireMsg.Content.ContentStr,
+		"multimodal call must promote to ContentBlocks; ContentStr must be nil")
+	require.Len(t, wireMsg.Content.ContentBlocks, 2)
+	assert.Equal(t, schemas.ChatContentBlockTypeText, wireMsg.Content.ContentBlocks[0].Type)
+	assert.Equal(t, schemas.ChatContentBlockTypeImage, wireMsg.Content.ContentBlocks[1].Type)
+	require.NotNil(t, wireMsg.Content.ContentBlocks[1].ImageURLStruct)
+	assert.Equal(t, imageURL, wireMsg.Content.ContentBlocks[1].ImageURLStruct.URL)
+}
+
+// TestCompleteJSONMultimodal_Anthropic_RendersImageBlocksAndForcesRespondTool
+// is the Anthropic-lane mirror of the OpenAI test: the multimodal entry point
+// must (a) preserve image content blocks on the wire and (b) still register
+// the forced "respond" tool that drives structured outputs on Anthropic.
+func TestCompleteJSONMultimodal_Anthropic_RendersImageBlocksAndForcesRespondTool(t *testing.T) {
+	args := `{"image_issues":[],"verdicts":[]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+					{
+						Function: schemas.ChatAssistantMessageToolCallFunction{
+							Name:      schemas.Ptr("respond"),
+							Arguments: args,
+						},
+					},
+				}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-haiku-4-5")
+
+	const imageURL = "https://example.com/dash.png"
+	msgs := []ChatMessage{{
+		Role: "user",
+		ContentBlocks: []ContentBlock{
+			{Type: ContentBlockText, Text: "Does this image match?"},
+			{Type: ContentBlockImageURL, ImageURL: imageURL},
+		},
+	}}
+	got, err := client.CompleteJSONMultimodal(context.Background(), msgs, JSONSchema{
+		Name: "screenshot_image_relevance",
+		Doc: []byte(`{
+		  "type": "object",
+		  "properties": {
+		    "image_issues": {"type": "array"},
+		    "verdicts":     {"type": "array"}
+		  },
+		  "required": ["image_issues","verdicts"],
+		  "additionalProperties": false
+		}`),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, args, string(got))
+
+	req := fake.lastRequest
+	require.NotNil(t, req)
+	require.NotNil(t, req.Params, "Params must be set")
+	require.Len(t, req.Params.Tools, 1, "Anthropic lane must register the respond tool")
+	require.NotNil(t, req.Params.ToolChoice, "Anthropic lane must force tool_choice")
+
+	// Wire-level: image blocks preserved, ContentStr nil.
+	require.Len(t, req.Input, 1)
+	wireMsg := req.Input[0]
+	require.NotNil(t, wireMsg.Content)
+	assert.Nil(t, wireMsg.Content.ContentStr)
+	require.Len(t, wireMsg.Content.ContentBlocks, 2)
+	require.NotNil(t, wireMsg.Content.ContentBlocks[1].ImageURLStruct)
+	assert.Equal(t, imageURL, wireMsg.Content.ContentBlocks[1].ImageURLStruct.URL)
+}
+
 // TestCompleteOneTurn_ContentBlocksTakePrecedenceOverContentStr asserts that
 // when a user ChatMessage carries both Content (string) and ContentBlocks,
 // the ContentBlocks path wins — the wire request must NOT include ContentStr,

@@ -276,6 +276,165 @@ var screenshotGapsSchema = JSONSchema{
     }`),
 }
 
+// ImageIssue is one image on a docs page that the vision relevance pass
+// flagged as misleading: the image's actual contents do not match the prose
+// describing it. Index is a stable per-page identifier ("img-1", "img-2", …)
+// numbered globally across all batches sent for the page so verdicts and
+// issues from different batches can be merged without collision.
+type ImageIssue struct {
+	PageURL         string `json:"page_url"`
+	Index           string `json:"index"`
+	Src             string `json:"src"`
+	Reason          string `json:"reason"`
+	SuggestedAction string `json:"suggested_action"`
+}
+
+// ImageVerdict is the per-image relevance verdict from the vision pass.
+// Matches=true means the surrounding prose accurately describes what the
+// image actually shows. Used downstream to suppress redundant
+// missing-screenshot suggestions when an existing image already covers the
+// passage.
+type ImageVerdict struct {
+	Index   string `json:"index"`
+	Matches bool   `json:"matches"`
+}
+
+// relevancePassResponse is the wire shape for one batch of vision relevance
+// findings. Wraps the two arrays so the JSON Schema root can be an object,
+// which all provider structured-output paths require.
+type relevancePassResponse struct {
+	ImageIssues []ImageIssue   `json:"image_issues"`
+	Verdicts    []ImageVerdict `json:"verdicts"`
+}
+
+// PROMPT SCHEMA: output shape for the vision relevance pass.
+var relevancePassSchema = JSONSchema{
+	Name: "screenshot_image_relevance",
+	Doc: json.RawMessage(`{
+      "type": "object",
+      "properties": {
+        "image_issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index":            {"type": "string"},
+              "src":              {"type": "string"},
+              "reason":           {"type": "string"},
+              "suggested_action": {"type": "string"}
+            },
+            "required": ["index", "src", "reason", "suggested_action"],
+            "additionalProperties": false
+          }
+        },
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index":   {"type": "string"},
+              "matches": {"type": "boolean"}
+            },
+            "required": ["index", "matches"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["image_issues", "verdicts"],
+      "additionalProperties": false
+    }`),
+}
+
+// buildRelevancePrompt assembles the multimodal prompt for one batch in the
+// vision relevance pass. startIdx is the 0-based offset of the first image in
+// this batch within the page's full image list, so the model emits indices
+// numbered globally across batches (img-1, img-2, …) and downstream merging
+// stays collision-free.
+func buildRelevancePrompt(page DocPage, batch []imageRef, startIdx int) string {
+	first := startIdx + 1
+	last := startIdx + len(batch)
+
+	var refsList []string
+	for i, r := range batch {
+		idx := startIdx + i + 1
+		section := r.SectionHeading
+		if section == "" {
+			section = "(no heading)"
+		}
+		refsList = append(refsList, fmt.Sprintf("- img-%d: src=%q alt=%q section=%q paragraph=%d",
+			idx, r.Src, r.AltText, section, r.ParagraphIndex))
+	}
+	refsBlock := strings.Join(refsList, "\n")
+
+	// PROMPT: Vision relevance pass — for each image in this batch, decide
+	// whether the surrounding prose accurately describes what the image
+	// actually shows. Flag mismatches in image_issues; emit a verdict for
+	// every image. Indices are numbered globally across batches so a single
+	// page-level merge stays collision-free.
+	return fmt.Sprintf(`You are reviewing images on a documentation page. For EACH image attached to this message, decide whether the page's prose accurately describes what the image actually shows.
+
+URL: %s
+
+Image index naming convention: each image is referenced as "img-N", numbered globally across the page. The first image attached to THIS message is img-%d; the last is img-%d. Use these exact indices in your response so verdicts from different batches merge cleanly.
+
+Images in this batch (in order, paired with the attached image content):
+%s
+
+Page content:
+%s
+
+For EACH image in this batch, you MUST emit one entry in "verdicts":
+- "index": the img-N identifier from the list above.
+- "matches": true if the surrounding prose accurately describes what the image actually shows; false otherwise.
+
+ONLY when matches=false, ALSO emit a corresponding entry in "image_issues":
+- "index": the same img-N identifier.
+- "src": the image's src attribute (copy verbatim from the list above).
+- "reason": one short sentence naming what the image actually shows AND what the prose describes (the mismatch).
+- "suggested_action": one of "replace", "recapture", or "remove" — pick the action that best resolves the mismatch.
+
+Do not flag stylistic mismatches (cropping, theme, resolution). Only flag a substantive mismatch: the image depicts a different feature, a different page, a different state, or otherwise does not show what the prose claims.
+
+If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content)
+}
+
+// relevancePass walks the page's images in batches of <=5 (Groq cap), issues
+// one CompleteJSONMultimodal call per batch, and merges issues + verdicts
+// across batches. Indices are numbered globally so merging is collision-free
+// regardless of batch boundaries. Per-batch JSON parse errors are logged and
+// skipped (fail-open) so one bad batch doesn't poison the page.
+func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []imageRef) ([]ImageIssue, []ImageVerdict, error) {
+	var issues []ImageIssue
+	var verdicts []ImageVerdict
+	startIdx := 0
+	for batchN, batch := range splitImageBatches(refs, 5) {
+		prompt := buildRelevancePrompt(page, batch, startIdx)
+		blocks := make([]ContentBlock, 0, len(batch)+1)
+		blocks = append(blocks, ContentBlock{Type: ContentBlockText, Text: prompt})
+		for _, r := range batch {
+			blocks = append(blocks, ContentBlock{Type: ContentBlockImageURL, ImageURL: r.Src})
+		}
+		msg := ChatMessage{Role: "user", ContentBlocks: blocks, Content: prompt}
+		raw, err := client.CompleteJSONMultimodal(ctx, []ChatMessage{msg}, relevancePassSchema)
+		if err != nil {
+			return nil, nil, fmt.Errorf("relevancePass batch %d: %w", batchN, err)
+		}
+		var resp relevancePassResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			log.Warnf("relevancePass: invalid JSON for %s batch %d: %v", page.URL, batchN, err)
+			startIdx += len(batch)
+			continue
+		}
+		for i := range resp.ImageIssues {
+			resp.ImageIssues[i].PageURL = page.URL
+		}
+		issues = append(issues, resp.ImageIssues...)
+		verdicts = append(verdicts, resp.Verdicts...)
+		startIdx += len(batch)
+	}
+	return issues, verdicts, nil
+}
+
 // DocPage is one fetched documentation page.
 type DocPage struct {
 	URL     string

@@ -26,6 +26,14 @@ type LLMClient interface {
 	// OpenAI response_format=json_schema, Ollama format, LM Studio response_format).
 	CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error)
 
+	// CompleteJSONMultimodal is the multimodal sibling of CompleteJSON. The
+	// caller supplies pre-built ChatMessages (typically with ContentBlocks
+	// carrying image URLs) instead of a flat prompt string. Schema-forcing and
+	// response parsing are identical to CompleteJSON; only the message body
+	// differs. Vision-capable models can attend to attached images; non-vision
+	// models will see only the text content blocks (provider-dependent).
+	CompleteJSONMultimodal(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error)
+
 	// Capabilities returns the model's resolved capability flags. Callers branch
 	// on Capabilities().Vision and Capabilities().ToolUse to enable optional
 	// pipeline features without naming providers directly.

@@ -77,3 +77,28 @@ func (f *fakeClient) CompleteJSON(_ context.Context, prompt string, schema analy
 	}
 	return raw, nil
 }
+
+// CompleteJSONMultimodal reuses the same schema-keyed canned response map as
+// CompleteJSON. The fake doesn't otherwise inspect the messages slice; tests
+// that need to assert ContentBlocks structure should use a more specialized
+// fake (see screenshot_gaps_relevance_test.go's fakeJSONClient).
+func (f *fakeClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, schema analyzer.JSONSchema) (json.RawMessage, error) {
+	callIdx := len(f.jsonSchemas)
+	f.jsonSchemas = append(f.jsonSchemas, schema)
+	f.callCount++
+	if f.forcedErr != nil {
+		return nil, f.forcedErr
+	}
+	if queue, ok := f.jsonResponseQueues[schema.Name]; ok && len(queue) > 0 {
+		idx := callIdx
+		if idx >= len(queue) {
+			idx = len(queue) - 1
+		}
+		return queue[idx], nil
+	}
+	raw, ok := f.jsonResponses[schema.Name]
+	if !ok {
+		return nil, fmt.Errorf("fakeClient: no canned CompleteJSONMultimodal response for schema %q", schema.Name)
+	}
+	return raw, nil
+}

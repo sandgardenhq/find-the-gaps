@@ -63,6 +63,10 @@ func (s *skipDriftStubClient) CompleteJSON(_ context.Context, _ string, schema a
 	return json.RawMessage(`{}`), nil
 }
 
+func (s *skipDriftStubClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
 func (s *skipDriftStubClient) Capabilities() analyzer.ModelCapabilities {
 	return analyzer.ModelCapabilities{}
 }

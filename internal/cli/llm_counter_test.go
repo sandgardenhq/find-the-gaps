@@ -22,6 +22,9 @@ func (fakeLLMClient) Complete(_ context.Context, _ string) (string, error) { ret
 func (fakeLLMClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, nil
 }
+func (fakeLLMClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
 func (fakeLLMClient) Capabilities() analyzer.ModelCapabilities {
 	return analyzer.ModelCapabilities{}
 }
@@ -37,6 +40,9 @@ type fakeToolLLMClient struct {
 
 func (fakeToolLLMClient) Complete(_ context.Context, _ string) (string, error) { return "", nil }
 func (fakeToolLLMClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (fakeToolLLMClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, nil
 }
 func (fakeToolLLMClient) Capabilities() analyzer.ModelCapabilities {
@@ -74,6 +80,21 @@ func TestWrapWithCounter_IncrementsOnCompleteJSON(t *testing.T) {
 	}
 	if got := counter.Load(); got != 1 {
 		t.Fatalf("counter after one CompleteJSON = %d, want 1", got)
+	}
+}
+
+// CompleteJSONMultimodal is a real LLM round-trip and must increment the
+// counter just like CompleteJSON. Pins the multimodal accounting so the
+// vision relevance pass shows up in per-tier call summaries.
+func TestWrapWithCounter_IncrementsOnCompleteJSONMultimodal(t *testing.T) {
+	var counter atomic.Int64
+	c := wrapWithCounter(fakeLLMClient{}, &counter)
+
+	if _, err := c.CompleteJSONMultimodal(context.Background(), nil, analyzer.JSONSchema{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := counter.Load(); got != 1 {
+		t.Fatalf("counter after one CompleteJSONMultimodal = %d, want 1", got)
 	}
 }
 
