@@ -492,7 +492,7 @@ func newAnalyzeCmd() *cobra.Command {
 					})
 				if err != nil {
 					if errors.Is(err, site.ErrHugoMissing) {
-						return fmt.Errorf("hugo not found on PATH; install via `find-the-gaps install-deps` or `brew install hugo`, or pass --no-site to skip site generation")
+						return fmt.Errorf("hugo not found on PATH; install via `brew install hugo` (or see https://github.com/gohugoio/hugo/releases), or pass --no-site to skip site generation")
 					}
 					return fmt.Errorf("build site: %w", err)
 				}

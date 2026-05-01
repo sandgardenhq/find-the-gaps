@@ -4,7 +4,8 @@ class FindTheGaps < Formula
   version "9.9.9"
   license "MIT"
 
-  depends_on "node"
+  depends_on "hugo"
+  depends_on "sandgardenhq/tap/mdfetch"
 
   on_macos do
     on_arm do
@@ -32,17 +33,13 @@ class FindTheGaps < Formula
     bin.install "ftg"
   end
 
-  def post_install
-    system bin/"ftg", "install-deps"
-  end
-
   def caveats
     <<~EOS
-      find-the-gaps shells out to two external tools, both installed during post_install:
-        • mdfetch (npm package @sandgarden/mdfetch) — installed into Node's global prefix
-        • hugo (Homebrew formula) — installed via `brew install hugo`
+      find-the-gaps shells out to two external tools, both installed as Homebrew dependencies:
+        • mdfetch (sandgardenhq/tap/mdfetch)
+        • hugo
       `brew uninstall find-the-gaps` will NOT remove either. To clean up:
-        npm uninstall -g @sandgarden/mdfetch
+        brew uninstall sandgardenhq/tap/mdfetch
         brew uninstall hugo
       Verify with: ftg doctor
     EOS

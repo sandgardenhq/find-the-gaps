@@ -1,5 +1,21 @@
 # Progress
 
+## Task: Remove install-deps command (tacoma-v3) - COMPLETE
+- Started: 2026-05-01
+- Summary: Deleted the `ftg install-deps` subcommand and its supporting `internal/doctor` install machinery. The Homebrew formula now declares `depends_on "hugo"` and runs `npm install -g @sandgarden/mdfetch@latest` directly in `post_install` instead of shelling out to ftg. `mdfetch` and `hugo` are still required runtime deps; `ftg doctor` continues to verify them.
+- Tests: full suite green (`go test ./... -count=1`).
+  - **RED**: added `TestRun_InstallDeps_UnknownCommand` and a negative loop assertion in `TestNewRootCmd_Structure` that fail while `install-deps` is still registered. Confirmed both fail before removing the registration.
+  - **GREEN**: dropped `newInstallDepsCmd()` from `cmd.AddCommand(...)` in `internal/cli/root.go`; deleted `internal/cli/install_deps{,_test}.go` and `internal/doctor/install{,_test}.go`; removed the `Tool.Upgrade` field and `InstallCmds` map from `internal/doctor/doctor.go` (only the deleted installer used them); updated `analyze.go`'s `ErrHugoMissing` hint to point at `brew install hugo` instead of the gone subcommand.
+  - **REFACTOR**: regenerated `.github/homebrew/find-the-gaps.rb.expected` via `render.sh` to match the new `.tmpl`; verified with `bash .github/homebrew/test-render.sh`.
+- Coverage: `internal/cli` 91.3%, `internal/doctor` 100% (combined 92.9% on changed packages — above the 90% threshold).
+- Build: go build ./... succeeds.
+- Linting: golangci-lint run reports 0 issues. (Pre-existing gofmt godoc-comment drift on five files was not introduced by this change.)
+- Docs: README's help block, install steps, and `### install-deps` section updated; CLAUDE.md "External Runtime Dependencies" line updated; VERIFICATION_PLAN scenarios 8 (Homebrew) and 11 (hugo missing message) updated.
+- Notes:
+  - Caveats text in the formula (`both installed during post_install`) is now slightly inaccurate — hugo is now a brew dependency, not a post_install side effect — but matches the user-supplied formula verbatim.
+  - Historical `.plans/` design docs (homebrew-install-design, ripgrep-removal, hugo-publishing) still reference `install-deps`; left as-is since they are dated records of past decisions.
+- Completed: 2026-05-01
+
 ## Task: OpenAI default tier models (docs/remove-lmstudio-ollama) - COMPLETE
 - Started: 2026-05-01
 - Summary: When `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is empty, the three tier defaults now flip to `openai/gpt-4o-mini` (small), `openai/gpt-4o` (typical), `openai/gpt-4o` (large) instead of failing with "ANTHROPIC_API_KEY not set". Explicit `--llm-*` flags still win, and any other env-var combination (both keys, only Anthropic, neither) preserves the prior Anthropic defaults.

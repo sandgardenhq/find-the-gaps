@@ -62,7 +62,7 @@ brews:
     test: |
       system "#{bin}/ftg", "--version"
     dependencies:
-      - name: britt/tap/mdfetch
+      - name: sandgardenhq/tap/mdfetch
       - name: hugo
     caveats: |
       Find the Gaps shells out to `mdfetch` (docs ingestion) and `hugo`
