@@ -1186,3 +1186,15 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Hard-floor `allNotDocsGuard` refuses to produce a report when every analyzed page classified as non-docs — the design's worst-case failure mode under inclusive-by-default. Error message points users at `--no-cache` as the escape hatch.
   - `classificationSummary` emits one INFO line per run; verbose-level (`-v`) lists each non-docs URL plus its summary so users can audit silently-dropped pages.
   - Inclusive-by-default rule throughout: false negatives (real docs marked non-docs and silently dropped) are worse than false positives (blog/team pages slipping through and getting drift-checked unnecessarily). No overrides v1; `--no-cache` is the documented escape hatch.
+
+
+## Task: Screenshots Opt-In - COMPLETE
+- Started: 2026-05-01T13:00:00Z
+- Tests: all passing
+- Build: ✅ Successful
+- Linting: ✅ Clean
+- Completed: 2026-05-01T14:15:00Z
+- Notes: Default flipped to off; new flag is --experimental-check-screenshots.
+  --skip-screenshot-check removed entirely. Action input renamed to
+  experimental-check-screenshots; self-test workflow updated. Historical
+  plan docs left intact as record of original implementation.

@@ -88,19 +88,19 @@ func runBothMaps(
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		docsURL             string
-		repoPath            string
-		cacheDir            string
-		workers             int
-		noCache             bool
-		noSymbols           bool
-		llmSmall            string
-		llmTypical          string
-		llmLarge            string
+		docsURL                      string
+		repoPath                     string
+		cacheDir                     string
+		workers                      int
+		noCache                      bool
+		noSymbols                    bool
+		llmSmall                     string
+		llmTypical                   string
+		llmLarge                     string
 		experimentalCheckScreenshots bool
-		siteMode            string
-		noSite              bool
-		keepSiteSource      bool
+		siteMode                     string
+		noSite                       bool
+		keepSiteSource               bool
 	)
 
 	cmd := &cobra.Command{
