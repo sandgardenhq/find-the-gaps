@@ -1234,3 +1234,38 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Empty tier inputs fall back to `defaultSmallTier` / `defaultTypicalTier` / `defaultLargeTier` from `tier_validate.go`, matching what analyze would resolve, so `ftg doctor` doubles as a tier sanity check.
   - Tier lines render even when external-tool checks fail — they describe configuration, not tool presence — but the exit code from `doctor.Run` is preserved.
   - No package extraction was needed: `internal/cli` already imports `internal/doctor`, and the rendering logic lives in the cli wrapper, so no cycle is introduced.
+
+
+## Task 14 (vision-image-analysis): testscript scenarios — COMPLETE (deviated to Go tests)
+- Started: 2026-05-01
+- Tests: 2 new end-to-end Go tests (`TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues`, `TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass`); both pass.
+- Coverage: `internal/cli` 91.7% (above 90% gate)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - Pivoted from `.txtar` to Go tests because no existing testscript scenario uses a fake LLM server — the fake-server-with-schema-dispatch pattern lives in `internal/cli/analyze_classifier_test.go`. New tests in `internal/cli/analyze_vision_screenshot_test.go` mirror that pattern with a new `screenshot_image_relevance` schema branch.
+  - Vision-on test uses `groq/meta-llama/llama-4-scout-17b-16e-instruct` (not Anthropic) because Anthropic's BaseURL override doesn't flow through `buildTierClient` to the Bifrost client. Same `Vision=true` capability, identical wiring exercised.
+  - Pre-existing gap to track: Anthropic providers cannot redirect their base URL via env var. Not blocking this PR.
+
+## Task 15 (vision-image-analysis): docs — COMPLETE
+- Started: 2026-05-01
+- Tests: N/A (docs only)
+- Build: ✅ Successful
+- Completed: 2026-05-01
+- Notes:
+  - README: `GROQ_API_KEY` / `GROQ_BASE_URL` in Configuration; new "Vision-aware screenshot analysis" subsection lists vision-capable models, Groq's hosted nature, and the 5-image-per-request batching cap.
+  - CHANGELOG: 7 Unreleased bullets covering capability registry, Groq provider, vision-aware screenshot pass, ## Image Issues output, audit log line, doctor capability output, site-materialization refactor.
+  - VERIFICATION_PLAN: Scenario 13 (Vision-aware screenshot analysis) with three sub-cases (Anthropic vision / Ollama no-vision / Groq vision with batching).
+
+## Task 16 (vision-image-analysis): final verification + polish — COMPLETE
+- Started: 2026-05-01
+- Tests: All packages green (`go test ./...` clean).
+- Coverage: `internal/cli` 91.7%, `internal/analyzer` 94.1%, `internal/reporter` 98.3%, `internal/doctor` 100%, `internal/scanner` 93.6%, `internal/site` 84.0% (pre-existing — was at 84.2% before this branch). Total: 92.3%.
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - Polish commit `ee3162b` covers three review-flagged items: (1) README `--llm-typical` description now mentions Groq as a tool-use-capable provider; (2) `relevancePass` no longer sets the redundant `Content` field on multimodal ChatMessages; (3) `validateTierConfigs` error message renders the valid-providers list with `strings.Join(..., ", ")` for readability.
+  - `internal/site` 84.0% coverage is a pre-existing gap (was 84.2% on `main`). Not introduced by this branch; flagged for future work.
+  - Branch history is clean (24 commits since main, all logically scoped per task). Ready for PR.
