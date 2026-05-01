@@ -451,7 +451,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```go
 func TestNewBifrostClientWithProvider_GroqUsesOpenAIWithCustomBase(t *testing.T) {
 	caps := ModelCapabilities{Provider: "groq", Model: "meta-llama/llama-4-scout-17b-16e-instruct", ToolUse: true, Vision: true}
-	c, err := NewBifrostClientWithProvider("groq", "gsk_test", "meta-llama/llama-4-scout-17b-16e-instruct", "https://api.groq.com/openai/v1", caps)
+	c, err := NewBifrostClientWithProvider("groq", "gsk_test", "meta-llama/llama-4-scout-17b-16e-instruct", "https://api.groq.com/openai", caps)
 	require.NoError(t, err)
 	assert.Equal(t, schemas.OpenAI, c.provider)
 	assert.True(t, c.Capabilities().Vision)
@@ -493,7 +493,7 @@ case "groq":
         return nil, nil, fmt.Errorf("GROQ_API_KEY not set")
     }
     bifrostProvider = "groq"
-    baseURL = "https://api.groq.com/openai/v1"
+    baseURL = "https://api.groq.com/openai"
     counter = analyzer.NewTiktokenCounter()
 ```
 
@@ -508,7 +508,7 @@ git commit -am "feat(analyzer): add groq provider via Bifrost OpenAI compat path
 - RED: TestNewBifrostClientWithProvider_Groq* covering provider
   routing and the required baseURL guard.
 - GREEN: groq routes through schemas.OpenAI with
-  baseURL=https://api.groq.com/openai/v1; buildTierClient reads
+  baseURL=https://api.groq.com/openai; buildTierClient reads
   GROQ_API_KEY.
 - Status: tests passing, build successful
 
@@ -1437,7 +1437,7 @@ Do not push or open the PR without explicit user approval.
 
 ## Notes for the Engineer
 
-**Groq endpoint detail.** Groq exposes an OpenAI-compatible API at `https://api.groq.com/openai/v1`. Bifrost's `schemas.OpenAI` provider with a `BaseURL` override is the same machinery already used for `lmstudio` (see `bifrost_client.go:122`). The only differences for Groq are: a real bearer token (`GROQ_API_KEY`) and the public hosted endpoint.
+**Groq endpoint detail.** Groq exposes an OpenAI-compatible API rooted at `https://api.groq.com/openai`. Bifrost's `schemas.OpenAI` provider appends `/v1/chat/completions` to `BaseURL` itself (see `bifrost/core/providers/openai/openai.go:741`), so the configured base must NOT include `/v1` — same convention `lmstudio` follows (see `bifrost_client.go:122`). The only differences for Groq are: a real bearer token (`GROQ_API_KEY`) and the public hosted endpoint.
 
 **Image cap.** Groq enforces 5 images per request. Anthropic and OpenAI accept many more, but we standardize on ≤5/call across providers — it keeps the pipeline uniform, costs nothing meaningful on Anthropic/OpenAI for typical pages, and ensures Groq compatibility without a per-provider branch.
 

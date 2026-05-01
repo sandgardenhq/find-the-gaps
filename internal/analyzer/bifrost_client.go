@@ -110,9 +110,11 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 }
 
 // NewBifrostClientWithProvider creates a BifrostClient for the named provider.
-// providerName must be "anthropic", "openai", or "ollama". baseURL overrides the
-// provider's default endpoint — required for "ollama", optional for the others
-// (empty string means use the provider's default hosted endpoint).
+// providerName must be "anthropic", "openai", "ollama", or "groq". baseURL
+// overrides the provider's default endpoint — required for "ollama" and
+// "groq", optional for the others (empty string means use the provider's
+// default hosted endpoint). "groq" is an OpenAI-compatible alias that routes
+// through schemas.OpenAI with a custom BaseURL.
 //
 // caps records the resolved model capability flags so analyzer code can branch
 // on Capabilities() without re-importing cli (which would create a cycle).

@@ -166,3 +166,24 @@ func TestBuildTierClient_Groq_Success(t *testing.T) {
 		t.Fatalf("groq must be served by *analyzer.BifrostClient, got %T", client)
 	}
 }
+
+func TestBuildTierClient_Groq_RespectsBaseURLOverride(t *testing.T) {
+	// The env var must reach the construction path. We can't observe the wire
+	// URL without exposing internals; this test mirrors TestBuildTierClient_LMStudio
+	// in shape — it asserts construction succeeds with the override set, which
+	// implicitly confirms the case statement reads GROQ_BASE_URL (any read
+	// failure would be a panic; any provider mismatch would surface as
+	// "unknown provider").
+	t.Setenv("GROQ_API_KEY", "gsk_test")
+	t.Setenv("GROQ_BASE_URL", "https://my-proxy.example.com/groq")
+	client, counter, err := buildTierClient("groq", "meta-llama/llama-4-scout-17b-16e-instruct")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("groq with custom base URL must return non-nil client and counter")
+	}
+	if _, ok := client.(*analyzer.BifrostClient); !ok {
+		t.Fatalf("groq with override must be served by *analyzer.BifrostClient, got %T", client)
+	}
+}

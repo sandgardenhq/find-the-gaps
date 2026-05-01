@@ -17,7 +17,7 @@ func TestBifrostClient_CapabilitiesAreSetAtConstruction(t *testing.T) {
 
 func TestNewBifrostClientWithProvider_GroqUsesOpenAIWithCustomBase(t *testing.T) {
 	caps := ModelCapabilities{Provider: "groq", Model: "meta-llama/llama-4-scout-17b-16e-instruct", ToolUse: true, Vision: true}
-	c, err := NewBifrostClientWithProvider("groq", "gsk_test", "meta-llama/llama-4-scout-17b-16e-instruct", "https://api.groq.com/openai/v1", caps)
+	c, err := NewBifrostClientWithProvider("groq", "gsk_test", "meta-llama/llama-4-scout-17b-16e-instruct", "https://api.groq.com/openai", caps)
 	require.NoError(t, err)
 	assert.Equal(t, schemas.OpenAI, c.provider)
 	assert.True(t, c.Capabilities().Vision)
