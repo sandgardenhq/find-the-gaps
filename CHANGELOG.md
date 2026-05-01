@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+- **BREAKING:** missing-screenshot detection is now off by default and
+  marked experimental. Pass `--experimental-check-screenshots` (CLI) or
+  set `experimental-check-screenshots: 'true'` (Action) to opt in.
+- **BREAKING:** removed `--skip-screenshot-check` flag and the
+  `skip-screenshot-check` Action input. Workflows passing the old input
+  will see a GitHub Actions "Unexpected input" warning until updated.
+
 ## v0.2.0
 
 ### Added
