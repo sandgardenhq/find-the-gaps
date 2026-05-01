@@ -46,7 +46,13 @@ type BifrostClient struct {
 	client   bifrostRequester
 	provider schemas.ModelProvider
 	model    string
+	caps     ModelCapabilities
 }
+
+// Capabilities returns the resolved model capabilities recorded at
+// construction time. Callers branch on Capabilities().Vision and
+// Capabilities().ToolUse instead of inspecting the provider name.
+func (c *BifrostClient) Capabilities() ModelCapabilities { return c.caps }
 
 type bifrostAccount struct {
 	provider schemas.ModelProvider
@@ -107,7 +113,10 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 // providerName must be "anthropic", "openai", or "ollama". baseURL overrides the
 // provider's default endpoint — required for "ollama", optional for the others
 // (empty string means use the provider's default hosted endpoint).
-func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string) (*BifrostClient, error) {
+//
+// caps records the resolved model capability flags so analyzer code can branch
+// on Capabilities() without re-importing cli (which would create a cycle).
+func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string, caps ModelCapabilities) (*BifrostClient, error) {
 	var provider schemas.ModelProvider
 	switch providerName {
 	case "anthropic":
@@ -128,7 +137,7 @@ func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string) (
 	if err != nil {
 		return nil, fmt.Errorf("bifrost init: %w", err)
 	}
-	return &BifrostClient{client: client, provider: provider, model: model}, nil
+	return &BifrostClient{client: client, provider: provider, model: model, caps: caps}, nil
 }
 
 // anthropicCachedContent renders text as a one-element ContentBlocks slice

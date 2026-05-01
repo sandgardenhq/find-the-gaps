@@ -63,6 +63,10 @@ func (s *skipDriftStubClient) CompleteJSON(_ context.Context, _ string, schema a
 	return json.RawMessage(`{}`), nil
 }
 
+func (s *skipDriftStubClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+
 // skipDriftStubTiering wires the same client into all three tiers; mirrors
 // stubTiering in analyze_parallel_test.go but uses an analyzer.LLMTiering
 // implementation so the tieringFactory hook accepts it directly.

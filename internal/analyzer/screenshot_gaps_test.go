@@ -173,6 +173,8 @@ func (f *fakeLLMClient) CompleteJSON(ctx context.Context, prompt string, _ JSONS
 	return json.RawMessage(raw), nil
 }
 
+func (f *fakeLLMClient) Capabilities() ModelCapabilities { return ModelCapabilities{} }
+
 func TestDetectScreenshotGaps_NoPages(t *testing.T) {
 	client := &fakeLLMClient{}
 	gaps, err := DetectScreenshotGaps(context.Background(), client, nil, nil)

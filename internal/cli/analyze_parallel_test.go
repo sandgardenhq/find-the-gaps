@@ -195,6 +195,10 @@ func (s *stubLLMClient) CompleteJSON(ctx context.Context, prompt string, _ analy
 	return json.RawMessage(raw), nil
 }
 
+func (s *stubLLMClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+
 func stubScan() *scanner.ProjectScan {
 	return &scanner.ProjectScan{
 		RepoPath:  "/fake",

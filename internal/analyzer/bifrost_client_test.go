@@ -92,14 +92,14 @@ func TestBifrostAccount_GetConfigForProvider_WrongProvider_ReturnsError(t *testi
 }
 
 func TestNewBifrostClientWithProvider_UnsupportedProvider_ReturnsError(t *testing.T) {
-	_, err := NewBifrostClientWithProvider("grok", "fake-key", "some-model", "")
+	_, err := NewBifrostClientWithProvider("grok", "fake-key", "some-model", "", ModelCapabilities{})
 	if err == nil {
 		t.Fatal("expected error for unsupported provider")
 	}
 }
 
 func TestNewBifrostClientWithProvider_Anthropic_ReturnsClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022", "")
+	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022", "", ModelCapabilities{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestNewBifrostClientWithProvider_Anthropic_ReturnsClient(t *testing.T) {
 }
 
 func TestNewBifrostClientWithProvider_OpenAI_ReturnsClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("openai", "fake-key", "gpt-4o-mini", "")
+	client, err := NewBifrostClientWithProvider("openai", "fake-key", "gpt-4o-mini", "", ModelCapabilities{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestNewBifrostClientWithProvider_OpenAI_ReturnsClient(t *testing.T) {
 }
 
 func TestNewBifrostClientWithProvider_Ollama_ReturnsClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("ollama", "", "llama3.1", "http://localhost:11434")
+	client, err := NewBifrostClientWithProvider("ollama", "", "llama3.1", "http://localhost:11434", ModelCapabilities{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestNewBifrostClientWithProvider_Ollama_ReturnsClient(t *testing.T) {
 func TestNewBifrostClientWithProvider_OpenAI_WithBaseURL_ReturnsClient(t *testing.T) {
 	// "lmstudio" collapses to schemas.OpenAI at the CLI layer, so the analyzer
 	// must accept a non-empty base URL paired with provider "openai".
-	client, err := NewBifrostClientWithProvider("openai", "", "local-model", "http://localhost:1234")
+	client, err := NewBifrostClientWithProvider("openai", "", "local-model", "http://localhost:1234", ModelCapabilities{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestBifrostAccount_OpenAI_NonEmptyKey_PreservesKeyValue(t *testing.T) {
 }
 
 func TestBifrostClient_ImplementsLLMClient(t *testing.T) {
-	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022", "")
+	client, err := NewBifrostClientWithProvider("anthropic", "fake-key", "claude-3-5-sonnet-20241022", "", ModelCapabilities{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

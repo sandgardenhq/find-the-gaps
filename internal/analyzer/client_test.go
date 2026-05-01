@@ -24,6 +24,10 @@ func (s *stubToolClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatM
 	return analyzer.AgentResult{}, nil
 }
 
+func (s *stubToolClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+
 // TestToolLLMClient_InterfaceSatisfied ensures the ToolLLMClient interface
 // exists and that a concrete type can satisfy it.
 func TestToolLLMClient_InterfaceSatisfied(t *testing.T) {

@@ -38,6 +38,13 @@ func (c *countingClient) CompleteJSON(ctx context.Context, prompt string, schema
 	return c.inner.CompleteJSON(ctx, prompt, schema)
 }
 
+// Capabilities forwards to the wrapped client so vision / tool-use checks see
+// the underlying model's flags. The wrapper itself has no capabilities of its
+// own; it only counts calls.
+func (c *countingClient) Capabilities() analyzer.ModelCapabilities {
+	return c.inner.Capabilities()
+}
+
 // countingToolClient extends countingClient with CompleteWithTools so a
 // ToolLLMClient stays a ToolLLMClient after wrapping. drift.go uses a runtime
 // type assertion (tiering.Typical().(ToolLLMClient)) — preserving the

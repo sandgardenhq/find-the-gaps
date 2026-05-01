@@ -31,7 +31,13 @@ type fakeClient struct {
 	// jsonSchemas captures schemas passed to CompleteJSON in call order so
 	// tests can assert the right schema reached the client.
 	jsonSchemas []analyzer.JSONSchema
+
+	// caps is returned from Capabilities(). Zero-value means no optional
+	// features; tests that need vision or tool-use override it explicitly.
+	caps analyzer.ModelCapabilities
 }
+
+func (f *fakeClient) Capabilities() analyzer.ModelCapabilities { return f.caps }
 
 func (f *fakeClient) Complete(_ context.Context, prompt string) (string, error) {
 	f.receivedPrompts = append(f.receivedPrompts, prompt)

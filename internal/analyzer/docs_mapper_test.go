@@ -39,6 +39,10 @@ func (f *fakeDynamicClient) CompleteJSON(_ context.Context, prompt string, _ ana
 	return json.RawMessage(`{"features":[]}`), nil
 }
 
+func (f *fakeDynamicClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+
 // --- mapPageToFeatures tests ---
 
 func TestMapPageToFeatures_HappyPath(t *testing.T) {

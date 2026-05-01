@@ -22,6 +22,9 @@ func (fakeLLMClient) Complete(_ context.Context, _ string) (string, error) { ret
 func (fakeLLMClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, nil
 }
+func (fakeLLMClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
 
 // fakeToolLLMClient implements analyzer.ToolLLMClient (full tool support).
 // CompleteWithTools simulates an N-turn agent loop by extracting the turn
@@ -35,6 +38,9 @@ type fakeToolLLMClient struct {
 func (fakeToolLLMClient) Complete(_ context.Context, _ string) (string, error) { return "", nil }
 func (fakeToolLLMClient) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
 	return nil, nil
+}
+func (fakeToolLLMClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
 }
 func (f fakeToolLLMClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool, opts ...analyzer.AgentOption) (analyzer.AgentResult, error) {
 	turnCB := analyzer.OnTurnFromOptionsForTesting(opts...)
