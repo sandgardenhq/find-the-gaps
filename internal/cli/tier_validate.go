@@ -1,6 +1,9 @@
 package cli
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Default tier strings used when a flag/config/env is empty.
 const (
@@ -50,7 +53,7 @@ func validateTierConfigs(small, typical, large string) error {
 		}
 		caps, ok := ResolveCapabilities(provider, model)
 		if !ok {
-			return fmt.Errorf("tier %q: unknown provider %q (valid: %v)", tc.name, provider, knownProviders())
+			return fmt.Errorf("tier %q: unknown provider %q (valid: %s)", tc.name, provider, strings.Join(knownProviders(), ", "))
 		}
 		if tc.needsTool && !caps.ToolUse {
 			return fmt.Errorf("tier %q: model %q on provider %q does not support tool use; the drift investigator requires a tool-use-capable model", tc.name, model, provider)

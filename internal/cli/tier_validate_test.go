@@ -56,6 +56,21 @@ func TestValidateTierConfigs_RejectsUnknownProvider(t *testing.T) {
 	assert.Contains(t, err.Error(), "nope")
 }
 
+// TestValidateTierConfigs_ValidProvidersListIsCommaSeparated pins the
+// human-readable format of the "valid: ..." list. The list MUST be rendered
+// as comma-separated provider names ("anthropic, openai, ...") not Go's
+// default %v slice formatting ("[anthropic openai ...]"). The square-bracket
+// form leaks Go syntax into the user-facing error message.
+func TestValidateTierConfigs_ValidProvidersListIsCommaSeparated(t *testing.T) {
+	err := validateTierConfigs("nope/foo", "", "")
+	require.Error(t, err)
+	msg := err.Error()
+	assert.NotContains(t, msg, "[", "valid-providers list must not be wrapped in square brackets (Go slice format)")
+	assert.NotContains(t, msg, "]", "valid-providers list must not be wrapped in square brackets (Go slice format)")
+	// Must contain at least two known providers separated by ", ".
+	assert.Contains(t, msg, "anthropic, ")
+}
+
 func TestValidateTierConfigs_TypicalRequiresToolUse(t *testing.T) {
 	err := validateTierConfigs("", "ollama/llama3", "")
 	require.Error(t, err)

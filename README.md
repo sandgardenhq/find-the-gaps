@@ -144,7 +144,7 @@ calls land on cheaper models while the hardest calls use a frontier model:
 
 Each tier accepts a combined `provider/model` string. Bare model names default
 to the `anthropic` provider. The `typical` tier must name a provider that
-supports tool use (currently `anthropic` or `openai`) because it runs the drift
+supports tool use (currently `anthropic`, `openai`, or `groq`) because it runs the drift
 investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
 tier may use any supported provider; it only makes single non-tool calls.
 

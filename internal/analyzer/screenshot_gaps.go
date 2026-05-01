@@ -544,7 +544,7 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		for _, r := range batch {
 			blocks = append(blocks, ContentBlock{Type: ContentBlockImageURL, ImageURL: r.Src})
 		}
-		msg := ChatMessage{Role: "user", ContentBlocks: blocks, Content: prompt}
+		msg := ChatMessage{Role: "user", ContentBlocks: blocks}
 		raw, err := client.CompleteJSONMultimodal(ctx, []ChatMessage{msg}, relevancePassSchema)
 		if err != nil {
 			return nil, nil, fmt.Errorf("relevancePass batch %d: %w", batchN, err)
