@@ -128,6 +128,11 @@ func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string, c
 		if baseURL == "" {
 			return nil, fmt.Errorf("ollama provider requires a baseURL")
 		}
+	case "groq":
+		provider = schemas.OpenAI
+		if baseURL == "" {
+			return nil, fmt.Errorf("groq provider requires a baseURL")
+		}
 	default:
 		return nil, fmt.Errorf("unsupported Bifrost provider: %q", providerName)
 	}

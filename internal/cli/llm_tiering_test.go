@@ -144,3 +144,25 @@ func TestBuildTierClient_UnknownProvider(t *testing.T) {
 		t.Fatalf("expected unknown provider error, got %v", err)
 	}
 }
+
+func TestBuildTierClient_Groq_MissingKey(t *testing.T) {
+	t.Setenv("GROQ_API_KEY", "")
+	_, _, err := buildTierClient("groq", "meta-llama/llama-4-scout-17b-16e-instruct")
+	if err == nil || !strings.Contains(err.Error(), "GROQ_API_KEY") {
+		t.Fatalf("expected GROQ_API_KEY error, got %v", err)
+	}
+}
+
+func TestBuildTierClient_Groq_Success(t *testing.T) {
+	t.Setenv("GROQ_API_KEY", "gsk_test")
+	client, counter, err := buildTierClient("groq", "meta-llama/llama-4-scout-17b-16e-instruct")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("groq path must return non-nil client and counter")
+	}
+	if _, ok := client.(*analyzer.BifrostClient); !ok {
+		t.Fatalf("groq must be served by *analyzer.BifrostClient, got %T", client)
+	}
+}

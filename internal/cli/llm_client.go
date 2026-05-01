@@ -125,6 +125,14 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 		}
 		bifrostProvider = "openai"
 		counter = analyzer.NewTiktokenCounter()
+	case "groq":
+		apiKey = os.Getenv("GROQ_API_KEY")
+		if apiKey == "" {
+			return nil, nil, fmt.Errorf("GROQ_API_KEY not set")
+		}
+		bifrostProvider = "groq"
+		baseURL = "https://api.groq.com/openai/v1"
+		counter = analyzer.NewTiktokenCounter()
 	default:
 		return nil, nil, fmt.Errorf("unknown provider %q", provider)
 	}
