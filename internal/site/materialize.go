@@ -251,40 +251,22 @@ func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) 
 	}
 
 	if in.ScreenshotsRan {
-		ssBody, err := renderScreenshotsMirror(buildScreenshotsMirrorData(in))
+		// screenshots.md — read raw, strip the standalone reporter's leading
+		// `# Missing Screenshots` H1, and wrap. Mirrors gaps.md handling so any
+		// section the reporter writes (including `## Image Issues`) flows into
+		// the rendered site without a duplicate template.
+		ssBody, err := os.ReadFile(filepath.Join(opts.ProjectDir, "screenshots.md"))
 		if err != nil {
-			return err
+			return fmt.Errorf("read screenshots.md: %w", err)
 		}
 		ssFM := "+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n\n"
-		if err := os.WriteFile(filepath.Join(contentDir, "screenshots.md"), []byte(ssFM+ssBody), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(contentDir, "screenshots.md"),
+			append([]byte(ssFM), stripLeadingH1(ssBody)...), 0o644); err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-// buildScreenshotsMirrorData groups in.Screenshots by page URL while
-// preserving first-seen order so the rendered output is deterministic.
-func buildScreenshotsMirrorData(in Inputs) screenshotsMirrorData {
-	byPage := map[string][]screenshotGap{}
-	var order []string
-	seen := map[string]bool{}
-	for _, g := range in.Screenshots {
-		if !seen[g.PageURL] {
-			seen[g.PageURL] = true
-			order = append(order, g.PageURL)
-		}
-		byPage[g.PageURL] = append(byPage[g.PageURL], screenshotGap{
-			Quoted: g.QuotedPassage, ShouldShow: g.ShouldShow,
-			Alt: g.SuggestedAlt, Insert: g.InsertionHint,
-		})
-	}
-	pages := make([]screenshotsMirrorPage, 0, len(order))
-	for _, url := range order {
-		pages = append(pages, screenshotsMirrorPage{PageURL: url, Gaps: byPage[url]})
-	}
-	return screenshotsMirrorData{Pages: pages}
 }
 
 // buildMappingPageData converts analyzer Inputs into the view shape consumed

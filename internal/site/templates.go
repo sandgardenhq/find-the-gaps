@@ -200,28 +200,6 @@ type screenshotPageData struct {
 	Gaps    []screenshotGap
 }
 
-// screenshotsMirrorPage groups one or more gaps under the page they belong to.
-type screenshotsMirrorPage struct {
-	PageURL string
-	Gaps    []screenshotGap
-}
-
-// screenshotsMirrorData drives renderScreenshotsMirror — the mirror-mode
-// single-page screenshots.md rendered from data so the website can use a
-// fenced passage + Hextra callout layout while the standalone reporter file
-// stays unchanged.
-type screenshotsMirrorData struct {
-	Pages []screenshotsMirrorPage
-}
-
-func renderScreenshotsMirror(d screenshotsMirrorData) (string, error) {
-	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "screenshots_page_mirror.md.tmpl", d); err != nil {
-		return "", fmt.Errorf("render screenshots_page_mirror: %w", err)
-	}
-	return buf.String(), nil
-}
-
 func renderScreenshotPage(d screenshotPageData) (string, error) {
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "screenshot_page.md.tmpl", d); err != nil {

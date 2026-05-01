@@ -618,31 +618,31 @@ func TestMaterializeExpandedScreenshotPageCalloutAndFence(t *testing.T) {
 	}
 }
 
-// TestMaterializeMirrorScreenshotsCalloutAndFence asserts the mirror-mode
-// content/screenshots.md is rendered from data: drops the standalone
-// `# Missing Screenshots` H1, embeds each passage in a ```markdown fence,
-// and wraps screenshot fields in a Hextra callout shortcode.
-func TestMaterializeMirrorScreenshotsCalloutAndFence(t *testing.T) {
+// TestMaterializeMirrorScreenshotsReadsReporterFile asserts the mirror-mode
+// content/screenshots.md is sourced verbatim from the reporter's
+// <projectDir>/screenshots.md (with the standalone `# Missing Screenshots`
+// H1 stripped and Hugo frontmatter prepended). The reporter is the single
+// source of truth for screenshots.md formatting.
+func TestMaterializeMirrorScreenshotsReadsReporterFile(t *testing.T) {
 	srcDir := t.TempDir()
 	projectDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
 		[]byte("# Gaps\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	in := Inputs{
-		ScreenshotsRan: true,
-		Screenshots: []analyzer.ScreenshotGap{
-			{
-				PageURL:       "https://example.com/docs/start",
-				QuotedPassage: "Click **Save** to continue.\nThe page reloads.",
-				ShouldShow:    "the save button",
-				SuggestedAlt:  "save button",
-				InsertionHint: "after the paragraph ending '…click Save.'",
-			},
-		},
+	// Mirror what reporter.WriteScreenshots produces.
+	ssBody := "# Missing Screenshots\n\n" +
+		"### https://example.com/docs/start\n\n" +
+		"- **Passage:** \"Click **Save** to continue.\\nThe page reloads.\"\n" +
+		"  - **Screenshot should show:** the save button\n" +
+		"  - **Alt text:** save button\n" +
+		"  - **Insert:** after the paragraph ending '…click Save.'\n\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "screenshots.md"),
+		[]byte(ssBody), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if err := materialize(srcDir, in, BuildOptions{
+
+	if err := materialize(srcDir, Inputs{ScreenshotsRan: true}, BuildOptions{
 		ProjectDir:  projectDir,
 		ProjectName: "demo",
 		Mode:        ModeMirror,
@@ -661,19 +661,98 @@ func TestMaterializeMirrorScreenshotsCalloutAndFence(t *testing.T) {
 	}
 	for _, want := range []string{
 		`title = "Screenshots"`,
-		"### From: https://example.com/docs/start",
-		"```markdown",
-		"Click **Save** to continue.",
-		"The page reloads.",
-		`{{< callout type="info" >}}`,
+		"### https://example.com/docs/start",
+		"**Passage:**",
 		"**Screenshot should show:** the save button",
-		"**Alt text:** `save button`",
-		"**Insertion hint:** after the paragraph ending '…click Save.'",
-		"{{< /callout >}}",
+		"**Alt text:** save button",
+		"**Insert:** after the paragraph ending '…click Save.'",
 	} {
 		if !contains(s, want) {
 			t.Errorf("missing %q in content/screenshots.md:\n%s", want, s)
 		}
+	}
+}
+
+// TestMaterializeMirrorScreenshotsMissingFile exercises the error branch when
+// ScreenshotsRan is true but screenshots.md is absent from ProjectDir.
+func TestMaterializeMirrorScreenshotsMissingFile(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Intentionally do NOT write screenshots.md.
+
+	err := materialize(srcDir, Inputs{ScreenshotsRan: true}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected error when screenshots.md is missing")
+	}
+	if !contains(err.Error(), "screenshots.md") {
+		t.Errorf("expected error to name screenshots.md, got %v", err)
+	}
+}
+
+// TestMaterializeMirrorScreenshotsImageIssuesFlowThrough asserts that any
+// `## Image Issues` section the reporter wrote into screenshots.md flows
+// through to the materialized content/screenshots.md unchanged. This is the
+// load-bearing benefit of reading the reporter's file directly: any change
+// to the reporter's screenshots.md format is reflected on the rendered site
+// without a duplicate template needing to be kept in sync.
+func TestMaterializeMirrorScreenshotsImageIssuesFlowThrough(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Mirror what reporter.WriteScreenshots produces when the vision pass
+	// ran and surfaced an image issue.
+	ssBody := "# Missing Screenshots\n\n" +
+		"_None found._\n" +
+		"\n## Image Issues\n\n" +
+		"- **Page:** https://example.com/docs/start\n" +
+		"  **Image:** ![1](https://example.com/img.png)\n" +
+		"  **Issue:** logo is outdated\n" +
+		"  **Suggested action:** replace with current logo\n\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "screenshots.md"),
+		[]byte(ssBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := materialize(srcDir, Inputs{ScreenshotsRan: true}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	for _, want := range []string{
+		`title = "Screenshots"`,
+		"## Image Issues",
+		"**Page:** https://example.com/docs/start",
+		"**Issue:** logo is outdated",
+		"**Suggested action:** replace with current logo",
+	} {
+		if !contains(s, want) {
+			t.Errorf("missing %q in content/screenshots.md:\n%s", want, s)
+		}
+	}
+	// The leading H1 from the reporter must be stripped.
+	if contains(s, "# Missing Screenshots") {
+		t.Errorf("mirror screenshots.md must not contain `# Missing Screenshots` H1; got:\n%s", s)
 	}
 }
 
