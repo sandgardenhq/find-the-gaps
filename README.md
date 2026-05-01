@@ -79,6 +79,31 @@ Then install the required external tools:
 ftg install-deps
 ```
 
+## Quick start
+
+Once `ftg` is installed and `ftg doctor` exits `0`, point it at a local checkout and the matching public docs site. Here it is run against [Cobra](https://github.com/spf13/cobra) and its docs at [cobra.dev](https://cobra.dev):
+
+```sh
+git clone https://github.com/spf13/cobra
+export ANTHROPIC_API_KEY=sk-ant-...
+
+ftg analyze --repo ./cobra --docs-url https://cobra.dev
+```
+
+`ftg` ingests the docs site with `mdfetch`, scans the repo for features and symbols, then uses the LLM tiers to map docs↔code and flag drift. The first run takes a few minutes; later runs reuse the cache under `.find-the-gaps/<project>/` (pass `--no-cache` to force a full re-scan).
+
+Reports land at `.find-the-gaps/<project>/`:
+
+- `gaps.md` — undocumented code, unmapped features, stale docs
+- `mapping.md` — full feature → file/symbol inventory
+- `site/` — browsable Hextra-themed report
+
+Open the rendered report locally:
+
+```sh
+ftg serve --repo ./cobra --open
+```
+
 ## Usage
 
 ```
@@ -148,6 +173,12 @@ supports tool use (currently `anthropic` or `openai`) because it runs the drift
 investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
 tier may use any supported provider; it only makes single non-tool calls.
 
+If `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is not, the tier defaults
+flip to OpenAI (`openai/gpt-4o-mini`, `openai/gpt-4o`, `openai/gpt-4o`) so
+OpenAI-only users can run `ftg analyze` without spelling out three `--llm-*`
+flags. Any explicit tier flag still wins. With both keys set, Anthropic
+defaults stand.
+
 Configure tiers via flag or environment variable:
 
 - `FIND_THE_GAPS_LLM_SMALL`
@@ -155,14 +186,10 @@ Configure tiers via flag or environment variable:
 - `FIND_THE_GAPS_LLM_LARGE`
 - `ANTHROPIC_API_KEY` — required when any tier points at an Anthropic model
 - `OPENAI_API_KEY` — required when any tier points at an OpenAI model
-- `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
-- `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
 
 > **Breaking change.** The old `--llm-provider`, `--llm-model`, and
 > `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`
-> with `--llm-typical X/Y` (or the tier that matches your use case). Base URLs
-> for `ollama` and `lmstudio` are now set via the `*_BASE_URL` env vars listed
-> above.
+> with `--llm-typical X/Y` (or the tier that matches your use case).
 
 ### serve
 
@@ -263,6 +290,8 @@ skipped:
 scanned 412 files, skipped 1,847 (defaults: 1,801, .gitignore: 38, .ftgignore: 8)
 ```
 
+Set `FIND_THE_GAPS_QUIET=1` to suppress this summary line — handy in CI logs.
+
 ## Use as a GitHub Action
 
 Find the Gaps ships as a composite GitHub Action so maintainers can run audits
@@ -287,6 +316,8 @@ locally.
 | `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
 | `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
 | `experimental-check-screenshots` | no | `false` | Run the experimental missing-screenshot detection pass |
+
+The action runs `ftg analyze` with the CLI's default LLM tiers (Anthropic Haiku/Sonnet/Opus). Tier customization isn't exposed through inputs — to swap models or providers, run the CLI directly.
 
 ### Outputs
 

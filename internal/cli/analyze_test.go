@@ -236,9 +236,12 @@ func prepareDocsCache(t *testing.T, cacheBase, projectName, docsURL, pageContent
 }
 
 func TestAnalyze_llmClientError_returnsError(t *testing.T) {
-	// Ensure Anthropic key is absent so newLLMTiering fails (all default tiers
-	// resolve to anthropic/* and require ANTHROPIC_API_KEY).
+	// Clear both keys so tierFallbacks resolves to anthropic/* defaults and
+	// newLLMTiering fails with "ANTHROPIC_API_KEY not set". A leaked
+	// OPENAI_API_KEY in the dev shell would otherwise flip defaults to openai/*
+	// and make this test non-deterministic.
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 
 	docsURL := "https://docs.example.com/page"
 	repoDir := t.TempDir()
