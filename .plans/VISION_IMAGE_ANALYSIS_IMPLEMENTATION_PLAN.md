@@ -1335,45 +1335,30 @@ After existing checks (`mdfetch`, `hugo`, etc.), resolve capabilities for each t
 
 ---
 
-## Task 14 — testscript End-to-End Scenarios
+## Task 14 — End-to-End Vision Tests
 
-**Files:**
-- Create: `cmd/find-the-gaps/testdata/vision-screenshot.txtar`
-- Create: `cmd/find-the-gaps/testdata/vision-disabled-screenshot.txtar`
+**Implemented as Go tests, not testscript.** Every existing `.txtar` under `cmd/find-the-gaps/testdata/` is a flag-parsing test — none stand up a fake LLM server. The `httptest`-server-with-schema-name dispatch pattern lives in `internal/cli/analyze_classifier_test.go`, so the vision scenarios reuse that pattern directly.
 
-### Step 14.1: Pattern-match an existing scenario
+**Files (actual):**
+- `internal/cli/analyze_vision_screenshot_test.go` — two `TestVisionScreenshotEndToEnd_*` tests sharing the `visionFixturePage` constant (one Markdown page, six `![alt](src)` images, one planted mismatch).
 
-```bash
-ls cmd/find-the-gaps/testdata/*.txtar
-```
+**Test 1: `TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues`**
+- Tier flag: `--llm-small=groq/meta-llama/llama-4-scout-17b-16e-instruct` (Vision=true via the registry). Groq is used instead of `anthropic/claude-haiku-4-5` because Bifrost's anthropic client does not honor a baseURL override, so `httptest` cannot intercept anthropic traffic. Groq routes through Bifrost's OpenAI provider with `GROQ_BASE_URL`, which `httptest.NewServer` populates. Both models are Vision=true in the registry, so the pipeline wiring under test is identical.
+- Fake LLM dispatches by schema name (`screenshot_image_relevance`, `screenshot_gaps_response`, `analyze_page_response`, `synthesize_response`). Two relevance batches (5 + 1) return a planted img-3 image_issue and matches=true verdicts elsewhere; the detection pass returns empty arrays.
+- Assertions: 2 relevance + 1 detection request hit the server; stderr audit log contains `vision=on`, `relevance_batches=2`, `images_seen=6`, `image_issues=1`; `screenshots.md` contains `## Image Issues` and the planted mismatch reason.
 
-Pick the closest existing scenario that runs the screenshot pass with a fake LLM server and copy its scaffolding.
+**Test 2: `TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass`**
+- Tier flag: `--llm-small=ollama/llama3` (wildcard → Vision=false). Ollama routes through Bifrost's Ollama provider via `OLLAMA_BASE_URL`.
+- Fake LLM fails the test if any `screenshot_image_relevance` request arrives. The detection pass returns one missing-screenshot finding.
+- Assertions: zero relevance + 1 detection request; stderr audit log contains `vision=off` and `relevance_batches=0`; `screenshots.md` omits `## Image Issues` and contains the detection-pass finding text.
 
-### Step 14.2: Author scenarios
-
-**`vision-screenshot.txtar`:**
-- Fixture: 1 docs page with 12 `<img>` tags, one captioned `Settings page` but actually a dashboard.
-- Fake LLM server: when receiving a `screenshot_image_relevance` schema request, return scripted responses for 3 batches (5+5+2). When receiving the detection schema request, return one gap with one entry under `suppressed_by_image`.
-- Tier flag: `--llm-small=anthropic/claude-haiku-4-5` (capability registry resolves Vision=true).
-- Assertions:
-  - `screenshots.md` contains `## Image Issues` with the planted mismatch.
-  - Stdout contains `relevance_batches=3 images_seen=12 image_issues=1`.
-  - `## Missing Screenshots` shape unchanged from existing scenarios.
-
-**`vision-disabled-screenshot.txtar`:**
-- Same fixture.
-- Tier flag: `--llm-small=ollama/llama3` (Vision=false via wildcard).
-- Assertions:
-  - `screenshots.md` does NOT contain `## Image Issues`.
-  - Stdout contains `vision=off`.
-
-### Step 14.3: Run
+**How to run:**
 
 ```bash
-go test ./cmd/find-the-gaps/... -run TestScript -v
+go test ./internal/cli/ -run TestVisionScreenshotEndToEnd -v
 ```
 
-### Step 14.4: Commit.
+No production code changes were required — both tests pin existing behavior wired up in Tasks 8–12.
 
 ---
 
