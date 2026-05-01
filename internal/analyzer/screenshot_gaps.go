@@ -591,6 +591,9 @@ type ScreenshotResult struct {
 // the CLI and by the reporter when deciding whether to render the
 // `## Image Issues` section. VisionEnabled=false means the model lacked vision
 // or the page had zero images, so RelevanceBatches and ImageIssues will be 0.
+// DetectionSkipped=true means the page's prompt overhead exceeded
+// ScreenshotPromptBudget so the detection LLM call was never issued; this
+// distinguishes a budget skip from a clean run with zero findings.
 type ScreenshotPageStats struct {
 	PageURL            string
 	VisionEnabled      bool
@@ -599,6 +602,7 @@ type ScreenshotPageStats struct {
 	ImageIssues        int
 	MissingScreenshots int
 	MissingSuppressed  int
+	DetectionSkipped   bool
 }
 
 // detectionPass runs the text-only screenshot-gap detection LLM call for one
@@ -606,31 +610,35 @@ type ScreenshotPageStats struct {
 // response carries a suppressed_by_image array; when verdicts is nil it
 // delegates to the legacy prompt and only the gaps array is populated. The
 // returned `suppressed` count is for audit stats only — suppressed_by_image
-// items are NOT rendered to the user. Per-page parse failures are logged and
-// the function returns empty results with err=nil so one bad page doesn't
-// poison the whole run; context / network errors propagate.
+// items are NOT rendered to the user. The returned `skipped` is true when
+// the page's prompt overhead exceeded ScreenshotPromptBudget and the LLM
+// call was not issued; the caller surfaces this in audit stats so the audit
+// log line can distinguish a budget skip from a clean zero-findings result.
+// Per-page parse failures are logged and the function returns empty results
+// with err=nil so one bad page doesn't poison the whole run; context / network
+// errors propagate.
 func detectionPass(
 	ctx context.Context,
 	client LLMClient,
 	page DocPage,
 	refs []imageRef,
 	verdicts []ImageVerdict,
-) (gaps []ScreenshotGap, suppressed int, err error) {
+) (gaps []ScreenshotGap, suppressed int, skipped bool, err error) {
 	coverage := buildCoverageMap(refs)
 	content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-		return nil, 0, nil
+		return nil, 0, true, nil
 	}
 	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
-		return nil, 0, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+		return nil, 0, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 	}
 	var resp screenshotGapsResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
-		return nil, 0, nil
+		return nil, 0, false, nil
 	}
 	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
 	for _, it := range resp.Gaps {
@@ -643,7 +651,7 @@ func detectionPass(
 			InsertionHint: it.InsertionHint,
 		})
 	}
-	return gaps, len(resp.SuppressedByImage), nil
+	return gaps, len(resp.SuppressedByImage), false, nil
 }
 
 // DetectScreenshotGaps iterates pages sequentially. For each page, when the
@@ -679,12 +687,13 @@ func DetectScreenshotGaps(
 			stats.ImageIssues = len(issues)
 			verdicts = vs
 		}
-		gaps, suppressed, err := detectionPass(ctx, client, page, refs, verdicts)
+		gaps, suppressed, skipped, err := detectionPass(ctx, client, page, refs, verdicts)
 		if err != nil {
 			return result, err
 		}
 		stats.MissingScreenshots = len(gaps)
 		stats.MissingSuppressed = suppressed
+		stats.DetectionSkipped = skipped
 		result.MissingGaps = append(result.MissingGaps, gaps...)
 		result.AuditStats = append(result.AuditStats, stats)
 		if progress != nil {
