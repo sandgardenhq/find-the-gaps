@@ -162,6 +162,35 @@ func anthropicCachedContent(text string) *schemas.ChatMessageContent {
 	}
 }
 
+// renderContentBlocks translates a slice of analyzer ContentBlock into the
+// Bifrost SDK's []schemas.ChatContentBlock wire format. Both Anthropic and
+// OpenAI lanes use the same struct shape: text blocks set Type=Text + Text*,
+// image blocks set Type=Image + ImageURLStruct{URL: ...}. Bifrost normalizes
+// the on-wire JSON per provider, so this helper is provider-agnostic.
+//
+// The provider arg is reserved for future provider-specific divergence
+// (e.g. base64 vs URL discrimination) but is currently unused — keeping it
+// in the signature documents that ContentBlock translation is, in principle,
+// a provider-aware operation.
+func renderContentBlocks(_ schemas.ModelProvider, blocks []ContentBlock) []schemas.ChatContentBlock {
+	out := make([]schemas.ChatContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case ContentBlockText:
+			out = append(out, schemas.ChatContentBlock{
+				Type: schemas.ChatContentBlockTypeText,
+				Text: schemas.Ptr(b.Text),
+			})
+		case ContentBlockImageURL:
+			out = append(out, schemas.ChatContentBlock{
+				Type:           schemas.ChatContentBlockTypeImage,
+				ImageURLStruct: &schemas.ChatInputImage{URL: b.ImageURL},
+			})
+		}
+	}
+	return out
+}
+
 // CompleteWithTools runs a multi-turn tool-use conversation. It dispatches
 // tool calls through Tool.Execute handlers and feeds the results back to the
 // LLM until the model returns a plain-text response or the round limit is
@@ -185,9 +214,17 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 		switch m.Role {
 		case "user":
 			bm.Role = schemas.ChatMessageRoleUser
-			if cacheable {
+			switch {
+			case len(m.ContentBlocks) > 0:
+				// Multimodal user message — ContentBlocks wins. We deliberately
+				// do NOT also set ContentStr; some providers will silently drop
+				// the image and pass the flat text instead if both are present.
+				bm.Content = &schemas.ChatMessageContent{
+					ContentBlocks: renderContentBlocks(c.provider, m.ContentBlocks),
+				}
+			case cacheable:
 				bm.Content = anthropicCachedContent(m.Content)
-			} else {
+			default:
 				bm.Content = &schemas.ChatMessageContent{ContentStr: schemas.Ptr(m.Content)}
 			}
 		case "assistant":
