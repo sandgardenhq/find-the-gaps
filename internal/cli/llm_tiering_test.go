@@ -9,12 +9,28 @@ import (
 
 func TestNewLLMTiering_DefaultsRequireAnthropicKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 	_, err := newLLMTiering("", "", "")
 	if err == nil {
-		t.Fatal("expected error when ANTHROPIC_API_KEY unset")
+		t.Fatal("expected error when neither key set")
 	}
 	if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
 		t.Fatalf("error should mention ANTHROPIC_API_KEY, got %v", err)
+	}
+}
+
+func TestNewLLMTiering_DefaultsToOpenAIWhenOnlyOpenAIKeySet(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "test-openai")
+	tg, err := newLLMTiering("", "", "")
+	if err != nil {
+		t.Fatalf("expected success with only OPENAI_API_KEY set, got %v", err)
+	}
+	if tg.Small() == nil || tg.Typical() == nil || tg.Large() == nil {
+		t.Fatal("all clients must be non-nil under OpenAI defaults")
+	}
+	if tg.SmallCounter() == nil || tg.TypicalCounter() == nil || tg.LargeCounter() == nil {
+		t.Fatal("all counters must be non-nil under OpenAI defaults")
 	}
 }
 

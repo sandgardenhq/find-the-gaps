@@ -1,5 +1,21 @@
 # Progress
 
+## Task: OpenAI default tier models (docs/remove-lmstudio-ollama) - COMPLETE
+- Started: 2026-05-01
+- Summary: When `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is empty, the three tier defaults now flip to `openai/gpt-4o-mini` (small), `openai/gpt-4o` (typical), `openai/gpt-4o` (large) instead of failing with "ANTHROPIC_API_KEY not set". Explicit `--llm-*` flags still win, and any other env-var combination (both keys, only Anthropic, neither) preserves the prior Anthropic defaults.
+- Tests: full suite green (`go test ./... -count=1`).
+  - **RED**: 4 new `TestTierFallbacks_*` cases plus `TestNewLLMTiering_DefaultsToOpenAIWhenOnlyOpenAIKeySet`. Confirmed compile-error RED on `tierFallbacks` undefined, then runtime RED on the integration test before implementation.
+  - **GREEN**: added `tierFallbacks()` helper + three OpenAI default constants in `internal/cli/tier_validate.go`; updated `validateTierConfigs` and `newLLMTiering` (in `internal/cli/llm_client.go`) to call it instead of using hardcoded constants.
+  - **REFACTOR**: hardened `TestAnalyze_llmClientError_returnsError` and `TestNewLLMTiering_DefaultsRequireAnthropicKey` to also `t.Setenv("OPENAI_API_KEY", "")` — both relied on an unset OPENAI_API_KEY in the dev shell, which my change exposed as a latent flake.
+- Coverage: `internal/cli` at 91.2% statements (above 90% threshold). `tierFallbacks` at 100%.
+- Build: ✅ `go build ./...` succeeds.
+- Linting: ✅ `golangci-lint run ./...` reports 0 issues.
+- README updated with a paragraph describing the new OpenAI fallback rule under `#### LLM tier configuration`.
+- Notes:
+  - Model choice (`gpt-4o`/`gpt-4o-mini`) was selected because both names are already used in `internal/analyzer/bifrost_client_test.go` against Bifrost — known-good in this codebase. Easy to swap if the user prefers newer model identifiers.
+  - The fallback is one-way: only flips to OpenAI when Anthropic is *unset*. Mixing — e.g. only setting `--llm-typical openai/gpt-4o` — leaves the other two tiers on whatever `tierFallbacks()` resolves to based on the env. This matches the existing semantic that explicit flags compose with default fallbacks per-tier.
+- Completed: 2026-05-01
+
 ## Task: Site formatting cleanup (feat/site-formatting) - COMPLETE
 - Started: 2026-04-27
 - Plan: `.plans/SITE_FORMATTING_DESIGN.md`

@@ -46,19 +46,21 @@ func (t *llmTiering) LargeCounter() analyzer.TokenCounter   { return t.largeCoun
 
 // newLLMTiering parses and validates the three tier strings, then eagerly
 // constructs all three clients. Empty strings fall back to built-in defaults
-// (anthropic/claude-haiku-4-5, -sonnet-4-6, -opus-4-7). Missing API keys or
-// unsupported providers fail here, before any analyze work begins.
+// resolved by tierFallbacks: Anthropic by default, OpenAI when only
+// OPENAI_API_KEY is set. Missing API keys or unsupported providers fail here,
+// before any analyze work begins.
 func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 	if err := validateTierConfigs(small, typical, large); err != nil {
 		return nil, err
 	}
 
+	smallFB, typicalFB, largeFB := tierFallbacks()
 	tiers := []struct {
 		name, raw, fallback string
 	}{
-		{"small", small, defaultSmallTier},
-		{"typical", typical, defaultTypicalTier},
-		{"large", large, defaultLargeTier},
+		{"small", small, smallFB},
+		{"typical", typical, typicalFB},
+		{"large", large, largeFB},
 	}
 	built := make([]analyzer.LLMClient, len(tiers))
 	counters := make([]analyzer.TokenCounter, len(tiers))
