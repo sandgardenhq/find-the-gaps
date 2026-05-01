@@ -186,6 +186,7 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-test",
 		"--llm-large", "anthropic/claude-test",
+		"--experimental-check-screenshots",
 		"--no-site",
 	})
 	combined := stdout.String() + stderr.String()
