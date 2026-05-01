@@ -327,3 +327,19 @@ func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 	_, err := DetectScreenshotGaps(ctx, client, pages, nil)
 	require.Error(t, err)
 }
+
+func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}, {Index: "img-2", Matches: false}}
+	refs := []imageRef{{Src: "a.png", AltText: "Settings"}, {Src: "b.png", AltText: "Logs"}}
+	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	assert.Contains(t, prompt, "img-1")
+	assert.Contains(t, prompt, "verdict: matches")
+	assert.Contains(t, prompt, "verdict: does not match")
+}
+
+func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing.T) {
+	refs := []imageRef{{Src: "a.png"}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil)
+	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs))
+	assert.Equal(t, want, got)
+}

@@ -210,6 +210,116 @@ Populate "gaps" with one object per REMAINING gap. Each object must have:
 Return an empty "gaps" array if nothing meets the bar. This is the expected outcome for most pages.`, pageURL, coverageSummary, content)
 }
 
+// buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
+// prompt for one docs page. When verdicts is nil or empty, it delegates to
+// buildScreenshotPrompt for byte-for-byte backward compatibility (the
+// non-vision path). When verdicts is non-empty, each image in the coverage
+// list is annotated with "verdict: matches" or "verdict: does not match" using
+// the same global "img-N" numbering scheme as the relevance pass (1-indexed,
+// no gaps), and the prompt instructs the model to (a) suppress findings when
+// a matches image already covers the moment and (b) report those suppressed
+// moments under "suppressed_by_image" so the audit stats can count them
+// without a second LLM call.
+func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict) string {
+	if len(verdicts) == 0 {
+		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs))
+	}
+
+	verdictByIndex := make(map[string]bool, len(verdicts))
+	for _, v := range verdicts {
+		verdictByIndex[v.Index] = v.Matches
+	}
+
+	annotation := func(idx int) string {
+		key := fmt.Sprintf("img-%d", idx)
+		matches, ok := verdictByIndex[key]
+		if !ok {
+			return "verdict: unknown"
+		}
+		if matches {
+			return "verdict: matches"
+		}
+		return "verdict: does not match"
+	}
+
+	var coverageSummary string
+	if len(refs) == 0 {
+		coverageSummary = "No existing images on this page."
+	} else {
+		// Group by section heading for stable, locality-aware listing while
+		// preserving the global img-N numbering (1-based, derived from the
+		// position of each ref in the input slice — same scheme used by the
+		// relevance pass).
+		indexByRef := make(map[*imageRef]int, len(refs))
+		for i := range refs {
+			indexByRef[&refs[i]] = i + 1
+		}
+		bySection := make(map[string][]*imageRef)
+		for i := range refs {
+			r := &refs[i]
+			bySection[r.SectionHeading] = append(bySection[r.SectionHeading], r)
+		}
+		sections := make([]string, 0, len(bySection))
+		for s := range bySection {
+			sections = append(sections, s)
+		}
+		sort.Strings(sections)
+		var lines []string
+		for _, s := range sections {
+			heading := s
+			if heading == "" {
+				heading = "(no heading)"
+			}
+			for _, r := range bySection[s] {
+				lines = append(lines, fmt.Sprintf("- img-%d (%s), section %q, paragraph %d: src=%q alt=%q",
+					indexByRef[r], annotation(indexByRef[r]), heading, r.ParagraphIndex, r.Src, r.AltText))
+			}
+		}
+		coverageSummary = strings.Join(lines, "\n")
+	}
+
+	// PROMPT: Verdict-enriched screenshot-gap detection. Same locality + bar-of-essentiality rules as the legacy prompt, plus: when an image marked "verdict: matches" already covers a passage, do NOT flag it as a missing screenshot. Instead, emit it under "suppressed_by_image" so audit stats can count what was suppressed without a second LLM round-trip. Images marked "verdict: does not match" do NOT cover their surrounding prose — treat them as if they were absent.
+	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot is ESSENTIAL — not merely helpful. The default is to flag nothing. Be aggressively conservative; over-flagging is worse than missing a gap.
+
+URL: %s
+
+Existing images on this page, each annotated with the relevance-pass verdict:
+%s
+
+Page content:
+%s
+
+Verdict semantics:
+- "verdict: matches" — the image's actual contents accurately reflect the surrounding prose. Treat the moment as ALREADY COVERED.
+- "verdict: does not match" — the image's actual contents do NOT reflect the surrounding prose. Treat the moment as NOT covered (as if no image were present at all).
+- "verdict: unknown" — fall back to the locality rule (same section heading, or within 3 paragraphs).
+
+A passage is ALREADY COVERED (do not flag it) if a "verdict: matches" image appears in the same section heading as the passage, OR within 3 paragraphs before/after the passage. The locality rule alone (without a matching verdict) is NOT sufficient when a verdict is present for the relevant image.
+
+Flag a passage ONLY if at least one is true:
+1. MULTI-STEP FLOW: It describes a sequence of two or more distinct user actions across changing UI states, and the reader needs to see the intermediate states to stay oriented (e.g., a wizard, an OAuth handshake screen-by-screen, a guided onboarding).
+2. VISUALLY DENSE: It describes a moment where prose cannot reasonably enumerate what is on screen — a dashboard with multiple panels, a chart whose shape matters, a configuration page with many interacting fields, a complex error state with specific layout.
+3. VISUAL RECOGNITION: The reader is asked to recognize something they cannot reconstruct from text alone — "look for the red banner at the top", "the chart should resemble this shape", "find the icon that looks like…".
+
+Do NOT flag:
+- Single-action interactions ("click Save", "press Enter", "fill in the email field").
+- Terminal sessions whose output is already shown inline in a code block.
+- Reference material (API signatures, option tables, type listings).
+- Abstract prose with no specific UI moment.
+- Anything covered by the locality rule above when paired with a "verdict: matches" image.
+- Passages where you cannot name, in one sentence, exactly what would be lost if the reader followed prose alone.
+
+Populate "gaps" with one object per REMAINING gap (one that would be flagged AND is not already covered by a matching image). Each object must have:
+- "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
+- "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
+- "suggested_alt": alt text / caption, under 100 characters.
+- "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
+
+Populate "suppressed_by_image" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a "verdict: matches" image already covers it. Same four fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
+
+Return empty arrays for both "gaps" and "suppressed_by_image" when nothing meets the bar. This is the expected outcome for most pages.`, pageURL, coverageSummary, content)
+}
+
 // fitContentToBudget returns content sized so that the assembled
 // screenshot-gap prompt fits inside budget tokens (using the local cl100k_base
 // estimator). The returned bool is false when the prompt overhead alone — URL,
@@ -245,18 +355,38 @@ type screenshotResponseItem struct {
 }
 
 // screenshotGapsResponse wraps the gap array because provider tool-call
-// input_schemas must be JSON objects at the root.
+// input_schemas must be JSON objects at the root. SuppressedByImage carries
+// moments the model would have flagged as missing screenshots if not for an
+// existing image whose verdict was matches=true; counted into audit stats but
+// not rendered to screenshots.md.
 type screenshotGapsResponse struct {
-	Gaps []screenshotResponseItem `json:"gaps"`
+	Gaps              []screenshotResponseItem `json:"gaps"`
+	SuppressedByImage []screenshotResponseItem `json:"suppressed_by_image"`
 }
 
-// PROMPT SCHEMA: output shape for DetectScreenshotGaps.
+// PROMPT SCHEMA: output shape for DetectScreenshotGaps. The suppressed_by_image
+// array mirrors the gaps array so the audit pipeline can count suppressed
+// moments without issuing a second detection call.
 var screenshotGapsSchema = JSONSchema{
 	Name: "screenshot_gaps_response",
 	Doc: json.RawMessage(`{
       "type": "object",
       "properties": {
         "gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "quoted_passage": {"type": "string"},
+              "should_show":    {"type": "string"},
+              "suggested_alt":  {"type": "string"},
+              "insertion_hint": {"type": "string"}
+            },
+            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint"],
+            "additionalProperties": false
+          }
+        },
+        "suppressed_by_image": {
           "type": "array",
           "items": {
             "type": "object",
