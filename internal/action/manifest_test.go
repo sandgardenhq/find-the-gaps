@@ -3,6 +3,7 @@ package action
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestActionManifest_DeclaresExpectedInputs(t *testing.T) {
 	require.Equal(t, "composite", manifest.Runs.Using, "must be a composite action")
 
 	required := []string{"docs-url", "anthropic-api-key"}
-	optional := []string{"create-issue", "skip-screenshot-check"}
+	optional := []string{"create-issue", "experimental-check-screenshots"}
 	for _, k := range required {
 		got, ok := manifest.Inputs[k]
 		require.True(t, ok, "input %q missing", k)
@@ -75,4 +76,39 @@ func TestActionManifest_StepsWired(t *testing.T) {
 	} {
 		require.Contains(t, names, want, "missing step %q", want)
 	}
+}
+
+// TestActionManifest_AnalyzeStepSkipsSiteBuild guards the "hugo not on PATH"
+// failure mode: the action installs the find-the-gaps binary and mdfetch but
+// not hugo, so the analyze step must opt out of the Hugo site build.
+// Without this, `ftg analyze` aborts with the ErrHugoMissing error and the
+// self-test workflow fails before any artifact is produced.
+func TestActionManifest_AnalyzeStepSkipsSiteBuild(t *testing.T) {
+	repoRoot, err := filepath.Abs("../..")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, "action.yml"))
+	require.NoError(t, err)
+
+	var manifest struct {
+		Runs struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"runs"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &manifest))
+
+	var analyzeRun string
+	for _, s := range manifest.Runs.Steps {
+		if s.Name == "Run analyze" {
+			analyzeRun = s.Run
+			break
+		}
+	}
+	require.NotEmpty(t, analyzeRun, "Run analyze step must be present")
+	require.True(t,
+		strings.Contains(analyzeRun, "--no-site"),
+		"Run analyze step must pass --no-site (hugo is not installed in the action); got: %s", analyzeRun)
 }

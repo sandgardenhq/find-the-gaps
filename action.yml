@@ -13,8 +13,8 @@ inputs:
     description: When 'true', open or update a tracking issue with findings.
     required: false
     default: 'true'
-  skip-screenshot-check:
-    description: When 'true', skip screenshot-gap detection.
+  experimental-check-screenshots:
+    description: When 'true', run the experimental missing-screenshot detection pass. Off by default.
     required: false
     default: 'false'
 
@@ -75,7 +75,7 @@ runs:
       env:
         DOCS_URL: ${{ inputs.docs-url }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
-        SKIP_SHOTS: ${{ inputs.skip-screenshot-check }}
+        CHECK_SHOTS: ${{ inputs.experimental-check-screenshots }}
         REPO_ABS: ${{ github.workspace }}
       run: |
         cache_dir="${RUNNER_TEMP}/ftg-cache"
@@ -84,8 +84,11 @@ runs:
         project_name="$(basename "${repo_abs}")"
         out_dir="${cache_dir}/${project_name}"
         flags=()
-        if [[ "${SKIP_SHOTS}" == "true" ]]; then flags+=("--skip-screenshot-check"); fi
-        ftg analyze --repo "${repo_abs}" --docs-url "${DOCS_URL}" --cache-dir "${cache_dir}" "${flags[@]}"
+        if [[ "${CHECK_SHOTS}" == "true" ]]; then flags+=("--experimental-check-screenshots"); fi
+        # The action installs the find-the-gaps binary and mdfetch but not hugo,
+        # so disable the Hugo site build. The action only uploads gaps.md and
+        # screenshots.md as artifacts; the rendered site would be discarded.
+        ftg analyze --repo "${repo_abs}" --docs-url "${DOCS_URL}" --cache-dir "${cache_dir}" --no-site "${flags[@]}"
         echo "out_dir=${out_dir}" >> "${GITHUB_OUTPUT}"
         if [[ ! -f "${out_dir}/gaps.md" && ! -f "${out_dir}/screenshots.md" ]]; then
           echo "::error::find-the-gaps action: expected report files at ${out_dir} but found none. The CLI's output convention may have changed; check internal/cli/analyze.go and update action.yml's out_dir computation."

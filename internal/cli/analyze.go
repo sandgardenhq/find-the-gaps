@@ -88,19 +88,19 @@ func runBothMaps(
 
 func newAnalyzeCmd() *cobra.Command {
 	var (
-		docsURL             string
-		repoPath            string
-		cacheDir            string
-		workers             int
-		noCache             bool
-		noSymbols           bool
-		llmSmall            string
-		llmTypical          string
-		llmLarge            string
-		skipScreenshotCheck bool
-		siteMode            string
-		noSite              bool
-		keepSiteSource      bool
+		docsURL                      string
+		repoPath                     string
+		cacheDir                     string
+		workers                      int
+		noCache                      bool
+		noSymbols                    bool
+		llmSmall                     string
+		llmTypical                   string
+		llmLarge                     string
+		experimentalCheckScreenshots bool
+		siteMode                     string
+		noSite                       bool
+		keepSiteSource               bool
 	)
 
 	cmd := &cobra.Command{
@@ -436,7 +436,7 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			var screenshotGaps []analyzer.ScreenshotGap
-			if !skipScreenshotCheck {
+			if experimentalCheckScreenshots {
 				log.Infof("detecting missing screenshots...")
 				docPages := buildScreenshotDocPages(pages, analyses)
 				progress := func(done, total int, page string) {
@@ -465,7 +465,7 @@ func newAnalyzeCmd() *cobra.Command {
 					return fmt.Errorf("write gaps: %w", err)
 				}
 			}
-			if !skipScreenshotCheck {
+			if experimentalCheckScreenshots {
 				if err := reporter.WriteScreenshots(projectDir, screenshotGaps); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
 				}
@@ -481,7 +481,7 @@ func newAnalyzeCmd() *cobra.Command {
 						AllDocFeatures: docCoveredFeatures,
 						Drift:          driftFindings,
 						Screenshots:    screenshotGaps,
-						ScreenshotsRan: !skipScreenshotCheck,
+						ScreenshotsRan: experimentalCheckScreenshots,
 					},
 					site.BuildOptions{
 						ProjectDir:  projectDir,
@@ -503,7 +503,7 @@ func newAnalyzeCmd() *cobra.Command {
 				gapsLine += " (cached, drift unchanged)"
 			}
 			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
-			if skipScreenshotCheck {
+			if !experimentalCheckScreenshots {
 				screenshotsLine += " (skipped)"
 			}
 			siteLine := "  " + projectDir + "/site/"
@@ -535,8 +535,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&llmLarge, "llm-large", "",
 		"large-tier model as \"provider/model\" (default: anthropic/claude-opus-4-7)")
 	cmd.Flags().BoolVar(&noSymbols, "no-symbols", false, "map features to files only, skipping symbol-level analysis")
-	cmd.Flags().BoolVar(&skipScreenshotCheck, "skip-screenshot-check", false,
-		"skip the missing-screenshot detection pass")
+	cmd.Flags().BoolVar(&experimentalCheckScreenshots, "experimental-check-screenshots", false,
+		"enable experimental missing-screenshot detection pass")
 	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
 	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
 	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true,

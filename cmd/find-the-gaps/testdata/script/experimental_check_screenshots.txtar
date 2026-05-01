@@ -1,0 +1,6 @@
+# analyze accepts --experimental-check-screenshots without error (no --docs-url,
+# so the analyze command short-circuits after scanning — the flag just needs
+# to parse).
+mkdir repo
+exec ftg analyze --repo repo --cache-dir $WORK/cache --experimental-check-screenshots
+stdout 'scanned 0 files'

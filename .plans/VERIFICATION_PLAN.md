@@ -91,24 +91,24 @@ Before any scenario runs:
 
 ---
 
-### Scenario 5: Detect Missing Screenshots
+### Scenario 5: Detect Missing Screenshots (Experimental, Opt-In)
 
-**Context**: Known-good fixture + docs site, but a page describes a UI moment with no nearby image.
+**Context**: Known-good fixture + docs site, but a page describes a UI moment with no nearby image. The screenshot pass is experimental and off by default — verification covers both the default-off path and the explicit opt-in.
 
 **Steps**:
-1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>`.
-2. Inspect `<projectDir>/screenshots.md`.
-3. Re-run with `--skip-screenshot-check`.
-4. Inspect the output directory.
+1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>` (no extra flags).
+2. Inspect `<projectDir>/`.
+3. Re-run with `--experimental-check-screenshots`.
+4. Inspect `<projectDir>/screenshots.md`.
 
 **Success Criteria**:
-- [ ] First run writes `screenshots.md`; `gaps.md` does NOT contain a `Missing Screenshots` section.
+- [ ] First run does NOT write `screenshots.md`.
+- [ ] First run's stdout `reports:` block lists `screenshots.md (skipped)`.
+- [ ] Second run writes `screenshots.md`.
 - [ ] `screenshots.md` contains at least one gap for the known UI passage with all four fields populated.
-- [ ] Stdout lists `screenshots.md` in the `reports:` block.
-- [ ] Second run does NOT write `screenshots.md`.
-- [ ] Second run's stdout lists `screenshots.md (skipped)`.
+- [ ] Second run's stdout lists `screenshots.md` without the `(skipped)` annotation.
 
-**If Blocked**: If `screenshots.md` renders on the skipped run, the gating is broken. Stop and ask.
+**If Blocked**: If `screenshots.md` renders on the default run, the gating is broken. Stop and ask.
 
 ---
 

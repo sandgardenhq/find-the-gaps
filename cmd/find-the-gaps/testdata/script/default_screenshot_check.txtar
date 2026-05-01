@@ -1,5 +1,6 @@
-# analyze accepts the default (screenshot check enabled) without error. No
-# --docs-url means the pipeline short-circuits before any LLM call is made.
+# analyze accepts the default invocation (screenshot check off, experimental,
+# opt-in via --experimental-check-screenshots) without error. No --docs-url
+# means the pipeline short-circuits before any LLM call is made.
 mkdir repo
 exec ftg analyze --repo repo --cache-dir $WORK/cache
 stdout 'scanned 0 files'

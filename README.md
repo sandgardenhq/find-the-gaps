@@ -112,20 +112,20 @@ Usage:
   ftg analyze [flags]
 
 Flags:
-      --cache-dir string        base directory for all cached results (default ".find-the-gaps")
-      --docs-url string         URL of the documentation site to analyze
-  -h, --help                    help for analyze
-      --keep-site-source        preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
-      --llm-large string        large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
-      --llm-small string        small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
-      --llm-typical string      typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
-      --no-cache                force full re-scan, ignoring any cached results
-      --no-site                 skip the Hugo site build; markdown reports still emitted
-      --no-symbols              map features to files only, skipping symbol-level analysis
-      --repo string             path to the repository to analyze (default ".")
-      --site-mode string        site content shape: "mirror" or "expanded" (default "mirror")
-      --skip-screenshot-check   skip the missing-screenshot detection pass
-      --workers int             number of parallel mdfetch workers (default 5)
+      --cache-dir string                 base directory for all cached results (default ".find-the-gaps")
+      --docs-url string                  URL of the documentation site to analyze
+      --experimental-check-screenshots   enable experimental missing-screenshot detection pass
+  -h, --help                             help for analyze
+      --keep-site-source                 preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
+      --llm-large string                 large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
+      --llm-small string                 small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
+      --llm-typical string               typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
+      --no-cache                         force full re-scan, ignoring any cached results
+      --no-site                          skip the Hugo site build; markdown reports still emitted
+      --no-symbols                       map features to files only, skipping symbol-level analysis
+      --repo string                      path to the repository to analyze (default ".")
+      --site-mode string                 site content shape: "mirror" or "expanded" (default "mirror")
+      --workers int                      number of parallel mdfetch workers (default 5)
 
 Global Flags:
   -v, --verbose   show debug logs
@@ -234,7 +234,7 @@ Re-run `ftg install-deps` whenever you want to pick up a new `mdfetch` release �
   - *Undocumented Code* — features implemented in code but absent from docs
   - *Unmapped Features* — features mentioned in docs with no matching code
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
-- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. Written whenever the screenshot pass runs (zero findings produces a `_None found._` body). Not written when `--skip-screenshot-check` is passed.
+- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. The detection pass is **experimental and off by default**; pass `--experimental-check-screenshots` to opt in. When the pass runs, this file is written even on zero findings (body is `_None found._`); when the pass is off, the file is not written.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
 ## Ignored files
@@ -286,7 +286,7 @@ locally.
 | `docs-url` | yes | — | URL of the live documentation site |
 | `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
 | `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
-| `skip-screenshot-check` | no | `false` | Skip screenshot-gap detection |
+| `experimental-check-screenshots` | no | `false` | Run the experimental missing-screenshot detection pass |
 
 ### Outputs
 
