@@ -447,6 +447,7 @@ func newAnalyzeCmd() *cobra.Command {
 					return fmt.Errorf("detect screenshots: %w", err)
 				}
 				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotResult.MissingGaps))
+				emitScreenshotAuditLog(screenshotResult.AuditStats)
 			}
 
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
