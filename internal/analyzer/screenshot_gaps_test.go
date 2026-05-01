@@ -194,9 +194,10 @@ func (f *fakeLLMClient) Capabilities() ModelCapabilities { return ModelCapabilit
 
 func TestDetectScreenshotGaps_NoPages(t *testing.T) {
 	client := &fakeLLMClient{}
-	gaps, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
 	require.NoError(t, err)
-	assert.Empty(t, gaps)
+	assert.Empty(t, res.MissingGaps)
+	assert.Empty(t, res.AuditStats)
 	assert.Empty(t, client.prompts)
 }
 
@@ -209,12 +210,12 @@ func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 	pages := []DocPage{
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n\nRun the command.\n"},
 	}
-	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
 	require.NoError(t, err)
-	require.Len(t, gaps, 1)
-	assert.Equal(t, "https://example.com/a", gaps[0].PageURL)
-	assert.Equal(t, "/tmp/a.md", gaps[0].PagePath)
-	assert.Equal(t, "Run the command.", gaps[0].QuotedPassage)
+	require.Len(t, res.MissingGaps, 1)
+	assert.Equal(t, "https://example.com/a", res.MissingGaps[0].PageURL)
+	assert.Equal(t, "/tmp/a.md", res.MissingGaps[0].PagePath)
+	assert.Equal(t, "Run the command.", res.MissingGaps[0].QuotedPassage)
 }
 
 func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
@@ -225,9 +226,9 @@ func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
 		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
 	}
-	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
 	require.NoError(t, err) // parse errors log-and-continue
-	assert.Empty(t, gaps)
+	assert.Empty(t, res.MissingGaps)
 	assert.Len(t, client.prompts, 2) // both pages were attempted
 }
 

@@ -576,54 +576,120 @@ type DocPage struct {
 // progress counts. currentPage is the URL of the page just processed.
 type ScreenshotProgressFunc func(done, total int, currentPage string)
 
-// DetectScreenshotGaps iterates pages sequentially, issues one LLM call per page,
-// and returns all findings. Per-page parse failures are logged and skipped
-// (fail-open); context / network errors are returned immediately.
+// ScreenshotResult bundles the outputs of one DetectScreenshotGaps run:
+// the missing-screenshot findings rendered in screenshots.md, the image-issue
+// findings from the vision relevance pass, and per-page audit stats used by
+// the audit log line and the reporter.
+type ScreenshotResult struct {
+	MissingGaps []ScreenshotGap
+	ImageIssues []ImageIssue
+	AuditStats  []ScreenshotPageStats
+}
+
+// ScreenshotPageStats records what each per-page screenshot pass did. Emitted
+// once per page after analysis completes; consumed by the audit log line in
+// the CLI and by the reporter when deciding whether to render the
+// `## Image Issues` section. VisionEnabled=false means the model lacked vision
+// or the page had zero images, so RelevanceBatches and ImageIssues will be 0.
+type ScreenshotPageStats struct {
+	PageURL            string
+	VisionEnabled      bool
+	RelevanceBatches   int
+	ImagesSeen         int
+	ImageIssues        int
+	MissingScreenshots int
+	MissingSuppressed  int
+}
+
+// detectionPass runs the text-only screenshot-gap detection LLM call for one
+// page. When verdicts is non-empty, the prompt is verdict-enriched and the
+// response carries a suppressed_by_image array; when verdicts is nil it
+// delegates to the legacy prompt and only the gaps array is populated. The
+// returned `suppressed` count is for audit stats only — suppressed_by_image
+// items are NOT rendered to the user. Per-page parse failures are logged and
+// the function returns empty results with err=nil so one bad page doesn't
+// poison the whole run; context / network errors propagate.
+func detectionPass(
+	ctx context.Context,
+	client LLMClient,
+	page DocPage,
+	refs []imageRef,
+	verdicts []ImageVerdict,
+) (gaps []ScreenshotGap, suppressed int, err error) {
+	coverage := buildCoverageMap(refs)
+	content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
+	if !ok {
+		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
+		return nil, 0, nil
+	}
+	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
+	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
+	if err != nil {
+		return nil, 0, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+	}
+	var resp screenshotGapsResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
+		return nil, 0, nil
+	}
+	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
+	for _, it := range resp.Gaps {
+		gaps = append(gaps, ScreenshotGap{
+			PageURL:       page.URL,
+			PagePath:      page.Path,
+			QuotedPassage: it.QuotedPassage,
+			ShouldShow:    it.ShouldShow,
+			SuggestedAlt:  it.SuggestedAlt,
+			InsertionHint: it.InsertionHint,
+		})
+	}
+	return gaps, len(resp.SuppressedByImage), nil
+}
+
+// DetectScreenshotGaps iterates pages sequentially. For each page, when the
+// model has Vision capability and the page has images, the relevance pass
+// runs first and its verdicts feed the verdict-enriched detection prompt;
+// otherwise the detection pass runs against the legacy prompt. Per-page parse
+// failures are logged and skipped (fail-open); context / network errors are
+// returned immediately. Returns a ScreenshotResult bundling missing-screenshot
+// gaps, vision image-issues, and per-page audit stats.
 func DetectScreenshotGaps(
 	ctx context.Context,
 	client LLMClient,
 	pages []DocPage,
 	progress ScreenshotProgressFunc,
-) ([]ScreenshotGap, error) {
-	var gaps []ScreenshotGap
+) (ScreenshotResult, error) {
+	var result ScreenshotResult
 	total := len(pages)
 	for i, page := range pages {
 		refs := extractImages(page.Content)
-		coverage := buildCoverageMap(refs)
-		content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
-		if !ok {
-			log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-			if progress != nil {
-				progress(i+1, total, page.URL)
-			}
-			continue
+		stats := ScreenshotPageStats{
+			PageURL:    page.URL,
+			ImagesSeen: len(refs),
 		}
-		prompt := buildScreenshotPrompt(page.URL, content, coverage)
-		raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
+		var verdicts []ImageVerdict
+		if client.Capabilities().Vision && len(refs) > 0 {
+			stats.VisionEnabled = true
+			stats.RelevanceBatches = len(splitImageBatches(refs, 5))
+			issues, vs, err := relevancePass(ctx, client, page, refs)
+			if err != nil {
+				return result, err
+			}
+			result.ImageIssues = append(result.ImageIssues, issues...)
+			stats.ImageIssues = len(issues)
+			verdicts = vs
+		}
+		gaps, suppressed, err := detectionPass(ctx, client, page, refs, verdicts)
 		if err != nil {
-			return nil, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+			return result, err
 		}
-		var resp screenshotGapsResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
-			if progress != nil {
-				progress(i+1, total, page.URL)
-			}
-			continue
-		}
-		for _, it := range resp.Gaps {
-			gaps = append(gaps, ScreenshotGap{
-				PageURL:       page.URL,
-				PagePath:      page.Path,
-				QuotedPassage: it.QuotedPassage,
-				ShouldShow:    it.ShouldShow,
-				SuggestedAlt:  it.SuggestedAlt,
-				InsertionHint: it.InsertionHint,
-			})
-		}
+		stats.MissingScreenshots = len(gaps)
+		stats.MissingSuppressed = suppressed
+		result.MissingGaps = append(result.MissingGaps, gaps...)
+		result.AuditStats = append(result.AuditStats, stats)
 		if progress != nil {
 			progress(i+1, total, page.URL)
 		}
 	}
-	return gaps, nil
+	return result, nil
 }

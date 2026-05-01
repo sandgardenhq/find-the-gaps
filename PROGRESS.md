@@ -1,5 +1,18 @@
 # Progress
 
+## Task 10 (vision-image-analysis): Wire vision branch into DetectScreenshotGaps - COMPLETE
+- Started: 2026-05-01
+- Plan: `.plans/VISION_IMAGE_ANALYSIS_IMPLEMENTATION_PLAN.md` (Task 10)
+- Summary: Changed `DetectScreenshotGaps` return type from `[]ScreenshotGap` to `ScreenshotResult` (bundles `MissingGaps`, `ImageIssues`, `AuditStats`). Added `ScreenshotPageStats` struct for per-page audit counters. Inside the per-page loop, branches on `client.Capabilities().Vision`: when vision is on AND the page has images, runs `relevancePass` (returns `[]ImageIssue` + `[]ImageVerdict`), then always runs the new `detectionPass` helper. Vision-on detection uses `buildDetectionPromptWithVerdicts` with the verdicts; vision-off detection passes `verdicts=nil` which delegates to the legacy prompt for byte-stable behavior. Extracted `detectionPass(ctx, client, page, refs, verdicts)` to keep `DetectScreenshotGaps` readable; it owns `fitContentToBudget`, the `CompleteJSON` call, JSON parse, and conversion to `ScreenshotGap`. Updated the single caller in `internal/cli/analyze.go` (3 spots: variable declaration, `WriteScreenshots`, `site.Build` Inputs) to use `screenshotResult.MissingGaps`. The unrendered `suppressed_by_image` count is captured in `AuditStats[i].MissingSuppressed` for the future audit log line (Task 12).
+- TDD log:
+  - **RED**: New `internal/analyzer/screenshot_gaps_integration_test.go` with `TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats` (vision-on, 6 images → 2 batches, scripted multimodal+detection responses, asserts ImageIssues/MissingGaps/AuditStats) and `TestDetectScreenshotGaps_NonVisionBranchUnchanged` (vision-off, asserts MissingGaps populated, ImageIssues empty). Verified RED — build failed because `ScreenshotResult` and `AuditStats` were undefined.
+  - **GREEN**: Added `ScreenshotResult`, `ScreenshotPageStats`, and `detectionPass` to `screenshot_gaps.go`; rewrote `DetectScreenshotGaps` body. Updated the three pre-existing tests in `screenshot_gaps_test.go` (`NoPages`, `SinglePage_Findings`, `ParseErrorIsolatesPage`) for the new return shape. Updated three call sites in `internal/cli/analyze.go`.
+- Tests: `go test ./...` green. New `TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats` and `TestDetectScreenshotGaps_NonVisionBranchUnchanged` pass; pre-existing `TestDetectScreenshotGaps_*` (NoPages, SinglePage_Findings, ParseErrorIsolatesPage, Progress, TruncatesOversizedPage, ContextCanceled) still pass.
+- Coverage: `internal/analyzer` at 93.5% statements (`detectionPass` 88.2%, `DetectScreenshotGaps` 96.0%). `internal/cli` at 91.4%.
+- Build: ✅ Successful
+- Linting: ✅ `golangci-lint run` clean
+- Completed: 2026-05-01
+
 ## Task: Site formatting cleanup (feat/site-formatting) - COMPLETE
 - Started: 2026-04-27
 - Plan: `.plans/SITE_FORMATTING_DESIGN.md`
