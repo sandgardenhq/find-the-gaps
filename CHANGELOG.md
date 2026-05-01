@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Added
+- **Per-model capability registry.** Replaces the flat provider whitelist with
+  a `(provider, model) -> {tool_use, vision}` table. Tier validation and the
+  screenshot pipeline both consume it, so adding a new model is a one-row
+  change. Self-hosted providers (`ollama`, `lmstudio`) match a wildcard row
+  with capabilities defaulted to off.
+- **Groq provider.** New `--llm-*=groq/<model>` syntax routed through
+  Bifrost's OpenAI-compat endpoint at `https://api.groq.com/openai`. Reads
+  `GROQ_API_KEY` (required) and `GROQ_BASE_URL` (optional override).
+- **Vision-aware screenshot analysis.** When `--llm-small` resolves to a
+  vision-capable model, the screenshot pass adds an image-relevance check
+  (does each `<img>` actually depict what the prose claims?) and uses the
+  result to suppress missing-screenshot suggestions where an existing image
+  already covers the moment. Auto-engages — no flag.
+- **`## Image Issues` section in `screenshots.md`.** Lists images whose
+  surrounding prose doesn't match what they show, with the page URL, image
+  src, and the model's reasoning. Populated when the small tier is
+  vision-capable; absent otherwise. The Hugo site picks it up automatically.
+- **Per-page screenshot audit log.** New `log.Infof` line per page —
+  `page=<url> vision=on/off relevance_batches=N images_seen=N
+  image_issues=N missing_screenshots=N missing_suppressed=N
+  detection_skipped=true|false` — for run-time observability.
+- **`ftg doctor` capability output.** Prints the resolved tier model and its
+  capabilities (`tool_use`, `vision`) so users can tell at a glance whether
+  vision will engage on a given configuration.
+
+### Changed
+- **Site materialization refactor.** `internal/site` now reads
+  `screenshots.md` from the reporter instead of re-rendering from typed
+  structs (matching the existing `gaps.md` pattern). Net negative line count
+  and the `## Image Issues` section flows through to the Hugo site without
+  any per-section template.
+
 ## v0.2.0
 
 ### Added
