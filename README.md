@@ -112,20 +112,20 @@ Usage:
   ftg analyze [flags]
 
 Flags:
-      --cache-dir string        base directory for all cached results (default ".find-the-gaps")
-      --docs-url string         URL of the documentation site to analyze
-  -h, --help                    help for analyze
-      --keep-site-source        preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
-      --llm-large string        large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
-      --llm-small string        small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
-      --llm-typical string      typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
-      --no-cache                force full re-scan, ignoring any cached results
-      --no-site                 skip the Hugo site build; markdown reports still emitted
-      --no-symbols              map features to files only, skipping symbol-level analysis
-      --repo string             path to the repository to analyze (default ".")
-      --site-mode string        site content shape: "mirror" or "expanded" (default "mirror")
+      --cache-dir string                 base directory for all cached results (default ".find-the-gaps")
+      --docs-url string                  URL of the documentation site to analyze
       --experimental-check-screenshots   enable experimental missing-screenshot detection pass
-      --workers int             number of parallel mdfetch workers (default 5)
+  -h, --help                             help for analyze
+      --keep-site-source                 preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
+      --llm-large string                 large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
+      --llm-small string                 small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
+      --llm-typical string               typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
+      --no-cache                         force full re-scan, ignoring any cached results
+      --no-site                          skip the Hugo site build; markdown reports still emitted
+      --no-symbols                       map features to files only, skipping symbol-level analysis
+      --repo string                      path to the repository to analyze (default ".")
+      --site-mode string                 site content shape: "mirror" or "expanded" (default "mirror")
+      --workers int                      number of parallel mdfetch workers (default 5)
 
 Global Flags:
   -v, --verbose   show debug logs
