@@ -201,7 +201,7 @@ func TestAnalyze_crawlFails_returnsError(t *testing.T) {
 		"--cache-dir", f.Name(),
 		"--workers", "1",
 		"--llm-small", "ollama/llama3",
-		"--llm-large", "anthropic/claude-test",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 	})
 	if code == 0 {
 		t.Error("expected non-zero exit when crawl fails")
@@ -339,8 +339,8 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "anthropic/claude-test",
-		"--llm-large", "anthropic/claude-test",
+		"--llm-typical", "anthropic/claude-haiku-4-5",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 		"--no-site",
 	})
 	if code != 0 {
@@ -449,8 +449,8 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "anthropic/claude-test",
-		"--llm-large", "anthropic/claude-test",
+		"--llm-typical", "anthropic/claude-haiku-4-5",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 		"--skip-screenshot-check",
 		"--no-site",
 	})
@@ -547,8 +547,8 @@ func TestAnalyze_writesSiteAfterReports(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "anthropic/claude-test",
-		"--llm-large", "anthropic/claude-test",
+		"--llm-typical", "anthropic/claude-haiku-4-5",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 		"--skip-screenshot-check",
 	})
 	if code != 0 {
@@ -614,7 +614,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
-		"--llm-large", "anthropic/claude-test",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 		"--skip-screenshot-check",
 		"--no-site",
 	})
@@ -670,8 +670,8 @@ func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "anthropic/claude-test",
-		"--llm-large", "anthropic/claude-test",
+		"--llm-typical", "anthropic/claude-haiku-4-5",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 	})
 	if code != 0 {
 		t.Fatalf("analyze should exit 0 after skipping failed page (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())

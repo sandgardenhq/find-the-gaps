@@ -3,6 +3,9 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateTierConfigs_Defaults(t *testing.T) {
@@ -44,4 +47,33 @@ func TestValidateTierConfigs_LargeCanBeNonToolUse(t *testing.T) {
 	if err := validateTierConfigs("", "", "ollama/llama3.1"); err != nil {
 		t.Fatalf("ollama in large tier should be allowed: %v", err)
 	}
+}
+
+func TestValidateTierConfigs_RejectsUnknownProvider(t *testing.T) {
+	err := validateTierConfigs("nope/foo", "", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown provider")
+	assert.Contains(t, err.Error(), "nope")
+}
+
+func TestValidateTierConfigs_TypicalRequiresToolUse(t *testing.T) {
+	err := validateTierConfigs("", "ollama/llama3", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool use")
+	assert.Contains(t, err.Error(), "typical")
+}
+
+func TestValidateTierConfigs_AllowsGroqOnTypical(t *testing.T) {
+	err := validateTierConfigs("", "groq/meta-llama/llama-4-scout-17b-16e-instruct", "")
+	assert.NoError(t, err)
+}
+
+func TestValidateTierConfigs_AllowsUnknownModelOnKnownProvider(t *testing.T) {
+	err := validateTierConfigs("anthropic/claude-future-9-9", "", "")
+	assert.NoError(t, err)
+}
+
+func TestValidateTierConfigs_DefaultsAreValid(t *testing.T) {
+	err := validateTierConfigs("", "", "")
+	assert.NoError(t, err)
 }

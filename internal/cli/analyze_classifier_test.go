@@ -184,8 +184,8 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", apiURL,
 		"--llm-small", "ollama/test-model",
-		"--llm-typical", "anthropic/claude-test",
-		"--llm-large", "anthropic/claude-test",
+		"--llm-typical", "anthropic/claude-haiku-4-5",
+		"--llm-large", "anthropic/claude-haiku-4-5",
 		"--no-site",
 	})
 	combined := stdout.String() + stderr.String()

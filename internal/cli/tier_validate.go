@@ -9,9 +9,26 @@ const (
 	defaultLargeTier   = "anthropic/claude-opus-4-7"
 )
 
+// knownProviders returns the deduplicated provider list for "valid: ..."
+// error messages. Built from knownModels so adding a provider only requires
+// a row in the registry.
+func knownProviders() []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, m := range knownModels {
+		if _, ok := seen[m.Provider]; ok {
+			continue
+		}
+		seen[m.Provider] = struct{}{}
+		out = append(out, m.Provider)
+	}
+	return out
+}
+
 // validateTierConfigs parses each tier string, applies defaults for empties,
-// and enforces that the typical tier's provider supports tool use (it runs
-// the drift investigator's tool-use loop). Returns typed errors naming the
+// and enforces that the typical tier's model supports tool use (it runs the
+// drift investigator's tool-use loop). Capability lookups are driven by the
+// per-model registry in capabilities.go. Returns typed errors naming the
 // offending tier.
 func validateTierConfigs(small, typical, large string) error {
 	for _, tc := range []struct {
@@ -27,25 +44,17 @@ func validateTierConfigs(small, typical, large string) error {
 		if s == "" {
 			s = tc.fallback
 		}
-		provider, _, err := parseTierString(s)
+		provider, model, err := parseTierString(s)
 		if err != nil {
 			return fmt.Errorf("tier %q: %w", tc.name, err)
 		}
-		if !isKnownProvider(provider) {
-			return fmt.Errorf("tier %q: unknown provider %q (valid: anthropic, openai, ollama, lmstudio)", tc.name, provider)
+		caps, ok := ResolveCapabilities(provider, model)
+		if !ok {
+			return fmt.Errorf("tier %q: unknown provider %q (valid: %v)", tc.name, provider, knownProviders())
 		}
-		if tc.needsTool && !providerSupportsToolUse(provider) {
-			return fmt.Errorf("tier %q: provider %q does not support tool use; the drift investigator requires anthropic or openai", tc.name, provider)
+		if tc.needsTool && !caps.ToolUse {
+			return fmt.Errorf("tier %q: model %q on provider %q does not support tool use; the drift investigator requires a tool-use-capable model", tc.name, model, provider)
 		}
 	}
 	return nil
-}
-
-func isKnownProvider(p string) bool {
-	switch p {
-	case "anthropic", "openai", "ollama", "lmstudio":
-		return true
-	default:
-		return false
-	}
 }
