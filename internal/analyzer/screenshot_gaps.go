@@ -119,6 +119,24 @@ func extractImages(md string) []imageRef {
 	return refs
 }
 
+// splitImageBatches groups refs into chunks of size <= max, preserving order.
+// Returns nil for empty input or non-positive max. Used by the vision relevance
+// pass to keep each multimodal call within Groq's 5-image-per-request cap.
+func splitImageBatches(refs []imageRef, max int) [][]imageRef {
+	if len(refs) == 0 || max <= 0 {
+		return nil
+	}
+	out := make([][]imageRef, 0, (len(refs)+max-1)/max)
+	for i := 0; i < len(refs); i += max {
+		end := i + max
+		if end > len(refs) {
+			end = len(refs)
+		}
+		out = append(out, refs[i:end])
+	}
+	return out
+}
+
 // buildCoverageMap groups image references by their containing section heading.
 // Passed into the prompt so the LLM can apply the locality rule.
 func buildCoverageMap(refs []imageRef) map[string][]imageRef {

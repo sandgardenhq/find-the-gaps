@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -272,6 +273,34 @@ func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
 	got := countTokens(sent)
 	assert.Less(t, got, ScreenshotPromptBudget,
 		"prompt token count must fit inside ScreenshotPromptBudget after truncation")
+}
+
+func TestSplitImageBatches(t *testing.T) {
+	ref := func(i int) imageRef { return imageRef{Src: fmt.Sprintf("img-%d.png", i)} }
+	for _, tc := range []struct {
+		name string
+		n    int
+		want []int // batch sizes
+	}{
+		{"empty", 0, nil},
+		{"one", 1, []int{1}},
+		{"exactly five", 5, []int{5}},
+		{"six", 6, []int{5, 1}},
+		{"twelve", 12, []int{5, 5, 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := make([]imageRef, tc.n)
+			for i := range refs {
+				refs[i] = ref(i)
+			}
+			got := splitImageBatches(refs, 5)
+			var gotSizes []int
+			for _, b := range got {
+				gotSizes = append(gotSizes, len(b))
+			}
+			assert.Equal(t, tc.want, gotSizes)
+		})
+	}
 }
 
 func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
