@@ -1219,3 +1219,18 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - New types: `ImageIssue` (PageURL/Index/Src/Reason/SuggestedAction), `ImageVerdict` (Index/Matches), and the schema `screenshot_image_relevance` with the two-array shape.
   - `// PROMPT:` block on `buildRelevancePrompt` documents the index naming convention, the relevance criterion ("does prose accurately describe what the image shows"), and the JSON shape.
   - Fakes updated (added a 1–3 line `CompleteJSONMultimodal` stub each): analyzer-side `fakeClient`, `stubToolClient`, `fakeLLMClient` (screenshot test), `driftStubClient`, `driftStubClientWithErr`, `fakeNonToolClient`, `fakeToolClient`, `fakeDynamicClient`; cli-side `countingClient` (counts the call), `fakeLLMClient`, `fakeToolLLMClient`, `stubLLMClient`, `skipDriftStubClient`. Plus a new `fakeJSONClient` in the relevance test that captures messages + counts calls atomically.
+
+
+## Task 13 (vision-image-analysis): doctor capability output - COMPLETE
+- Started: 2026-05-01
+- Tests: ALL passing across all packages (`go test ./...` clean).
+  - New: `TestDoctor_PrintsResolvedCapabilitiesPerTier`, `TestDoctor_PrintsResolvedCapabilitiesFromFlags`, `TestPrintTierCapabilities_InvalidTierString`, `TestPrintTierCapabilities_UnknownProvider`.
+- Coverage: `internal/cli` 93.0% (up from 92.5%); `printTierCapabilities` and `newDoctorCmd` both 100%.
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - `internal/cli/doctor.go` now extends the doctor cobra command with `--llm-small`, `--llm-typical`, `--llm-large` flags (mirroring analyze) plus `FIND_THE_GAPS_LLM_*` env-var fallbacks. After `doctor.Run` finishes its mdfetch/hugo checks, `printTierCapabilities` writes one line per tier: `small: anthropic/claude-haiku-4-5 (tool_use=true vision=true)` etc.
+  - Empty tier inputs fall back to `defaultSmallTier` / `defaultTypicalTier` / `defaultLargeTier` from `tier_validate.go`, matching what analyze would resolve, so `ftg doctor` doubles as a tier sanity check.
+  - Tier lines render even when external-tool checks fail — they describe configuration, not tool presence — but the exit code from `doctor.Run` is preserved.
+  - No package extraction was needed: `internal/cli` already imports `internal/doctor`, and the rendering logic lives in the cli wrapper, so no cycle is introduced.
