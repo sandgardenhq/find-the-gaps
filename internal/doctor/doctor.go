@@ -14,12 +14,10 @@ import (
 )
 
 type Tool struct {
-	Name        string              // display name, e.g. "mdfetch"
-	Binary      string              // executable name on PATH, e.g. "mdfetch"
-	VersionArg  string              // argument that prints the version, e.g. "--version"
-	InstallHint string              // human-readable install fallback shown when automated install is unavailable
-	InstallCmds map[string][]string // GOOS → {cmd, arg1, ...} for automated install
-	Upgrade     bool                // when true, install-deps runs InstallCmds even if Binary is already on PATH (used to pull the latest published version)
+	Name        string // display name, e.g. "mdfetch"
+	Binary      string // executable name on PATH, e.g. "mdfetch"
+	VersionArg  string // argument that prints the version, e.g. "--version"
+	InstallHint string // human-readable install hint shown when the tool is missing
 }
 
 // RequiredTools is the fixed list of external dependencies find-the-gaps needs.
@@ -29,22 +27,12 @@ var RequiredTools = []Tool{
 		Binary:      "mdfetch",
 		VersionArg:  "--version",
 		InstallHint: "npm install -g @sandgarden/mdfetch@latest",
-		Upgrade:     true,
-		InstallCmds: map[string][]string{
-			"darwin":  {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
-			"linux":   {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
-			"windows": {"npm", "install", "-g", "@sandgarden/mdfetch@latest"},
-		},
 	},
 	{
 		Name:        "hugo",
 		Binary:      "hugo",
 		VersionArg:  "version",
 		InstallHint: "brew install hugo (or see https://github.com/gohugoio/hugo/releases)",
-		InstallCmds: map[string][]string{
-			"darwin": {"brew", "install", "hugo"},
-			"linux":  {"brew", "install", "hugo"},
-		},
 	},
 }
 

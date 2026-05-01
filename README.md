@@ -51,7 +51,7 @@ Run `ftg doctor` at any time to check that they are available and see their dete
 brew install sandgardenhq/tap/find-the-gaps
 ```
 
-The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs `ftg install-deps` during post-install to fetch `mdfetch` (via npm) and `hugo` (via brew). Run `ftg doctor` after install to confirm everything is wired up.
+The formula installs the `ftg` binary and pulls in `hugo` and `sandgardenhq/tap/mdfetch` as brew dependencies (the `mdfetch` formula in the same tap wraps the `@sandgarden/mdfetch` npm package). Run `ftg doctor` after install to confirm everything is wired up.
 
 ### Other platforms
 
@@ -76,7 +76,8 @@ make build
 Then install the required external tools:
 
 ```sh
-ftg install-deps
+brew install sandgardenhq/tap/mdfetch  # or: npm install -g @sandgarden/mdfetch@latest
+brew install hugo                      # or see https://github.com/gohugoio/hugo/releases
 ```
 
 ## Quick start
@@ -113,12 +114,11 @@ Usage:
   ftg [command]
 
 Available Commands:
-  analyze      Analyze a codebase against its documentation site for gaps.
-  completion   Generate the autocompletion script for the specified shell
-  doctor       Check that the required external tools (mdfetch, hugo) are installed.
-  help         Help about any command
-  install-deps Install required external tools (mdfetch, hugo).
-  serve        Serve the find-the-gaps report site over HTTP.
+  analyze     Analyze a codebase against its documentation site for gaps.
+  completion  Generate the autocompletion script for the specified shell
+  doctor      Check that the required external tools (mdfetch, hugo) are installed.
+  help        Help about any command
+  serve       Serve the find-the-gaps report site over HTTP.
 
 Flags:
   -h, --help      help for ftg
@@ -235,23 +235,6 @@ Flags:
 Global Flags:
   -v, --verbose   show debug logs
 ```
-
-### install-deps
-
-```
-Install required external tools (mdfetch, hugo). mdfetch is always reinstalled to pull the latest published version; hugo is skipped if already on $PATH.
-
-Usage:
-  ftg install-deps [flags]
-
-Flags:
-  -h, --help   help for install-deps
-
-Global Flags:
-  -v, --verbose   show debug logs
-```
-
-Re-run `ftg install-deps` whenever you want to pick up a new `mdfetch` release — it always reinstalls `mdfetch` to the latest version on npm.
 
 ## Output
 
