@@ -48,6 +48,7 @@ func TestAnalyze_EmitsScreenshotAuditLine(t *testing.T) {
 		"image_issues=2",
 		"missing_screenshots=4",
 		"missing_suppressed=1",
+		"detection_skipped=",
 	} {
 		assert.Contains(t, out, want, "audit log missing %q; full output:\n%s", want, out)
 	}
@@ -85,9 +86,45 @@ func TestAnalyze_EmitsScreenshotAuditLine_VisionOff(t *testing.T) {
 		"image_issues=0",
 		"missing_screenshots=7",
 		"missing_suppressed=0",
+		"detection_skipped=",
 	} {
 		assert.Contains(t, out, want, "audit log missing %q; full output:\n%s", want, out)
 	}
+}
+
+// TestEmitScreenshotAuditLog_DetectionSkippedSurfaces verifies that the audit
+// log distinguishes a budget-skipped page from a clean zero-findings page by
+// always emitting `detection_skipped=<true|false>` as a stable column in the
+// key=value layout. The field is unconditional so log scrapers see a fixed
+// set of columns regardless of skip state.
+func TestEmitScreenshotAuditLog_DetectionSkippedSurfaces(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	prevLevel := log.GetLevel()
+	log.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(prevLevel)
+	})
+
+	stats := []analyzer.ScreenshotPageStats{
+		{
+			PageURL:          "https://example.com/skipped",
+			DetectionSkipped: true,
+		},
+		{
+			PageURL:          "https://example.com/clean",
+			DetectionSkipped: false,
+		},
+	}
+
+	emitScreenshotAuditLog(stats)
+
+	out := buf.String()
+	assert.Equal(t, 1, strings.Count(out, "detection_skipped=true"),
+		"expected detection_skipped=true exactly once; full output:\n%s", out)
+	assert.Equal(t, 1, strings.Count(out, "detection_skipped=false"),
+		"expected detection_skipped=false exactly once; full output:\n%s", out)
 }
 
 // TestAnalyze_EmitsScreenshotAuditLine_OneLinePerPage confirms each page's
