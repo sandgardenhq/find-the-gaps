@@ -466,7 +466,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 			if !skipScreenshotCheck {
-				if err := reporter.WriteScreenshots(projectDir, screenshotResult.MissingGaps); err != nil {
+				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
 				}
 			}
