@@ -236,9 +236,12 @@ func prepareDocsCache(t *testing.T, cacheBase, projectName, docsURL, pageContent
 }
 
 func TestAnalyze_llmClientError_returnsError(t *testing.T) {
-	// Ensure Anthropic key is absent so newLLMTiering fails (all default tiers
-	// resolve to anthropic/* and require ANTHROPIC_API_KEY).
+	// Clear both keys so tierFallbacks resolves to anthropic/* defaults and
+	// newLLMTiering fails with "ANTHROPIC_API_KEY not set". A leaked
+	// OPENAI_API_KEY in the dev shell would otherwise flip defaults to openai/*
+	// and make this test non-deterministic.
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
 
 	docsURL := "https://docs.example.com/page"
 	repoDir := t.TempDir()
@@ -341,6 +344,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
+		"--experimental-check-screenshots",
 		"--no-site",
 	})
 	if code != 0 {
@@ -451,7 +455,6 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
-		"--skip-screenshot-check",
 		"--no-site",
 	})
 	if code != 0 {
@@ -549,7 +552,6 @@ func TestAnalyze_writesSiteAfterReports(t *testing.T) {
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
-		"--skip-screenshot-check",
 	})
 	if code != 0 {
 		t.Fatalf("analyze failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -615,7 +617,6 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"--cache-dir", cacheBase,
 		"--docs-url", docsURL,
 		"--llm-large", "anthropic/claude-haiku-4-5",
-		"--skip-screenshot-check",
 		"--no-site",
 	})
 	if code != 0 {
@@ -682,12 +683,16 @@ func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCmd_HasSkipScreenshotCheckFlag(t *testing.T) {
+func TestAnalyzeCmd_HasExperimentalCheckScreenshotsFlag(t *testing.T) {
 	cmd := newAnalyzeCmd()
-	f := cmd.Flags().Lookup("skip-screenshot-check")
+	f := cmd.Flags().Lookup("experimental-check-screenshots")
 	require.NotNil(t, f)
 	assert.Equal(t, "false", f.DefValue)
+	assert.Contains(t, f.Usage, "experimental")
 	assert.Contains(t, f.Usage, "screenshot")
+	// Old flag is removed entirely.
+	old := cmd.Flags().Lookup("skip-screenshot-check")
+	assert.Nil(t, old)
 }
 
 func TestFilterDocsAnalyses_ExcludesNotDocs(t *testing.T) {

@@ -98,11 +98,25 @@ func TestNewRootCmd_Structure(t *testing.T) {
 		if _, ok := want[c.Name()]; ok {
 			want[c.Name()] = true
 		}
+		if c.Name() == "install-deps" {
+			t.Errorf("install-deps subcommand should be removed but is still registered")
+		}
 	}
 	for name, found := range want {
 		if !found {
 			t.Errorf("missing subcommand %q", name)
 		}
+	}
+}
+
+func TestRun_InstallDeps_UnknownCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"install-deps"})
+	if code == 0 {
+		t.Errorf("install-deps must not be a registered command; got exit code 0, stdout=%q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "unknown command") {
+		t.Errorf("stderr should report 'unknown command' for install-deps; got %q", stderr.String())
 	}
 }
 

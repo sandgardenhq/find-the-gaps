@@ -91,24 +91,24 @@ Before any scenario runs:
 
 ---
 
-### Scenario 5: Detect Missing Screenshots
+### Scenario 5: Detect Missing Screenshots (Experimental, Opt-In)
 
-**Context**: Known-good fixture + docs site, but a page describes a UI moment with no nearby image.
+**Context**: Known-good fixture + docs site, but a page describes a UI moment with no nearby image. The screenshot pass is experimental and off by default — verification covers both the default-off path and the explicit opt-in.
 
 **Steps**:
-1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>`.
-2. Inspect `<projectDir>/screenshots.md`.
-3. Re-run with `--skip-screenshot-check`.
-4. Inspect the output directory.
+1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>` (no extra flags).
+2. Inspect `<projectDir>/`.
+3. Re-run with `--experimental-check-screenshots`.
+4. Inspect `<projectDir>/screenshots.md`.
 
 **Success Criteria**:
-- [ ] First run writes `screenshots.md`; `gaps.md` does NOT contain a `Missing Screenshots` section.
+- [ ] First run does NOT write `screenshots.md`.
+- [ ] First run's stdout `reports:` block lists `screenshots.md (skipped)`.
+- [ ] Second run writes `screenshots.md`.
 - [ ] `screenshots.md` contains at least one gap for the known UI passage with all four fields populated.
-- [ ] Stdout lists `screenshots.md` in the `reports:` block.
-- [ ] Second run does NOT write `screenshots.md`.
-- [ ] Second run's stdout lists `screenshots.md (skipped)`.
+- [ ] Second run's stdout lists `screenshots.md` without the `(skipped)` annotation.
 
-**If Blocked**: If `screenshots.md` renders on the skipped run, the gating is broken. Stop and ask.
+**If Blocked**: If `screenshots.md` renders on the default run, the gating is broken. Stop and ask.
 
 ---
 
@@ -155,26 +155,28 @@ Before any scenario runs:
 
 ### Scenario 8: Homebrew Install
 
-**Context**: Verify the published Homebrew formula installs cleanly. The formula does NOT declare `mdfetch` as a brew dependency; instead, its `post_install` step shells out to `ftg install-deps`, which installs `mdfetch` via `npm`. Brew pulls in `node` automatically because the formula declares `depends_on "node"`.
+**Context**: Verify the published Homebrew formula installs cleanly. The formula declares `depends_on "hugo"` and `depends_on "sandgardenhq/tap/mdfetch"`; both `mdfetch` and `hugo` come in as brew dependencies. The `mdfetch` formula in the same tap wraps the `@sandgarden/mdfetch` npm package and pulls in `node` transitively. There is no `ftg install-deps` command and no `post_install` step in the find-the-gaps formula.
 
 **Steps**:
-1. On a machine without `find-the-gaps` or `mdfetch` installed (or a fresh VM / clean `brew` test sandbox), run `brew install sandgardenhq/tap/find-the-gaps`.
-2. Observe brew's output, including the post-install step and the caveats block.
+1. On a machine without `find-the-gaps`, `mdfetch`, `hugo`, or `node` installed (or a fresh VM / clean `brew` test sandbox), run `brew install sandgardenhq/tap/find-the-gaps`.
+2. Observe brew's output, including the dependency install plan and the caveats block.
 3. Run `ftg --version`.
 4. Run `mdfetch --version`.
-5. Run `ftg doctor`.
-6. Verify both macOS and Linux: repeat steps 1–5 on a Linux machine with Homebrew installed.
+5. Run `hugo version`.
+6. Run `ftg doctor`.
+7. Verify both macOS and Linux: repeat steps 1–6 on a Linux machine with Homebrew installed.
 
 **Success Criteria**:
 - [ ] `brew install` completes successfully on macOS and on Linux.
-- [ ] Brew installs `node` as a dependency (visible in the install plan).
-- [ ] `post_install` runs and prints the same output as `ftg install-deps` (mdfetch installed if missing, or "already present" message if a system Node already had it).
-- [ ] The caveats block prints the `mdfetch` notice — including the `brew uninstall` warning and the `ftg doctor` hint.
+- [ ] Brew's install plan lists `hugo`, `sandgardenhq/tap/mdfetch`, and `node` (transitive via mdfetch) as dependencies.
+- [ ] No `post_install` step runs — `mdfetch` is installed by brew via the tap formula, not by `npm install`.
+- [ ] The caveats block prints the `mdfetch` / `hugo` notice — including the `brew uninstall` warning and the `ftg doctor` hint.
 - [ ] `ftg --version` returns the version that matches the formula's declared `version`.
-- [ ] `mdfetch --version` succeeds.
-- [ ] `ftg doctor` exits `0` and reports `mdfetch` present.
+- [ ] `mdfetch --version` succeeds and reports the version pinned by `Formula/mdfetch.rb` in the tap.
+- [ ] `hugo version` succeeds.
+- [ ] `ftg doctor` exits `0` and reports both `mdfetch` and `hugo` present.
 
-**If Blocked**: If `post_install` fails (for example, Node's `npm` is sandboxed away from the brew shell, or the npm registry is unreachable), capture the full brew install log and ask before adjusting the formula live. Do NOT silently re-add a brew `depends_on "mdfetch"` line — there is no such formula today.
+**If Blocked**: If brew cannot resolve `sandgardenhq/tap/mdfetch`, the tap repo may not yet contain `Formula/mdfetch.rb` — check the latest publish-formula run in `.github/workflows/release.yml`. Do NOT silently re-add a `post_install` npm step as a workaround.
 
 ---
 
@@ -249,7 +251,7 @@ Before any scenario runs:
 - [ ] Step 4: every `/features/<slug>/` link in the rendered gaps page resolves to a 200.
 - [ ] Step 5: `<projectDir>/site/` does NOT exist after the run; stdout reports block lists `site/ (skipped)`.
 - [ ] Step 6: `<projectDir>/site-src/` does NOT exist after the run; the rendered `<projectDir>/site/` is still present.
-- [ ] Step 7: command exits non-zero; stderr names `hugo` and points the user at `find-the-gaps install-deps` (or `brew install hugo`).
+- [ ] Step 7: command exits non-zero; stderr names `hugo` and points the user at `brew install hugo` (or the upstream Hugo releases page).
 
 **If Blocked**: If any link in step 4 returns 404, or if the Hextra theme fails to render in step 2, capture the directory listing of `<projectDir>/site/` and the relevant HTML, then ask the developer.
 

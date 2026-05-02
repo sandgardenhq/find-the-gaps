@@ -190,6 +190,7 @@ func TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues(t *testing.T) {
 		"--llm-small", "groq/meta-llama/llama-4-scout-17b-16e-instruct",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
+		"--experimental-check-screenshots",
 		"--no-site",
 	})
 	combined := stdout.String() + stderr.String()
@@ -328,6 +329,7 @@ func TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass(t *testing.T) {
 		"--llm-small", "ollama/llama3",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
+		"--experimental-check-screenshots",
 		"--no-site",
 	})
 	combined := stdout.String() + stderr.String()

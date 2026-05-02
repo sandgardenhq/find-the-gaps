@@ -51,7 +51,7 @@ Run `ftg doctor` at any time to check that they are available and see their dete
 brew install sandgardenhq/tap/find-the-gaps
 ```
 
-The formula installs the `ftg` binary, pulls in `node` as a dependency, and runs `ftg install-deps` during post-install to fetch `mdfetch` (via npm) and `hugo` (via brew). Run `ftg doctor` after install to confirm everything is wired up.
+The formula installs the `ftg` binary and pulls in `hugo` and `sandgardenhq/tap/mdfetch` as brew dependencies (the `mdfetch` formula in the same tap wraps the `@sandgarden/mdfetch` npm package). Run `ftg doctor` after install to confirm everything is wired up.
 
 ### Other platforms
 
@@ -76,7 +76,33 @@ make build
 Then install the required external tools:
 
 ```sh
-ftg install-deps
+brew install sandgardenhq/tap/mdfetch  # or: npm install -g @sandgarden/mdfetch@latest
+brew install hugo                      # or see https://github.com/gohugoio/hugo/releases
+```
+
+## Quick start
+
+Once `ftg` is installed and `ftg doctor` exits `0`, point it at a local checkout and the matching public docs site. Here it is run against [Cobra](https://github.com/spf13/cobra) and its docs at [cobra.dev](https://cobra.dev):
+
+```sh
+git clone https://github.com/spf13/cobra
+export ANTHROPIC_API_KEY=sk-ant-...
+
+ftg analyze --repo ./cobra --docs-url https://cobra.dev
+```
+
+`ftg` ingests the docs site with `mdfetch`, scans the repo for features and symbols, then uses the LLM tiers to map docs↔code and flag drift. The first run takes a few minutes; later runs reuse the cache under `.find-the-gaps/<project>/` (pass `--no-cache` to force a full re-scan).
+
+Reports land at `.find-the-gaps/<project>/`:
+
+- `gaps.md` — undocumented code, unmapped features, stale docs
+- `mapping.md` — full feature → file/symbol inventory
+- `site/` — browsable Hextra-themed report
+
+Open the rendered report locally:
+
+```sh
+ftg serve --repo ./cobra --open
 ```
 
 ## Usage
@@ -88,12 +114,11 @@ Usage:
   ftg [command]
 
 Available Commands:
-  analyze      Analyze a codebase against its documentation site for gaps.
-  completion   Generate the autocompletion script for the specified shell
-  doctor       Check that the required external tools (mdfetch, hugo) are installed.
-  help         Help about any command
-  install-deps Install required external tools (mdfetch, hugo).
-  serve        Serve the find-the-gaps report site over HTTP.
+  analyze     Analyze a codebase against its documentation site for gaps.
+  completion  Generate the autocompletion script for the specified shell
+  doctor      Check that the required external tools (mdfetch, hugo) are installed.
+  help        Help about any command
+  serve       Serve the find-the-gaps report site over HTTP.
 
 Flags:
   -h, --help      help for ftg
@@ -112,20 +137,20 @@ Usage:
   ftg analyze [flags]
 
 Flags:
-      --cache-dir string        base directory for all cached results (default ".find-the-gaps")
-      --docs-url string         URL of the documentation site to analyze
-  -h, --help                    help for analyze
-      --keep-site-source        preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
-      --llm-large string        large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
-      --llm-small string        small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
-      --llm-typical string      typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
-      --no-cache                force full re-scan, ignoring any cached results
-      --no-site                 skip the Hugo site build; markdown reports still emitted
-      --no-symbols              map features to files only, skipping symbol-level analysis
-      --repo string             path to the repository to analyze (default ".")
-      --site-mode string        site content shape: "mirror" or "expanded" (default "mirror")
-      --skip-screenshot-check   skip the missing-screenshot detection pass
-      --workers int             number of parallel mdfetch workers (default 5)
+      --cache-dir string                 base directory for all cached results (default ".find-the-gaps")
+      --docs-url string                  URL of the documentation site to analyze
+      --experimental-check-screenshots   enable experimental missing-screenshot detection pass
+  -h, --help                             help for analyze
+      --keep-site-source                 preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
+      --llm-large string                 large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
+      --llm-small string                 small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
+      --llm-typical string               typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
+      --no-cache                         force full re-scan, ignoring any cached results
+      --no-site                          skip the Hugo site build; markdown reports still emitted
+      --no-symbols                       map features to files only, skipping symbol-level analysis
+      --repo string                      path to the repository to analyze (default ".")
+      --site-mode string                 site content shape: "mirror" or "expanded" (default "mirror")
+      --workers int                      number of parallel mdfetch workers (default 5)
 
 Global Flags:
   -v, --verbose   show debug logs
@@ -147,6 +172,12 @@ to the `anthropic` provider. The `typical` tier must name a provider that
 supports tool use (currently `anthropic`, `openai`, or `groq`) because it runs the drift
 investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
 tier may use any supported provider; it only makes single non-tool calls.
+
+If `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is not, the tier defaults
+flip to OpenAI (`openai/gpt-4o-mini`, `openai/gpt-4o`, `openai/gpt-4o`) so
+OpenAI-only users can run `ftg analyze` without spelling out three `--llm-*`
+flags. Any explicit tier flag still wins. With both keys set, Anthropic
+defaults stand.
 
 Configure tiers via flag or environment variable:
 
@@ -193,9 +224,7 @@ missing_suppressed=N detection_skipped=true|false`.
 
 > **Breaking change.** The old `--llm-provider`, `--llm-model`, and
 > `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`
-> with `--llm-typical X/Y` (or the tier that matches your use case). Base URLs
-> for `ollama` and `lmstudio` are now set via the `*_BASE_URL` env vars listed
-> above.
+> with `--llm-typical X/Y` (or the tier that matches your use case).
 
 ### serve
 
@@ -242,23 +271,6 @@ Global Flags:
   -v, --verbose   show debug logs
 ```
 
-### install-deps
-
-```
-Install required external tools (mdfetch, hugo). mdfetch is always reinstalled to pull the latest published version; hugo is skipped if already on $PATH.
-
-Usage:
-  ftg install-deps [flags]
-
-Flags:
-  -h, --help   help for install-deps
-
-Global Flags:
-  -v, --verbose   show debug logs
-```
-
-Re-run `ftg install-deps` whenever you want to pick up a new `mdfetch` release — it always reinstalls `mdfetch` to the latest version on npm.
-
 ## Output
 
 `ftg analyze` writes these reports to `.find-the-gaps/<project>/`:
@@ -267,7 +279,7 @@ Re-run `ftg install-deps` whenever you want to pick up a new `mdfetch` release �
   - *Undocumented Code* — features implemented in code but absent from docs
   - *Unmapped Features* — features mentioned in docs with no matching code
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
-- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot, plus a `## Image Issues` section listing existing images whose surrounding prose doesn't match what they show (populated when the small tier resolves to a vision-capable model). Written whenever the screenshot pass runs (zero findings produces a `_None found._` body). Not written when `--skip-screenshot-check` is passed.
+- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot, plus a `## Image Issues` section listing existing images whose surrounding prose doesn't match what they show (populated when the small tier resolves to a vision-capable model). The detection pass is **experimental and off by default**; pass `--experimental-check-screenshots` to opt in. When the pass runs, this file is written even on zero findings (body is `_None found._`); when the pass is off, the file is not written.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
 ## Ignored files
@@ -296,6 +308,8 @@ skipped:
 scanned 412 files, skipped 1,847 (defaults: 1,801, .gitignore: 38, .ftgignore: 8)
 ```
 
+Set `FIND_THE_GAPS_QUIET=1` to suppress this summary line — handy in CI logs.
+
 ## Use as a GitHub Action
 
 Find the Gaps ships as a composite GitHub Action so maintainers can run audits
@@ -319,7 +333,9 @@ locally.
 | `docs-url` | yes | — | URL of the live documentation site |
 | `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
 | `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
-| `skip-screenshot-check` | no | `false` | Skip screenshot-gap detection |
+| `experimental-check-screenshots` | no | `false` | Run the experimental missing-screenshot detection pass |
+
+The action runs `ftg analyze` with the CLI's default LLM tiers (Anthropic Haiku/Sonnet/Opus). Tier customization isn't exposed through inputs — to swap models or providers, run the CLI directly.
 
 ### Outputs
 

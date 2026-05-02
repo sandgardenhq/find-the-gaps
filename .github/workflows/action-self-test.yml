@@ -21,4 +21,3 @@ jobs:
           docs-url: ${{ vars.SELF_TEST_DOCS_URL }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           create-issue: 'false'   # don't spam the issues tracker on every PR
-          skip-screenshot-check: 'true'

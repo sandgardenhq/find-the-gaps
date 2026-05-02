@@ -13,6 +13,38 @@
 - Linting: ✅ `golangci-lint run` clean
 - Completed: 2026-05-01
 
+## Task: Remove install-deps command (tacoma-v3) - COMPLETE
+- Started: 2026-05-01
+- Summary: Deleted the `ftg install-deps` subcommand and its supporting `internal/doctor` install machinery. The Homebrew formula now declares `depends_on "hugo"` and runs `npm install -g @sandgarden/mdfetch@latest` directly in `post_install` instead of shelling out to ftg. `mdfetch` and `hugo` are still required runtime deps; `ftg doctor` continues to verify them.
+- Tests: full suite green (`go test ./... -count=1`).
+  - **RED**: added `TestRun_InstallDeps_UnknownCommand` and a negative loop assertion in `TestNewRootCmd_Structure` that fail while `install-deps` is still registered. Confirmed both fail before removing the registration.
+  - **GREEN**: dropped `newInstallDepsCmd()` from `cmd.AddCommand(...)` in `internal/cli/root.go`; deleted `internal/cli/install_deps{,_test}.go` and `internal/doctor/install{,_test}.go`; removed the `Tool.Upgrade` field and `InstallCmds` map from `internal/doctor/doctor.go` (only the deleted installer used them); updated `analyze.go`'s `ErrHugoMissing` hint to point at `brew install hugo` instead of the gone subcommand.
+  - **REFACTOR**: regenerated `.github/homebrew/find-the-gaps.rb.expected` via `render.sh` to match the new `.tmpl`; verified with `bash .github/homebrew/test-render.sh`.
+- Coverage: `internal/cli` 91.3%, `internal/doctor` 100% (combined 92.9% on changed packages — above the 90% threshold).
+- Build: go build ./... succeeds.
+- Linting: golangci-lint run reports 0 issues. (Pre-existing gofmt godoc-comment drift on five files was not introduced by this change.)
+- Docs: README's help block, install steps, and `### install-deps` section updated; CLAUDE.md "External Runtime Dependencies" line updated; VERIFICATION_PLAN scenarios 8 (Homebrew) and 11 (hugo missing message) updated.
+- Notes:
+  - Caveats text in the formula (`both installed during post_install`) is now slightly inaccurate — hugo is now a brew dependency, not a post_install side effect — but matches the user-supplied formula verbatim.
+  - Historical `.plans/` design docs (homebrew-install-design, ripgrep-removal, hugo-publishing) still reference `install-deps`; left as-is since they are dated records of past decisions.
+- Completed: 2026-05-01
+
+## Task: OpenAI default tier models (docs/remove-lmstudio-ollama) - COMPLETE
+- Started: 2026-05-01
+- Summary: When `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is empty, the three tier defaults now flip to `openai/gpt-4o-mini` (small), `openai/gpt-4o` (typical), `openai/gpt-4o` (large) instead of failing with "ANTHROPIC_API_KEY not set". Explicit `--llm-*` flags still win, and any other env-var combination (both keys, only Anthropic, neither) preserves the prior Anthropic defaults.
+- Tests: full suite green (`go test ./... -count=1`).
+  - **RED**: 4 new `TestTierFallbacks_*` cases plus `TestNewLLMTiering_DefaultsToOpenAIWhenOnlyOpenAIKeySet`. Confirmed compile-error RED on `tierFallbacks` undefined, then runtime RED on the integration test before implementation.
+  - **GREEN**: added `tierFallbacks()` helper + three OpenAI default constants in `internal/cli/tier_validate.go`; updated `validateTierConfigs` and `newLLMTiering` (in `internal/cli/llm_client.go`) to call it instead of using hardcoded constants.
+  - **REFACTOR**: hardened `TestAnalyze_llmClientError_returnsError` and `TestNewLLMTiering_DefaultsRequireAnthropicKey` to also `t.Setenv("OPENAI_API_KEY", "")` — both relied on an unset OPENAI_API_KEY in the dev shell, which my change exposed as a latent flake.
+- Coverage: `internal/cli` at 91.2% statements (above 90% threshold). `tierFallbacks` at 100%.
+- Build: ✅ `go build ./...` succeeds.
+- Linting: ✅ `golangci-lint run ./...` reports 0 issues.
+- README updated with a paragraph describing the new OpenAI fallback rule under `#### LLM tier configuration`.
+- Notes:
+  - Model choice (`gpt-4o`/`gpt-4o-mini`) was selected because both names are already used in `internal/analyzer/bifrost_client_test.go` against Bifrost — known-good in this codebase. Easy to swap if the user prefers newer model identifiers.
+  - The fallback is one-way: only flips to OpenAI when Anthropic is *unset*. Mixing — e.g. only setting `--llm-typical openai/gpt-4o` — leaves the other two tiers on whatever `tierFallbacks()` resolves to based on the env. This matches the existing semantic that explicit flags compose with default fallbacks per-tier.
+- Completed: 2026-05-01
+
 ## Task: Site formatting cleanup (feat/site-formatting) - COMPLETE
 - Started: 2026-04-27
 - Plan: `.plans/SITE_FORMATTING_DESIGN.md`
@@ -1269,3 +1301,14 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Polish commit `ee3162b` covers three review-flagged items: (1) README `--llm-typical` description now mentions Groq as a tool-use-capable provider; (2) `relevancePass` no longer sets the redundant `Content` field on multimodal ChatMessages; (3) `validateTierConfigs` error message renders the valid-providers list with `strings.Join(..., ", ")` for readability.
   - `internal/site` 84.0% coverage is a pre-existing gap (was 84.2% on `main`). Not introduced by this branch; flagged for future work.
   - Branch history is clean (24 commits since main, all logically scoped per task). Ready for PR.
+
+## Task: Screenshots Opt-In - COMPLETE
+- Started: 2026-05-01T13:00:00Z
+- Tests: all passing
+- Build: ✅ Successful
+- Linting: ✅ Clean
+- Completed: 2026-05-01T14:15:00Z
+- Notes: Default flipped to off; new flag is --experimental-check-screenshots.
+  --skip-screenshot-check removed entirely. Action input renamed to
+  experimental-check-screenshots; self-test workflow updated. Historical
+  plan docs left intact as record of original implementation.
