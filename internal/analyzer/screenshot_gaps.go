@@ -649,13 +649,24 @@ func detectionPass(
 		gaps = append(gaps, ScreenshotGap{
 			PageURL:       page.URL,
 			PagePath:      page.Path,
-			QuotedPassage: it.QuotedPassage,
-			ShouldShow:    it.ShouldShow,
-			SuggestedAlt:  it.SuggestedAlt,
-			InsertionHint: it.InsertionHint,
+			QuotedPassage: unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:    unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:  unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
 		})
 	}
 	return gaps, len(resp.SuppressedByImage), false, nil
+}
+
+// unescapeLiteralWhitespace converts the two-character escape sequences \n,
+// \r, and \t (backslash + letter) into their real whitespace counterparts.
+// Models occasionally emit these sequences as text inside a JSON string value
+// instead of producing the actual character; without this normalization, the
+// literal `\n` text leaks into screenshots.md and the rendered Hugo page,
+// where it shows up as a backslash-n instead of a paragraph break.
+func unescapeLiteralWhitespace(s string) string {
+	r := strings.NewReplacer(`\n`, "\n", `\r`, "\r", `\t`, "\t")
+	return r.Replace(s)
 }
 
 // DetectScreenshotGaps iterates pages sequentially. For each page, when the

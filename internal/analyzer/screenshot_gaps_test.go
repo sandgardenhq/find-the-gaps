@@ -218,6 +218,29 @@ func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 	assert.Equal(t, "Run the command.", res.MissingGaps[0].QuotedPassage)
 }
 
+// TestDetectScreenshotGaps_NormalizesLiteralEscapeSequences guards against an
+// LLM quirk: models sometimes write `\n` (the two-character escape sequence)
+// as text inside a JSON string value rather than emitting an actual newline.
+// When that happens, the rendered Hugo page shows "step 1.\n\nstep 2." as a
+// single literal line instead of paragraphs. The analyzer must normalize these
+// before passing the gap downstream so reporters and templates render newlines
+// correctly.
+func TestDetectScreenshotGaps_NormalizesLiteralEscapeSequences(t *testing.T) {
+	client := &fakeLLMClient{
+		responses: []string{
+			`{"gaps":[{"quoted_passage":"2. Click Add API Key.\\n \\n3. Enter a Name.","should_show":"x","suggested_alt":"x","insertion_hint":"x"}]}`,
+		},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
+	}
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+	require.Len(t, res.MissingGaps, 1)
+	assert.Equal(t, "2. Click Add API Key.\n \n3. Enter a Name.", res.MissingGaps[0].QuotedPassage,
+		"literal `\\n` from the model should be converted to real newlines")
+}
+
 func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
 	client := &fakeLLMClient{
 		responses: []string{"not json", `{"gaps":[]}`},
