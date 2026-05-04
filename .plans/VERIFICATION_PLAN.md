@@ -305,6 +305,36 @@ Before any scenario runs:
 
 ---
 
+### Scenario 14: Bifrost Gateway
+
+**Context**: Verifies that find-the-gaps routes traffic through a self-hosted Bifrost gateway when a tier uses the `gateway/<alias>` form. The gateway is the source of truth for which provider/model the alias resolves to. find-the-gaps trusts the user that the alias for the small tier is vision-capable. All sub-cases run against a real Bifrost gateway instance the developer is operating.
+
+**Steps**:
+1. **Sub-case (a) — Vision-capable alias.** On the gateway, configure an alias (e.g., `cheap-tier`) that resolves to a vision-capable Claude or GPT model. Set `BIFROST_GATEWAY_URL` and `BIFROST_GATEWAY_API_KEY`. Run:
+   ```
+   find-the-gaps analyze --repo ./testdata/fixtures/known-good \
+     --docs-url https://<known-good-docs> \
+     --llm-small=gateway/cheap-tier \
+     --llm-typical=gateway/balanced \
+     --llm-large=gateway/best \
+     -v
+   ```
+   Inspect `<projectDir>/screenshots.md`, `<projectDir>/gaps.md`, and the per-page audit log.
+2. **Sub-case (b) — Non-vision alias on small tier.** Reconfigure `cheap-tier` on the gateway to a non-vision text model. Re-run the same command. Inspect stderr and `screenshots.md`.
+3. **Sub-case (c) — Mixed lanes.** Run with `--llm-small=gateway/cheap-tier` (gateway) and `--llm-large=anthropic/claude-opus-4-7` (direct). Inspect that both lanes produce output and that drift detection still applies prompt caching on the direct-Anthropic lane.
+4. **Sub-case (d) — Missing env var.** Unset `BIFROST_GATEWAY_URL` and re-run any gateway-tier command. Capture stderr.
+
+**Success Criteria**:
+- [ ] **(a)** analyze exits `0`. `mapping.md`, `gaps.md`, and `screenshots.md` are produced. Findings reference real symbols and real docs pages. No Bifrost or gateway errors in stderr.
+- [ ] **(a)** Audit log lines under `-v` show no `cache_write` / `cache_read` token usage on the gateway path (the OpenAI lane does not emit `cache_control`).
+- [ ] **(b)** analyze exits `0`. `screenshots.md`'s `## Image Issues` section is empty or absent. Per-page logs show vision attempts that the gateway rejected, surfaced as per-page warnings — NOT a run-fatal error.
+- [ ] **(c)** Both lanes succeed. Audit logs for the large-tier (Anthropic direct) calls show non-zero `cache_read` on repeated invocations within the 5-min cache TTL. Gateway-tier calls show zero cache tokens.
+- [ ] **(d)** analyze exits non-zero. Stderr contains the literal string `BIFROST_GATEWAY_URL`. No partial output is written under `<projectDir>/`.
+
+**If Blocked**: If sub-case (a) produces empty `gaps.md` against a fixture you know has drift, the gateway alias may be returning truncated output (default `max_tokens` cap on the alias's underlying model). Capture the audit log and the gateway's request log, then ask. Do NOT silently re-introduce client-side `MaxCompletionTokens` overrides — the gateway should be configured server-side.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
