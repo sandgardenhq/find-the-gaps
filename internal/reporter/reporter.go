@@ -186,7 +186,8 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 		for _, page := range order {
 			fmt.Fprintf(&sb, "### %s\n\n", page)
 			for _, g := range byPage[page] {
-				fmt.Fprintf(&sb, "- **Passage:** %q\n", g.QuotedPassage)
+				fmt.Fprintf(&sb, "- **Passage:**\n\n")
+				fmt.Fprintf(&sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
 				fmt.Fprintf(&sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
 				fmt.Fprintf(&sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
 				fmt.Fprintf(&sb, "  - **Insert:** %s\n\n", g.InsertionHint)
@@ -230,4 +231,28 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 	}
 
 	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+}
+
+// fencedCodeBlock wraps s in a markdown code fence whose backtick run is one
+// longer than the longest backtick run inside s. Why: passages quoted from
+// docs frequently contain triple-backtick fenced blocks of their own; a fixed
+// 3-backtick fence would terminate prematurely on the inner ```. Newlines,
+// tabs, quotes, and backslashes are preserved verbatim — unlike the %q format
+// verb, which escapes them and produced literal `\n`, `\"`, `\\` text in the
+// rendered output.
+func fencedCodeBlock(s string) string {
+	longest, current := 0, 0
+	for _, r := range s {
+		if r == '`' {
+			current++
+			if current > longest {
+				longest = current
+			}
+		} else {
+			current = 0
+		}
+	}
+	fenceLen := max(longest+1, 3)
+	fence := strings.Repeat("`", fenceLen)
+	return fence + "\n" + s + "\n" + fence
 }
