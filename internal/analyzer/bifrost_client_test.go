@@ -1133,3 +1133,13 @@ func TestFormatUsage_NilDetails_ReportsZeroes(t *testing.T) {
 func TestFormatUsage_NilUsage_EmptyString(t *testing.T) {
 	assert.Equal(t, "", formatUsage(nil))
 }
+
+func TestNewBifrostClientWithProvider_Gateway_RequiresBaseURL(t *testing.T) {
+	_, err := NewBifrostClientWithProvider("gateway", "fake-key", "cheap-tier", "", ModelCapabilities{})
+	if err == nil {
+		t.Fatal("expected error when baseURL is empty for gateway provider")
+	}
+	if !strings.Contains(err.Error(), "baseURL") {
+		t.Fatalf("error should mention baseURL, got %v", err)
+	}
+}
