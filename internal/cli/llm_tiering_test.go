@@ -245,3 +245,39 @@ func TestBuildTierClient_Gateway_PassesAPIKey(t *testing.T) {
 		t.Fatal("gateway path must return non-nil client and counter")
 	}
 }
+
+func TestNewLLMTiering_MixedLanes_GatewayAndAnthropic(t *testing.T) {
+	// Small + typical via gateway, large via direct Anthropic.
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	tg, err := newLLMTiering(
+		"gateway/cheap-tier",
+		"gateway/balanced",
+		"anthropic/claude-opus-4-7",
+	)
+	if err != nil {
+		t.Fatalf("mixed-lane tier configuration must build: %v", err)
+	}
+	if tg.Small() == nil || tg.Typical() == nil || tg.Large() == nil {
+		t.Fatal("all three clients must be non-nil")
+	}
+}
+
+func TestNewLLMTiering_AllGateway(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	tg, err := newLLMTiering(
+		"gateway/cheap-tier",
+		"gateway/balanced",
+		"gateway/best",
+	)
+	if err != nil {
+		t.Fatalf("all-gateway configuration must build: %v", err)
+	}
+	if tg.Small() == nil || tg.Typical() == nil || tg.Large() == nil {
+		t.Fatal("all three clients must be non-nil")
+	}
+}
