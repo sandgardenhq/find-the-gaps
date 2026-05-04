@@ -140,3 +140,15 @@ func TestTierFallbacks_AnthropicWhenNeitherKeySet(t *testing.T) {
 		t.Errorf("small: want anthropic default when neither key set, got %q", small)
 	}
 }
+
+func TestValidateTierConfigs_TypoedGateway_ListsGatewayInError(t *testing.T) {
+	// The user mis-typed "gatway" → "gateway". The error should list "gateway"
+	// in the "valid: ..." hint so the user can spot the missing letter.
+	err := validateTierConfigs("gatway/cheap-tier", "", "")
+	if err == nil {
+		t.Fatal("expected error for typoed provider")
+	}
+	if !strings.Contains(err.Error(), "gateway") {
+		t.Fatalf("error message must hint at 'gateway' as a valid provider; got %v", err)
+	}
+}
