@@ -1231,3 +1231,30 @@ func TestBifrostClient_Gateway_CompleteJSON_UsesResponseFormat(t *testing.T) {
 	require.Equal(t, true, js["strict"])
 	require.Equal(t, "TestAnswer", js["name"])
 }
+
+func TestBifrostClient_Gateway_RendersImageBlocks(t *testing.T) {
+	client := newBifrostClientWithFake(&fakeBifrostRequester{}, schemas.OpenAI, "cheap-tier")
+
+	rendered := client.renderBifrostMessages([]ChatMessage{
+		{
+			Role: "user",
+			ContentBlocks: []ContentBlock{
+				{Type: ContentBlockText, Text: "describe this:"},
+				{Type: ContentBlockImageURL, ImageURL: "https://example.com/screenshot.png"},
+			},
+		},
+	})
+
+	require.Len(t, rendered, 1)
+	require.NotNil(t, rendered[0].Content)
+	blocks := rendered[0].Content.ContentBlocks
+	require.Len(t, blocks, 2, "gateway lane must pass through both content blocks")
+
+	require.Equal(t, schemas.ChatContentBlockTypeText, blocks[0].Type)
+	require.NotNil(t, blocks[0].Text)
+	require.Equal(t, "describe this:", *blocks[0].Text)
+
+	require.Equal(t, schemas.ChatContentBlockTypeImage, blocks[1].Type)
+	require.NotNil(t, blocks[1].ImageURLStruct)
+	require.Equal(t, "https://example.com/screenshot.png", blocks[1].ImageURLStruct.URL)
+}
