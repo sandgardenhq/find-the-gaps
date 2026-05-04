@@ -203,3 +203,15 @@ func TestBuildTierClient_Groq_RespectsBaseURLOverride(t *testing.T) {
 		t.Fatalf("groq with override must be served by *analyzer.BifrostClient, got %T", client)
 	}
 }
+
+func TestBuildTierClient_Gateway_MissingURL(t *testing.T) {
+	t.Setenv("BIFROST_GATEWAY_URL", "")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	_, _, err := buildTierClient("gateway", "cheap-tier")
+	if err == nil {
+		t.Fatal("expected error when BIFROST_GATEWAY_URL is unset")
+	}
+	if !strings.Contains(err.Error(), "BIFROST_GATEWAY_URL") {
+		t.Fatalf("error must name BIFROST_GATEWAY_URL; got %v", err)
+	}
+}

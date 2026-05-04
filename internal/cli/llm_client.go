@@ -146,6 +146,20 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 			baseURL = "https://api.groq.com/openai"
 		}
 		counter = analyzer.NewTiktokenCounter()
+	case "gateway":
+		baseURL = os.Getenv("BIFROST_GATEWAY_URL")
+		if baseURL == "" {
+			return nil, nil, fmt.Errorf("BIFROST_GATEWAY_URL not set")
+		}
+		// Optional. Empty allowed for unauthenticated gateways; the analyzer
+		// substitutes localServerPlaceholderKey to satisfy Bifrost's empty-
+		// key filter (see bifrost_client.go:78–93).
+		apiKey = os.Getenv("BIFROST_GATEWAY_API_KEY")
+		bifrostProvider = "gateway"
+		// tiktoken is approximate for non-OpenAI families — the gateway alias
+		// could resolve to anything. Same caveat as groq/ollama. The screenshot
+		// prompt budget already includes a 1.2x drift margin to absorb this.
+		counter = analyzer.NewTiktokenCounter()
 	default:
 		return nil, nil, fmt.Errorf("unknown provider %q", provider)
 	}
