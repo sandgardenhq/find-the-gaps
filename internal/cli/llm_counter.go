@@ -38,6 +38,21 @@ func (c *countingClient) CompleteJSON(ctx context.Context, prompt string, schema
 	return c.inner.CompleteJSON(ctx, prompt, schema)
 }
 
+// CompleteJSONMultimodal forwards to the wrapped client and increments the
+// per-tier call counter, matching CompleteJSON's accounting. Multimodal calls
+// are real LLM round-trips and must count.
+func (c *countingClient) CompleteJSONMultimodal(ctx context.Context, messages []analyzer.ChatMessage, schema analyzer.JSONSchema) (json.RawMessage, error) {
+	c.counter.Add(1)
+	return c.inner.CompleteJSONMultimodal(ctx, messages, schema)
+}
+
+// Capabilities forwards to the wrapped client so vision / tool-use checks see
+// the underlying model's flags. The wrapper itself has no capabilities of its
+// own; it only counts calls.
+func (c *countingClient) Capabilities() analyzer.ModelCapabilities {
+	return c.inner.Capabilities()
+}
+
 // countingToolClient extends countingClient with CompleteWithTools so a
 // ToolLLMClient stays a ToolLLMClient after wrapping. drift.go uses a runtime
 // type assertion (tiering.Typical().(ToolLLMClient)) — preserving the

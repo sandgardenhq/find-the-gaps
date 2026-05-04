@@ -169,15 +169,15 @@ calls land on cheaper models while the hardest calls use a frontier model:
 
 Each tier accepts a combined `provider/model` string. Bare model names default
 to the `anthropic` provider. The `typical` tier must name a provider that
-supports tool use (currently `anthropic` or `openai`) because it runs the drift
+supports tool use (currently `anthropic`, `openai`, or `groq`) because it runs the drift
 investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
 tier may use any supported provider; it only makes single non-tool calls.
 
 If `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is not, the tier defaults
-flip to OpenAI (`openai/gpt-4o-mini`, `openai/gpt-4o`, `openai/gpt-4o`) so
-OpenAI-only users can run `ftg analyze` without spelling out three `--llm-*`
-flags. Any explicit tier flag still wins. With both keys set, Anthropic
-defaults stand.
+flip to OpenAI (`openai/gpt-5.4-nano`, `openai/gpt-5.4-mini`, `openai/gpt-5.5`)
+so OpenAI-only users can run `ftg analyze` without spelling out three
+`--llm-*` flags. Any explicit tier flag still wins. With both keys set,
+Anthropic defaults stand.
 
 Configure tiers via flag or environment variable:
 
@@ -186,6 +186,41 @@ Configure tiers via flag or environment variable:
 - `FIND_THE_GAPS_LLM_LARGE`
 - `ANTHROPIC_API_KEY` — required when any tier points at an Anthropic model
 - `OPENAI_API_KEY` — required when any tier points at an OpenAI model
+- `GROQ_API_KEY` — required when any tier points at a Groq model
+- `GROQ_BASE_URL` — overrides the default Groq endpoint (`https://api.groq.com/openai`); optional
+- `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
+- `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
+
+#### Vision-aware screenshot analysis
+
+When `--llm-small` resolves to a vision-capable model, the screenshot pass
+auto-engages an extra image-relevance check: every `<img>` it pulls in from a
+docs page is shown to the model alongside the surrounding prose so the model
+can flag images that don't actually depict what the prose claims. The result
+also feeds the missing-screenshot prompt, suppressing suggestions for moments
+where an existing image already covers the ground. There is no flag — capable
+small-tier model in, image issues out.
+
+Vision-capable small-tier models today:
+
+| Provider | Models |
+|---|---|
+| `anthropic` | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7` |
+| `openai` | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5`, `gpt-5-mini`, `gpt-4o`, `gpt-4o-mini` |
+| `groq` | `meta-llama/llama-4-scout-17b-16e-instruct` |
+
+Run `ftg doctor` to see what your current configuration resolves to — it
+prints each tier's model and capability flags (`tool_use`, `vision`).
+
+Groq is a hosted API, so there is nothing extra to install — set
+`GROQ_API_KEY` and you're done. Groq's vision endpoint caps each request at
+five images, which the screenshot pass handles transparently by batching.
+
+Findings land in a new `## Image Issues` section in `screenshots.md`,
+appended after the missing-screenshots list (and rendered the same way on
+the Hugo page). Per-page audit log lines document the counts: `vision=on/off
+relevance_batches=N images_seen=N image_issues=N missing_screenshots=N
+missing_suppressed=N detection_skipped=true|false`.
 
 > **Breaking change.** The old `--llm-provider`, `--llm-model`, and
 > `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`
@@ -244,7 +279,7 @@ Global Flags:
   - *Undocumented Code* — features implemented in code but absent from docs
   - *Unmapped Features* — features mentioned in docs with no matching code
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
-- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot. The detection pass is **experimental and off by default**; pass `--experimental-check-screenshots` to opt in. When the pass runs, this file is written even on zero findings (body is `_None found._`); when the pass is off, the file is not written.
+- **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot, plus a `## Image Issues` section listing existing images whose surrounding prose doesn't match what they show (populated when the small tier resolves to a vision-capable model). The detection pass is **experimental and off by default**; pass `--experimental-check-screenshots` to opt in. When the pass runs, this file is written even on zero findings (body is `_None found._`); when the pass is off, the file is not written.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
 
 ## Ignored files

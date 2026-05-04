@@ -92,6 +92,11 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 // NetworkConfig.BaseURL override — Bifrost honors BaseURL for OpenAI
 // (see bifrost core schemas/provider.go:54). ollama uses the dedicated Bifrost
 // Ollama provider, which threads the server URL through Key.OllamaKeyConfig.
+//
+// NOTE: tiktoken's cl100k_base BPE undercounts Llama / Qwen / GPT-OSS tokens
+// by ~5–15% on English text and more on code. We use it as a budget heuristic
+// for non-OpenAI providers since their tokenizers aren't packaged with us.
+// The screenshot prompt budget already includes a 1.2x drift margin.
 func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.TokenCounter, error) {
 	var (
 		bifrostProvider string
@@ -127,11 +132,32 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 		}
 		bifrostProvider = "openai"
 		counter = analyzer.NewTiktokenCounter()
+	case "groq":
+		apiKey = os.Getenv("GROQ_API_KEY")
+		if apiKey == "" {
+			return nil, nil, fmt.Errorf("GROQ_API_KEY not set")
+		}
+		bifrostProvider = "groq"
+		baseURL = os.Getenv("GROQ_BASE_URL")
+		if baseURL == "" {
+			// Bifrost's OpenAI provider appends /v1/chat/completions to BaseURL
+			// (see bifrost core providers/openai/openai.go:741), so the base
+			// must NOT include /v1 — same convention as lmstudio.
+			baseURL = "https://api.groq.com/openai"
+		}
+		counter = analyzer.NewTiktokenCounter()
 	default:
 		return nil, nil, fmt.Errorf("unknown provider %q", provider)
 	}
 
-	client, err := analyzer.NewBifrostClientWithProvider(bifrostProvider, apiKey, model, baseURL)
+	caps, _ := ResolveCapabilities(provider, model)
+	analyzerCaps := analyzer.ModelCapabilities{
+		Provider: caps.Provider,
+		Model:    caps.Model,
+		ToolUse:  caps.ToolUse,
+		Vision:   caps.Vision,
+	}
+	client, err := analyzer.NewBifrostClientWithProvider(bifrostProvider, apiKey, model, baseURL, analyzerCaps)
 	if err != nil {
 		return nil, nil, err
 	}

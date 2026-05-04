@@ -1,5 +1,18 @@
 # Progress
 
+## Task 10 (vision-image-analysis): Wire vision branch into DetectScreenshotGaps - COMPLETE
+- Started: 2026-05-01
+- Plan: `.plans/VISION_IMAGE_ANALYSIS_IMPLEMENTATION_PLAN.md` (Task 10)
+- Summary: Changed `DetectScreenshotGaps` return type from `[]ScreenshotGap` to `ScreenshotResult` (bundles `MissingGaps`, `ImageIssues`, `AuditStats`). Added `ScreenshotPageStats` struct for per-page audit counters. Inside the per-page loop, branches on `client.Capabilities().Vision`: when vision is on AND the page has images, runs `relevancePass` (returns `[]ImageIssue` + `[]ImageVerdict`), then always runs the new `detectionPass` helper. Vision-on detection uses `buildDetectionPromptWithVerdicts` with the verdicts; vision-off detection passes `verdicts=nil` which delegates to the legacy prompt for byte-stable behavior. Extracted `detectionPass(ctx, client, page, refs, verdicts)` to keep `DetectScreenshotGaps` readable; it owns `fitContentToBudget`, the `CompleteJSON` call, JSON parse, and conversion to `ScreenshotGap`. Updated the single caller in `internal/cli/analyze.go` (3 spots: variable declaration, `WriteScreenshots`, `site.Build` Inputs) to use `screenshotResult.MissingGaps`. The unrendered `suppressed_by_image` count is captured in `AuditStats[i].MissingSuppressed` for the future audit log line (Task 12).
+- TDD log:
+  - **RED**: New `internal/analyzer/screenshot_gaps_integration_test.go` with `TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats` (vision-on, 6 images → 2 batches, scripted multimodal+detection responses, asserts ImageIssues/MissingGaps/AuditStats) and `TestDetectScreenshotGaps_NonVisionBranchUnchanged` (vision-off, asserts MissingGaps populated, ImageIssues empty). Verified RED — build failed because `ScreenshotResult` and `AuditStats` were undefined.
+  - **GREEN**: Added `ScreenshotResult`, `ScreenshotPageStats`, and `detectionPass` to `screenshot_gaps.go`; rewrote `DetectScreenshotGaps` body. Updated the three pre-existing tests in `screenshot_gaps_test.go` (`NoPages`, `SinglePage_Findings`, `ParseErrorIsolatesPage`) for the new return shape. Updated three call sites in `internal/cli/analyze.go`.
+- Tests: `go test ./...` green. New `TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats` and `TestDetectScreenshotGaps_NonVisionBranchUnchanged` pass; pre-existing `TestDetectScreenshotGaps_*` (NoPages, SinglePage_Findings, ParseErrorIsolatesPage, Progress, TruncatesOversizedPage, ContextCanceled) still pass.
+- Coverage: `internal/analyzer` at 93.5% statements (`detectionPass` 88.2%, `DetectScreenshotGaps` 96.0%). `internal/cli` at 91.4%.
+- Build: ✅ Successful
+- Linting: ✅ `golangci-lint run` clean
+- Completed: 2026-05-01
+
 ## Task: Remove install-deps command (tacoma-v3) - COMPLETE
 - Started: 2026-05-01
 - Summary: Deleted the `ftg install-deps` subcommand and its supporting `internal/doctor` install machinery. The Homebrew formula now declares `depends_on "hugo"` and runs `npm install -g @sandgarden/mdfetch@latest` directly in `post_install` instead of shelling out to ftg. `mdfetch` and `hugo` are still required runtime deps; `ftg doctor` continues to verify them.
@@ -1220,6 +1233,75 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - Inclusive-by-default rule throughout: false negatives (real docs marked non-docs and silently dropped) are worse than false positives (blog/team pages slipping through and getting drift-checked unnecessarily). No overrides v1; `--no-cache` is the documented escape hatch.
 
 
+## Task 8 (vision-image-analysis): Multimodal JSON method + relevance pass - COMPLETE
+- Started: 2026-05-01
+- Tests: ALL passing across all packages (`go test ./...` clean).
+  - New: `TestRelevancePass_ParsesImageIssuesAndVerdicts`, `TestRelevancePass_BatchesAtFiveImages`,
+    `TestCompleteJSONMultimodal_OpenAI_RendersImageBlocksAndForcesSchema`,
+    `TestCompleteJSONMultimodal_Anthropic_RendersImageBlocksAndForcesRespondTool`,
+    `TestWrapWithCounter_IncrementsOnCompleteJSONMultimodal`.
+- Coverage: `internal/analyzer` 93.0% (up from 92.8%); `internal/cli` 92.5%. Both above 90% gate.
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - `LLMClient` gains `CompleteJSONMultimodal(ctx, []ChatMessage, JSONSchema)` — the multimodal sibling of `CompleteJSON`. Both share `completeJSONMessages` so schema-forcing + parsing live in one place; `CompleteJSON` now builds a one-element `[]ChatMessage{{Role:"user", Content:prompt, CacheBreakpoint:true}}` and delegates.
+  - Refactor extracts `(*BifrostClient).renderBifrostMessages` from `completeOneTurn` so multimodal user messages flow through the same provider-aware rendering as the agent loop. `ContentBlocks` win over `Content`/`ContentStr`; Anthropic cache_control is applied only on Anthropic; image blocks pass `ImageURLStruct{URL: ...}` unchanged.
+  - `relevancePass(ctx, client, page, refs)` walks `splitImageBatches(refs, 5)` and calls `CompleteJSONMultimodal` per batch. Indices are numbered globally (img-1, img-2, …) so verdicts and issues from different batches merge collision-free.
+  - New types: `ImageIssue` (PageURL/Index/Src/Reason/SuggestedAction), `ImageVerdict` (Index/Matches), and the schema `screenshot_image_relevance` with the two-array shape.
+  - `// PROMPT:` block on `buildRelevancePrompt` documents the index naming convention, the relevance criterion ("does prose accurately describe what the image shows"), and the JSON shape.
+  - Fakes updated (added a 1–3 line `CompleteJSONMultimodal` stub each): analyzer-side `fakeClient`, `stubToolClient`, `fakeLLMClient` (screenshot test), `driftStubClient`, `driftStubClientWithErr`, `fakeNonToolClient`, `fakeToolClient`, `fakeDynamicClient`; cli-side `countingClient` (counts the call), `fakeLLMClient`, `fakeToolLLMClient`, `stubLLMClient`, `skipDriftStubClient`. Plus a new `fakeJSONClient` in the relevance test that captures messages + counts calls atomically.
+
+
+## Task 13 (vision-image-analysis): doctor capability output - COMPLETE
+- Started: 2026-05-01
+- Tests: ALL passing across all packages (`go test ./...` clean).
+  - New: `TestDoctor_PrintsResolvedCapabilitiesPerTier`, `TestDoctor_PrintsResolvedCapabilitiesFromFlags`, `TestPrintTierCapabilities_InvalidTierString`, `TestPrintTierCapabilities_UnknownProvider`.
+- Coverage: `internal/cli` 93.0% (up from 92.5%); `printTierCapabilities` and `newDoctorCmd` both 100%.
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean (`golangci-lint run` — 0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - `internal/cli/doctor.go` now extends the doctor cobra command with `--llm-small`, `--llm-typical`, `--llm-large` flags (mirroring analyze) plus `FIND_THE_GAPS_LLM_*` env-var fallbacks. After `doctor.Run` finishes its mdfetch/hugo checks, `printTierCapabilities` writes one line per tier: `small: anthropic/claude-haiku-4-5 (tool_use=true vision=true)` etc.
+  - Empty tier inputs fall back to `defaultSmallTier` / `defaultTypicalTier` / `defaultLargeTier` from `tier_validate.go`, matching what analyze would resolve, so `ftg doctor` doubles as a tier sanity check.
+  - Tier lines render even when external-tool checks fail — they describe configuration, not tool presence — but the exit code from `doctor.Run` is preserved.
+  - No package extraction was needed: `internal/cli` already imports `internal/doctor`, and the rendering logic lives in the cli wrapper, so no cycle is introduced.
+
+
+## Task 14 (vision-image-analysis): testscript scenarios — COMPLETE (deviated to Go tests)
+- Started: 2026-05-01
+- Tests: 2 new end-to-end Go tests (`TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues`, `TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass`); both pass.
+- Coverage: `internal/cli` 91.7% (above 90% gate)
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - Pivoted from `.txtar` to Go tests because no existing testscript scenario uses a fake LLM server — the fake-server-with-schema-dispatch pattern lives in `internal/cli/analyze_classifier_test.go`. New tests in `internal/cli/analyze_vision_screenshot_test.go` mirror that pattern with a new `screenshot_image_relevance` schema branch.
+  - Vision-on test uses `groq/meta-llama/llama-4-scout-17b-16e-instruct` (not Anthropic) because Anthropic's BaseURL override doesn't flow through `buildTierClient` to the Bifrost client. Same `Vision=true` capability, identical wiring exercised.
+  - Pre-existing gap to track: Anthropic providers cannot redirect their base URL via env var. Not blocking this PR.
+
+## Task 15 (vision-image-analysis): docs — COMPLETE
+- Started: 2026-05-01
+- Tests: N/A (docs only)
+- Build: ✅ Successful
+- Completed: 2026-05-01
+- Notes:
+  - README: `GROQ_API_KEY` / `GROQ_BASE_URL` in Configuration; new "Vision-aware screenshot analysis" subsection lists vision-capable models, Groq's hosted nature, and the 5-image-per-request batching cap.
+  - CHANGELOG: 7 Unreleased bullets covering capability registry, Groq provider, vision-aware screenshot pass, ## Image Issues output, audit log line, doctor capability output, site-materialization refactor.
+  - VERIFICATION_PLAN: Scenario 13 (Vision-aware screenshot analysis) with three sub-cases (Anthropic vision / Ollama no-vision / Groq vision with batching).
+
+## Task 16 (vision-image-analysis): final verification + polish — COMPLETE
+- Started: 2026-05-01
+- Tests: All packages green (`go test ./...` clean).
+- Coverage: `internal/cli` 91.7%, `internal/analyzer` 94.1%, `internal/reporter` 98.3%, `internal/doctor` 100%, `internal/scanner` 93.6%, `internal/site` 84.0% (pre-existing — was at 84.2% before this branch). Total: 92.3%.
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Completed: 2026-05-01
+- Notes:
+  - Polish commit `ee3162b` covers three review-flagged items: (1) README `--llm-typical` description now mentions Groq as a tool-use-capable provider; (2) `relevancePass` no longer sets the redundant `Content` field on multimodal ChatMessages; (3) `validateTierConfigs` error message renders the valid-providers list with `strings.Join(..., ", ")` for readability.
+  - `internal/site` 84.0% coverage is a pre-existing gap (was 84.2% on `main`). Not introduced by this branch; flagged for future work.
+  - Branch history is clean (24 commits since main, all logically scoped per task). Ready for PR.
+
 ## Task: Screenshots Opt-In - COMPLETE
 - Started: 2026-05-01T13:00:00Z
 - Tests: all passing
@@ -1230,3 +1312,15 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   --skip-screenshot-check removed entirely. Action input renamed to
   experimental-check-screenshots; self-test workflow updated. Historical
   plan docs left intact as record of original implementation.
+
+## Task: Review-feedback fixes (vision-image-analysis branch) — COMPLETE
+- Started: 2026-05-04
+- Tests: all passing (`go test ./...` clean across 12 packages)
+- Build: ✅ Successful
+- Linting: ✅ Clean (golangci-lint, 0 issues on changed packages)
+- Completed: 2026-05-04
+- Notes:
+  - Fix #1: `printTierCapabilities` now calls `tierFallbacks()` instead of the static `defaultSmallTier`/etc. constants, so `ftg doctor` reports the same defaults `ftg analyze` would actually use (including the OpenAI flip when only `OPENAI_API_KEY` is set). New test `TestDoctor_PrintsOpenAIDefaultsWhenOnlyOpenAIKeySet` pins the contract; existing tier tests now setenv the API keys explicitly so they don't depend on ambient env.
+  - OpenAI defaults refreshed to the 2026 lineup per a fresh web search: small=`gpt-5.4-nano`, typical=`gpt-5.4-mini`, large=`gpt-5.5`. New rows added to the capability registry for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano` (all `tool_use=true vision=true`); legacy `gpt-5`/`gpt-5-mini`/`gpt-4o`/`gpt-4o-mini` rows kept for backwards compatibility.
+  - Fix #2: Added `ImageIssues []analyzer.ImageIssue` to `site.Inputs` and threaded `screenshotResult.ImageIssues` from `analyze.go`. `materializeExpanded` now renders the `## Image Issues` section into `content/screenshots/_index.md` so expanded-mode sites match mirror mode (which picks up the section transitively from screenshots.md). Two new tests pin both the populated and absent cases.
+  - README updated: Configuration section's OpenAI fallback list and the "vision-capable small-tier models" table.

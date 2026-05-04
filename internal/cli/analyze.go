@@ -435,18 +435,19 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			var screenshotGaps []analyzer.ScreenshotGap
+			var screenshotResult analyzer.ScreenshotResult
 			if experimentalCheckScreenshots {
 				log.Infof("detecting missing screenshots...")
 				docPages := buildScreenshotDocPages(pages, analyses)
 				progress := func(done, total int, page string) {
 					log.Infof("  [%d/%d] %s", done, total, page)
 				}
-				screenshotGaps, err = analyzer.DetectScreenshotGaps(ctx, tiering.Small(), docPages, progress)
+				screenshotResult, err = analyzer.DetectScreenshotGaps(ctx, tiering.Small(), docPages, progress)
 				if err != nil {
 					return fmt.Errorf("detect screenshots: %w", err)
 				}
-				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotGaps))
+				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotResult.MissingGaps))
+				emitScreenshotAuditLog(screenshotResult.AuditStats)
 			}
 
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
@@ -466,7 +467,7 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 			if experimentalCheckScreenshots {
-				if err := reporter.WriteScreenshots(projectDir, screenshotGaps); err != nil {
+				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
 				}
 			}
@@ -480,7 +481,8 @@ func newAnalyzeCmd() *cobra.Command {
 						DocsMap:        docsFeatureMap,
 						AllDocFeatures: docCoveredFeatures,
 						Drift:          driftFindings,
-						Screenshots:    screenshotGaps,
+						Screenshots:    screenshotResult.MissingGaps,
+						ImageIssues:    screenshotResult.ImageIssues,
 						ScreenshotsRan: experimentalCheckScreenshots,
 					},
 					site.BuildOptions{

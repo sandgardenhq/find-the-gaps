@@ -111,3 +111,22 @@ func TestScreenshotGap_JSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &out))
 	assert.Equal(t, in, out)
 }
+
+func TestChatMessage_ContentBlocksZeroValueIsNil(t *testing.T) {
+	m := analyzer.ChatMessage{Role: "user", Content: "hi"}
+	assert.Nil(t, m.ContentBlocks)
+}
+
+func TestChatMessage_CanAttachImageURLBlock(t *testing.T) {
+	m := analyzer.ChatMessage{
+		Role:    "user",
+		Content: "What does this show?",
+		ContentBlocks: []analyzer.ContentBlock{
+			{Type: analyzer.ContentBlockText, Text: "Below is a screenshot:"},
+			{Type: analyzer.ContentBlockImageURL, ImageURL: "https://example.com/dash.png"},
+		},
+	}
+	assert.Len(t, m.ContentBlocks, 2)
+	assert.Equal(t, analyzer.ContentBlockImageURL, m.ContentBlocks[1].Type)
+	assert.Equal(t, "https://example.com/dash.png", m.ContentBlocks[1].ImageURL)
+}

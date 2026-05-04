@@ -156,36 +156,78 @@ func WriteGaps(
 }
 
 // WriteScreenshots writes screenshots.md to dir. Call ONLY when the screenshot
-// pass actually ran — a skipped pass must produce NO file. Zero-length gaps is
-// valid and produces a "_None found._" body.
-func WriteScreenshots(dir string, gaps []analyzer.ScreenshotGap) error {
+// pass actually ran — a skipped pass must produce NO file. Zero-length
+// MissingGaps is valid and produces a "_None found._" body for the missing-
+// screenshots section.
+//
+// The "## Image Issues" section is appended only when at least one page in
+// res.AuditStats has VisionEnabled=true. When vision ran but produced no
+// issues, the header is rendered with a "_No image issues detected._" marker
+// so users can see the pass actually ran. When vision did not run on any
+// page, the header is omitted entirely.
+func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 	var sb strings.Builder
 	sb.WriteString("# Missing Screenshots\n\n")
 
-	if len(gaps) == 0 {
+	if len(res.MissingGaps) == 0 {
 		sb.WriteString("_None found._\n")
-		return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+	} else {
+		// Preserve first-occurrence page order.
+		seen := map[string]bool{}
+		var order []string
+		byPage := map[string][]analyzer.ScreenshotGap{}
+		for _, g := range res.MissingGaps {
+			if !seen[g.PageURL] {
+				seen[g.PageURL] = true
+				order = append(order, g.PageURL)
+			}
+			byPage[g.PageURL] = append(byPage[g.PageURL], g)
+		}
+		for _, page := range order {
+			fmt.Fprintf(&sb, "### %s\n\n", page)
+			for _, g := range byPage[page] {
+				fmt.Fprintf(&sb, "- **Passage:** %q\n", g.QuotedPassage)
+				fmt.Fprintf(&sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
+				fmt.Fprintf(&sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
+				fmt.Fprintf(&sb, "  - **Insert:** %s\n\n", g.InsertionHint)
+			}
+		}
 	}
 
-	// Preserve first-occurrence page order.
-	seen := map[string]bool{}
-	var order []string
-	byPage := map[string][]analyzer.ScreenshotGap{}
-	for _, g := range gaps {
-		if !seen[g.PageURL] {
-			seen[g.PageURL] = true
-			order = append(order, g.PageURL)
-		}
-		byPage[g.PageURL] = append(byPage[g.PageURL], g)
-	}
-	for _, page := range order {
-		fmt.Fprintf(&sb, "### %s\n\n", page)
-		for _, g := range byPage[page] {
-			fmt.Fprintf(&sb, "- **Passage:** %q\n", g.QuotedPassage)
-			fmt.Fprintf(&sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
-			fmt.Fprintf(&sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
-			fmt.Fprintf(&sb, "  - **Insert:** %s\n\n", g.InsertionHint)
+	visionRan := false
+	for _, s := range res.AuditStats {
+		if s.VisionEnabled {
+			visionRan = true
+			break
 		}
 	}
+	if visionRan {
+		sb.WriteString("\n## Image Issues\n\n")
+		if len(res.ImageIssues) == 0 {
+			sb.WriteString("_No image issues detected._\n")
+		} else {
+			// Group issues by page, preserving first-occurrence order so
+			// readers can scan one page's issues together.
+			seen := map[string]bool{}
+			var order []string
+			byPage := map[string][]analyzer.ImageIssue{}
+			for _, ii := range res.ImageIssues {
+				if !seen[ii.PageURL] {
+					seen[ii.PageURL] = true
+					order = append(order, ii.PageURL)
+				}
+				byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
+			}
+			for _, page := range order {
+				for _, ii := range byPage[page] {
+					fmt.Fprintf(&sb, "- **Page:** %s\n", ii.PageURL)
+					fmt.Fprintf(&sb, "  **Image:** ![%s](%s)\n", ii.Index, ii.Src)
+					fmt.Fprintf(&sb, "  **Issue:** %s\n", ii.Reason)
+					fmt.Fprintf(&sb, "  **Suggested action:** %s\n\n", ii.SuggestedAction)
+				}
+			}
+		}
+	}
+
 	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
 }

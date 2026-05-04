@@ -43,6 +43,25 @@ type DocsFeatureEntry struct {
 // DocsFeatureMap is the complete feature-to-docs mapping for a project.
 type DocsFeatureMap []DocsFeatureEntry
 
+// ContentBlockType discriminates the variants of a multimodal message body
+// element. Today only text and image-URL blocks are supported; future block
+// types (image bytes, audio, etc.) extend the union here.
+type ContentBlockType string
+
+const (
+	ContentBlockText     ContentBlockType = "text"
+	ContentBlockImageURL ContentBlockType = "image_url"
+)
+
+// ContentBlock is one element of a multimodal message body. When
+// ChatMessage.ContentBlocks is non-empty, the Bifrost client renders the
+// blocks instead of the flat Content string.
+type ContentBlock struct {
+	Type     ContentBlockType
+	Text     string
+	ImageURL string
+}
+
 // ChatMessage is one turn in a tool-use conversation.
 type ChatMessage struct {
 	Role       string // "user", "assistant", "tool"
@@ -55,6 +74,9 @@ type ChatMessage struct {
 	// ignore it. The flag lives on the provider-neutral message so callers
 	// don't need to know about Bifrost or Anthropic internals.
 	CacheBreakpoint bool
+	// ContentBlocks, when non-empty, supplies a multimodal message body.
+	// The flat Content string is used only when ContentBlocks is empty.
+	ContentBlocks []ContentBlock
 }
 
 // ToolHandler runs one tool call. The returned string is sent back to the LLM

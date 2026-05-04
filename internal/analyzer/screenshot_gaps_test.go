@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -173,11 +174,30 @@ func (f *fakeLLMClient) CompleteJSON(ctx context.Context, prompt string, _ JSONS
 	return json.RawMessage(raw), nil
 }
 
+// CompleteJSONMultimodal mirrors CompleteJSON but reads the prompt off the
+// first text content block. Tests that exercise the vision path should use a
+// dedicated fake (see fakeJSONClient in screenshot_gaps_relevance_test.go);
+// this stub exists so fakeLLMClient still satisfies LLMClient.
+func (f *fakeLLMClient) CompleteJSONMultimodal(ctx context.Context, msgs []ChatMessage, _ JSONSchema) (json.RawMessage, error) {
+	prompt := ""
+	if len(msgs) > 0 {
+		prompt = msgs[0].Content
+	}
+	raw, err := f.Complete(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
+func (f *fakeLLMClient) Capabilities() ModelCapabilities { return ModelCapabilities{} }
+
 func TestDetectScreenshotGaps_NoPages(t *testing.T) {
 	client := &fakeLLMClient{}
-	gaps, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
 	require.NoError(t, err)
-	assert.Empty(t, gaps)
+	assert.Empty(t, res.MissingGaps)
+	assert.Empty(t, res.AuditStats)
 	assert.Empty(t, client.prompts)
 }
 
@@ -190,12 +210,12 @@ func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 	pages := []DocPage{
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n\nRun the command.\n"},
 	}
-	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
 	require.NoError(t, err)
-	require.Len(t, gaps, 1)
-	assert.Equal(t, "https://example.com/a", gaps[0].PageURL)
-	assert.Equal(t, "/tmp/a.md", gaps[0].PagePath)
-	assert.Equal(t, "Run the command.", gaps[0].QuotedPassage)
+	require.Len(t, res.MissingGaps, 1)
+	assert.Equal(t, "https://example.com/a", res.MissingGaps[0].PageURL)
+	assert.Equal(t, "/tmp/a.md", res.MissingGaps[0].PagePath)
+	assert.Equal(t, "Run the command.", res.MissingGaps[0].QuotedPassage)
 }
 
 func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
@@ -206,9 +226,9 @@ func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
 		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
 	}
-	gaps, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
 	require.NoError(t, err) // parse errors log-and-continue
-	assert.Empty(t, gaps)
+	assert.Empty(t, res.MissingGaps)
 	assert.Len(t, client.prompts, 2) // both pages were attempted
 }
 
@@ -272,6 +292,34 @@ func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
 		"prompt token count must fit inside ScreenshotPromptBudget after truncation")
 }
 
+func TestSplitImageBatches(t *testing.T) {
+	ref := func(i int) imageRef { return imageRef{Src: fmt.Sprintf("img-%d.png", i)} }
+	for _, tc := range []struct {
+		name string
+		n    int
+		want []int // batch sizes
+	}{
+		{"empty", 0, nil},
+		{"one", 1, []int{1}},
+		{"exactly five", 5, []int{5}},
+		{"six", 6, []int{5, 1}},
+		{"twelve", 12, []int{5, 5, 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := make([]imageRef, tc.n)
+			for i := range refs {
+				refs[i] = ref(i)
+			}
+			got := splitImageBatches(refs, 5)
+			var gotSizes []int
+			for _, b := range got {
+				gotSizes = append(gotSizes, len(b))
+			}
+			assert.Equal(t, tc.want, gotSizes)
+		})
+	}
+}
+
 func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -279,4 +327,20 @@ func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 	pages := []DocPage{{URL: "https://x", Path: "/x", Content: "# x\n"}}
 	_, err := DetectScreenshotGaps(ctx, client, pages, nil)
 	require.Error(t, err)
+}
+
+func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}, {Index: "img-2", Matches: false}}
+	refs := []imageRef{{Src: "a.png", AltText: "Settings"}, {Src: "b.png", AltText: "Logs"}}
+	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	assert.Contains(t, prompt, "img-1")
+	assert.Contains(t, prompt, "verdict: matches")
+	assert.Contains(t, prompt, "verdict: does not match")
+}
+
+func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing.T) {
+	refs := []imageRef{{Src: "a.png"}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil)
+	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs))
+	assert.Equal(t, want, got)
 }

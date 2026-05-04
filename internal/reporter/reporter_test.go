@@ -421,7 +421,7 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 			InsertionHint: "after the code block",
 		},
 	}
-	require.NoError(t, reporter.WriteScreenshots(dir, gaps))
+	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
 	s := string(body)
@@ -438,7 +438,7 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 
 func TestWriteScreenshots_Empty_WritesNoneFound(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, reporter.WriteScreenshots(dir, nil))
+	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{}))
 
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
@@ -457,12 +457,61 @@ func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 		{PageURL: "https://example.com/first", QuotedPassage: "first-page passage."},
 		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage 2."},
 	}
-	require.NoError(t, reporter.WriteScreenshots(dir, gaps))
+	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
 	s := string(body)
 	// /second appears first because it shows up first in the input.
 	assert.Regexp(t, `### https://example.com/second[\s\S]*### https://example.com/first`, s)
+}
+
+func TestWriteScreenshots_RendersImageIssuesSection(t *testing.T) {
+	tmp := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		AuditStats: []analyzer.ScreenshotPageStats{{PageURL: "https://x/p", VisionEnabled: true}},
+		ImageIssues: []analyzer.ImageIssue{{
+			PageURL:         "https://x/p",
+			Index:           "img-1",
+			Src:             "b.png",
+			Reason:          "shows dashboard but prose describes settings",
+			SuggestedAction: "replace",
+		}},
+	}
+	require.NoError(t, reporter.WriteScreenshots(tmp, res))
+	body, err := os.ReadFile(filepath.Join(tmp, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+	assert.Contains(t, s, "## Image Issues")
+	assert.Contains(t, s, "shows dashboard but prose describes settings")
+	assert.Contains(t, s, "https://x/p")
+	assert.Contains(t, s, "b.png")
+	assert.Contains(t, s, "img-1")
+	assert.Contains(t, s, "replace")
+}
+
+func TestWriteScreenshots_VisionRanButNoIssues_RendersEmptyMarker(t *testing.T) {
+	tmp := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		AuditStats: []analyzer.ScreenshotPageStats{{PageURL: "https://x/p", VisionEnabled: true}},
+	}
+	require.NoError(t, reporter.WriteScreenshots(tmp, res))
+	body, err := os.ReadFile(filepath.Join(tmp, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+	assert.Contains(t, s, "## Image Issues")
+	assert.Contains(t, s, "_No image issues detected._")
+}
+
+func TestWriteScreenshots_VisionDidNotRun_OmitsImageIssuesHeader(t *testing.T) {
+	tmp := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		AuditStats: []analyzer.ScreenshotPageStats{{PageURL: "https://x/p", VisionEnabled: false}},
+	}
+	require.NoError(t, reporter.WriteScreenshots(tmp, res))
+	body, err := os.ReadFile(filepath.Join(tmp, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+	assert.NotContains(t, s, "## Image Issues")
 }
 
 func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
