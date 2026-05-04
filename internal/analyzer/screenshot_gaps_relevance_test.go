@@ -100,6 +100,38 @@ func TestRelevancePass_ParsesImageIssuesAndVerdicts(t *testing.T) {
 	assert.Equal(t, len(refs), imageBlocks, "one image block per ref in the batch")
 }
 
+// TestRelevancePass_NormalizesLiteralEscapeSequences guards the same model
+// quirk fixed in #50 for the detection pass: vision models occasionally write
+// `\n` (the two-character escape sequence) as text inside a JSON string value
+// rather than emitting an actual newline. Without normalization, the literal
+// `\n` leaks into screenshots.md and the rendered Hugo image-issues page,
+// where it shows up as a backslash-n instead of a paragraph break. Reason and
+// SuggestedAction are both rendered, so both must be normalized.
+func TestRelevancePass_NormalizesLiteralEscapeSequences(t *testing.T) {
+	resp := json.RawMessage(`{
+	  "image_issues": [
+	    {"index":"img-1","src":"a.png","reason":"line one.\\nline two.","suggested_action":"step 1.\\nstep 2."}
+	  ],
+	  "verdicts": [
+	    {"index":"img-1","matches":false}
+	  ]
+	}`)
+	client := &fakeJSONClient{
+		caps:     ModelCapabilities{Vision: true},
+		jsonResp: resp,
+	}
+	page := DocPage{URL: "https://x/p", Content: "..."}
+	refs := []imageRef{{Src: "a.png"}}
+
+	issues, _, err := relevancePass(context.Background(), client, page, refs)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "line one.\nline two.", issues[0].Reason,
+		"literal `\\n` from the model should be converted to real newlines in Reason")
+	assert.Equal(t, "step 1.\nstep 2.", issues[0].SuggestedAction,
+		"literal `\\n` from the model should be converted to real newlines in SuggestedAction")
+}
+
 // TestRelevancePass_BatchesAtFiveImages pins the 5-image-per-call cap.
 // Twelve refs must produce three calls (5 + 5 + 2). The fake counts calls
 // via atomic.Int64 so the assertion is order-free.
