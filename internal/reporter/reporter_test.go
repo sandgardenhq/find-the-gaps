@@ -465,6 +465,39 @@ func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 	assert.Regexp(t, `### https://example.com/second[\s\S]*### https://example.com/first`, s)
 }
 
+// TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks pins the
+// rendering of QuotedPassage when it contains real newlines, tabs, double
+// quotes, or backslashes. Previously the reporter used the %q format verb,
+// which converts newlines to the two-character escape `\n`, tabs to `\t`,
+// quotes to `\"`, and backslashes to `\\`. That produced literal backslash-n
+// text in screenshots.md and — because mirror-mode site materialization
+// copies screenshots.md verbatim — in the rendered Hugo screenshot page,
+// where the user saw "step 1.\n\nstep 2." instead of paragraph breaks.
+//
+// The output must contain the original characters as-is and MUST NOT contain
+// any of the Go-syntax escape sequences `\n`, `\t`, or `\"` as text.
+func TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks(t *testing.T) {
+	dir := t.TempDir()
+	const passage = "2. Click Add API Key.\n \n3. Enter a Name.\n \n4. Create the key, then run `curl -H \"Authorization: Bearer <token>\"`."
+	gaps := []analyzer.ScreenshotGap{{
+		PageURL:       "https://example.com/auth",
+		QuotedPassage: passage,
+		ShouldShow:    "API Keys settings page",
+		SuggestedAlt:  "API Keys settings",
+		InsertionHint: "after the Bearer token paragraph",
+	}}
+	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+
+	assert.Contains(t, s, passage,
+		"the passage must round-trip with its real newlines and quotes intact")
+	assert.NotContains(t, s, `\n`, "screenshots.md must not contain the literal escape `\\n`")
+	assert.NotContains(t, s, `\t`, "screenshots.md must not contain the literal escape `\\t`")
+	assert.NotContains(t, s, `\"`, "screenshots.md must not contain the literal escape `\\\"`")
+}
+
 func TestWriteScreenshots_RendersImageIssuesSection(t *testing.T) {
 	tmp := t.TempDir()
 	res := analyzer.ScreenshotResult{
