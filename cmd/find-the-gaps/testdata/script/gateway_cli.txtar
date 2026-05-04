@@ -1,0 +1,18 @@
+# Gateway tier without BIFROST_GATEWAY_URL set: build error names the env var.
+# testscript starts each script with a scrubbed env (only PATH, WORK, HOME, TMPDIR
+# are set), so BIFROST_GATEWAY_URL and BIFROST_GATEWAY_API_KEY are already unset
+# without needing an explicit unenv.
+env ANTHROPIC_API_KEY=fake-key
+mkdir repo
+
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.com --llm-small gateway/cheap-tier
+stderr 'BIFROST_GATEWAY_URL'
+
+# Sanity: with the env var set, the tier flag is accepted and the build
+# proceeds past tier construction. (Per-page analysis warns and is skipped
+# because example.com isn't a real docs site, but that's downstream of what
+# we're verifying here — analyze still exits 0.)
+env BIFROST_GATEWAY_URL=http://gateway.local:8080
+exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.com --llm-small gateway/cheap-tier
+! stderr 'BIFROST_GATEWAY_URL'
+! stderr 'unknown provider'
