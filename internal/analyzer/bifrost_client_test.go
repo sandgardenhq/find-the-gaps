@@ -1160,3 +1160,29 @@ func TestNewBifrostClientWithProvider_Gateway_ReturnsClient(t *testing.T) {
 		t.Fatalf("expected model %q, got %q", "cheap-tier", client.model)
 	}
 }
+
+func TestBifrostClient_Gateway_DoesNotEmitCacheControl(t *testing.T) {
+	// Build a client through the gateway lane (schemas.OpenAI under the hood)
+	// and feed it a CacheBreakpoint=true user message. The rendered Bifrost
+	// messages must contain no CacheControl blocks — those are Anthropic-only
+	// and the gateway alias is opaque.
+	client := newBifrostClientWithFake(&fakeBifrostRequester{}, schemas.OpenAI, "cheap-tier")
+
+	rendered := client.renderBifrostMessages([]ChatMessage{
+		{Role: "user", Content: "hello", CacheBreakpoint: true},
+	})
+
+	require.Len(t, rendered, 1)
+	require.NotNil(t, rendered[0].Content)
+	if blocks := rendered[0].Content.ContentBlocks; len(blocks) > 0 {
+		for _, b := range blocks {
+			if b.CacheControl != nil {
+				t.Fatalf("gateway lane must not emit CacheControl; got %+v", b.CacheControl)
+			}
+		}
+	}
+	// And the flat-string path is what we expect on the OpenAI lane.
+	if rendered[0].Content.ContentStr == nil || *rendered[0].Content.ContentStr != "hello" {
+		t.Fatalf("expected ContentStr=\"hello\", got %+v", rendered[0].Content)
+	}
+}
