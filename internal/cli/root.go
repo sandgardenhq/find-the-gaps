@@ -12,7 +12,9 @@ import (
 )
 
 // version is overwritten at release time via:
-//   go build -ldflags "-X github.com/sandgardenhq/find-the-gaps/internal/cli.version=v1.2.3"
+//
+//	go build -ldflags "-X github.com/sandgardenhq/find-the-gaps/internal/cli.version=v1.2.3"
+//
 // When unset, currentVersion() falls back to the module version reported by
 // runtime/debug.BuildInfo (populated by `go install`), and finally to "dev".
 var version = "dev"

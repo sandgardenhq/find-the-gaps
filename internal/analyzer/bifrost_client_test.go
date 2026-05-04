@@ -1133,3 +1133,128 @@ func TestFormatUsage_NilDetails_ReportsZeroes(t *testing.T) {
 func TestFormatUsage_NilUsage_EmptyString(t *testing.T) {
 	assert.Equal(t, "", formatUsage(nil))
 }
+
+func TestNewBifrostClientWithProvider_Gateway_RequiresBaseURL(t *testing.T) {
+	_, err := NewBifrostClientWithProvider("gateway", "fake-key", "cheap-tier", "", ModelCapabilities{})
+	if err == nil {
+		t.Fatal("expected error when baseURL is empty for gateway provider")
+	}
+	if !strings.Contains(err.Error(), "baseURL") {
+		t.Fatalf("error should mention baseURL, got %v", err)
+	}
+}
+
+func TestNewBifrostClientWithProvider_Gateway_ReturnsClient(t *testing.T) {
+	const baseURL = "http://gateway.local:8080"
+	client, err := NewBifrostClientWithProvider("gateway", "gw-key", "cheap-tier", baseURL, ModelCapabilities{Vision: true, ToolUse: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.provider != schemas.OpenAI {
+		t.Fatalf("expected provider schemas.OpenAI (gateway lane is OpenAI-compatible), got %q", client.provider)
+	}
+	if client.model != "cheap-tier" {
+		t.Fatalf("expected model %q, got %q", "cheap-tier", client.model)
+	}
+}
+
+func TestBifrostClient_Gateway_DoesNotEmitCacheControl(t *testing.T) {
+	// Build a client through the gateway lane (schemas.OpenAI under the hood)
+	// and feed it a CacheBreakpoint=true user message. The rendered Bifrost
+	// messages must contain no CacheControl blocks — those are Anthropic-only
+	// and the gateway alias is opaque.
+	client := newBifrostClientWithFake(&fakeBifrostRequester{}, schemas.OpenAI, "cheap-tier")
+
+	rendered := client.renderBifrostMessages([]ChatMessage{
+		{Role: "user", Content: "hello", CacheBreakpoint: true},
+	})
+
+	require.Len(t, rendered, 1)
+	require.NotNil(t, rendered[0].Content)
+	if blocks := rendered[0].Content.ContentBlocks; len(blocks) > 0 {
+		for _, b := range blocks {
+			if b.CacheControl != nil {
+				t.Fatalf("gateway lane must not emit CacheControl; got %+v", b.CacheControl)
+			}
+		}
+	}
+	// And the flat-string path is what we expect on the OpenAI lane.
+	if rendered[0].Content.ContentStr == nil || *rendered[0].Content.ContentStr != "hello" {
+		t.Fatalf("expected ContentStr=\"hello\", got %+v", rendered[0].Content)
+	}
+}
+
+func TestBifrostClient_Gateway_CompleteJSON_UsesResponseFormat(t *testing.T) {
+	// Stub a fake response that satisfies completeJSONOpenAIMessages: a single
+	// choice with a ContentStr containing a JSON document conforming to schema.
+	answer := `{"answer":"42"}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &answer}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "cheap-tier")
+
+	schema := JSONSchema{
+		Name: "TestAnswer",
+		Doc: json.RawMessage(`{
+			"type": "object",
+			"properties": {"answer": {"type": "string"}},
+			"required": ["answer"],
+			"additionalProperties": false
+		}`),
+	}
+
+	got, err := client.CompleteJSON(context.Background(), "what is the answer?", schema)
+	require.NoError(t, err)
+	require.JSONEq(t, answer, string(got))
+
+	// Inspect the captured request: response_format must be set, tools must be empty.
+	require.NotNil(t, fake.lastRequest, "fake should have captured the request")
+	require.NotNil(t, fake.lastRequest.Params, "Params must be set")
+	require.NotNil(t, fake.lastRequest.Params.ResponseFormat, "gateway lane must set ResponseFormat (json_schema)")
+	if len(fake.lastRequest.Params.Tools) != 0 {
+		t.Fatalf("gateway lane must NOT use forced-tool-use; got %d tool(s)", len(fake.lastRequest.Params.Tools))
+	}
+
+	// Optional: peek at the response_format value to confirm strict json_schema shape.
+	rf, ok := (*fake.lastRequest.Params.ResponseFormat).(map[string]any)
+	require.True(t, ok, "ResponseFormat must be a map[string]any")
+	require.Equal(t, "json_schema", rf["type"])
+	js, ok := rf["json_schema"].(map[string]any)
+	require.True(t, ok, "json_schema field must be a map[string]any")
+	require.Equal(t, true, js["strict"])
+	require.Equal(t, "TestAnswer", js["name"])
+}
+
+func TestBifrostClient_Gateway_RendersImageBlocks(t *testing.T) {
+	client := newBifrostClientWithFake(&fakeBifrostRequester{}, schemas.OpenAI, "cheap-tier")
+
+	rendered := client.renderBifrostMessages([]ChatMessage{
+		{
+			Role: "user",
+			ContentBlocks: []ContentBlock{
+				{Type: ContentBlockText, Text: "describe this:"},
+				{Type: ContentBlockImageURL, ImageURL: "https://example.com/screenshot.png"},
+			},
+		},
+	})
+
+	require.Len(t, rendered, 1)
+	require.NotNil(t, rendered[0].Content)
+	blocks := rendered[0].Content.ContentBlocks
+	require.Len(t, blocks, 2, "gateway lane must pass through both content blocks")
+
+	require.Equal(t, schemas.ChatContentBlockTypeText, blocks[0].Type)
+	require.NotNil(t, blocks[0].Text)
+	require.Equal(t, "describe this:", *blocks[0].Text)
+
+	require.Equal(t, schemas.ChatContentBlockTypeImage, blocks[1].Type)
+	require.NotNil(t, blocks[1].ImageURLStruct)
+	require.Equal(t, "https://example.com/screenshot.png", blocks[1].ImageURLStruct.URL)
+}

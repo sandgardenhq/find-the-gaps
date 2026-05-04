@@ -169,7 +169,7 @@ calls land on cheaper models while the hardest calls use a frontier model:
 
 Each tier accepts a combined `provider/model` string. Bare model names default
 to the `anthropic` provider. The `typical` tier must name a provider that
-supports tool use (currently `anthropic`, `openai`, or `groq`) because it runs the drift
+supports tool use (currently `anthropic`, `openai`, `groq`, or `gateway`) because it runs the drift
 investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
 tier may use any supported provider; it only makes single non-tool calls.
 
@@ -190,6 +190,22 @@ Configure tiers via flag or environment variable:
 - `GROQ_BASE_URL` — overrides the default Groq endpoint (`https://api.groq.com/openai`); optional
 - `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
 - `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
+- `BIFROST_GATEWAY_URL` — required when any tier uses `gateway/<alias>`. Must NOT include `/v1` (Bifrost's OpenAI handler appends `/v1/chat/completions` itself). Example: `http://gateway.local:8080`
+- `BIFROST_GATEWAY_API_KEY` — optional. Empty allowed for unauthenticated gateways.
+
+#### Bifrost Gateway
+
+If you run a self-hosted [Bifrost gateway](https://github.com/maximhq/bifrost), point any tier at it with the `gateway/` provider prefix and a gateway-side alias name:
+
+```
+--llm-small=gateway/cheap-tier
+--llm-typical=gateway/balanced
+--llm-large=gateway/best
+```
+
+The gateway resolves the alias to a real provider+model server-side. find-the-gaps stays out of that decision and trusts that the alias used for the small tier is vision-capable (the screenshot relevance pass sends images unconditionally on the gateway path).
+
+Tiers can mix lanes — e.g., `--llm-small=anthropic/claude-haiku-4-5 --llm-large=gateway/best` keeps the small tier on direct Anthropic (so prompt caching applies) while routing the large tier through the gateway. Set `BIFROST_GATEWAY_URL` and (optionally) `BIFROST_GATEWAY_API_KEY` to enable the gateway lane.
 
 #### Vision-aware screenshot analysis
 
@@ -208,6 +224,7 @@ Vision-capable small-tier models today:
 | `anthropic` | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7` |
 | `openai` | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5`, `gpt-5-mini`, `gpt-4o`, `gpt-4o-mini` |
 | `groq` | `meta-llama/llama-4-scout-17b-16e-instruct` |
+| `gateway` | any alias (capability is whatever the gateway resolves the alias to) |
 
 Run `ftg doctor` to see what your current configuration resolves to — it
 prints each tier's model and capability flags (`tool_use`, `vision`).

@@ -203,3 +203,81 @@ func TestBuildTierClient_Groq_RespectsBaseURLOverride(t *testing.T) {
 		t.Fatalf("groq with override must be served by *analyzer.BifrostClient, got %T", client)
 	}
 }
+
+func TestBuildTierClient_Gateway_MissingURL(t *testing.T) {
+	t.Setenv("BIFROST_GATEWAY_URL", "")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	_, _, err := buildTierClient("gateway", "cheap-tier")
+	if err == nil {
+		t.Fatal("expected error when BIFROST_GATEWAY_URL is unset")
+	}
+	if !strings.Contains(err.Error(), "BIFROST_GATEWAY_URL") {
+		t.Fatalf("error must name BIFROST_GATEWAY_URL; got %v", err)
+	}
+}
+
+func TestBuildTierClient_Gateway_AllowsEmptyAPIKey(t *testing.T) {
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	client, counter, err := buildTierClient("gateway", "cheap-tier")
+	if err != nil {
+		t.Fatalf("unexpected error with empty API key: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("gateway path must return non-nil client and counter")
+	}
+	if _, ok := client.(*analyzer.BifrostClient); !ok {
+		t.Fatalf("gateway must be served by *analyzer.BifrostClient, got %T", client)
+	}
+}
+
+func TestBuildTierClient_Gateway_PassesAPIKey(t *testing.T) {
+	// The api key value is internal to the BifrostClient; we cannot easily
+	// observe it from this test layer. This test exists to prove the path
+	// builds and to lock the env-var name BIFROST_GATEWAY_API_KEY.
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "real-gw-key")
+	client, counter, err := buildTierClient("gateway", "cheap-tier")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("gateway path must return non-nil client and counter")
+	}
+}
+
+func TestNewLLMTiering_MixedLanes_GatewayAndAnthropic(t *testing.T) {
+	// Small + typical via gateway, large via direct Anthropic.
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	tg, err := newLLMTiering(
+		"gateway/cheap-tier",
+		"gateway/balanced",
+		"anthropic/claude-opus-4-7",
+	)
+	if err != nil {
+		t.Fatalf("mixed-lane tier configuration must build: %v", err)
+	}
+	if tg.Small() == nil || tg.Typical() == nil || tg.Large() == nil {
+		t.Fatal("all three clients must be non-nil")
+	}
+}
+
+func TestNewLLMTiering_AllGateway(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	tg, err := newLLMTiering(
+		"gateway/cheap-tier",
+		"gateway/balanced",
+		"gateway/best",
+	)
+	if err != nil {
+		t.Fatalf("all-gateway configuration must build: %v", err)
+	}
+	if tg.Small() == nil || tg.Typical() == nil || tg.Large() == nil {
+		t.Fatal("all three clients must be non-nil")
+	}
+}
