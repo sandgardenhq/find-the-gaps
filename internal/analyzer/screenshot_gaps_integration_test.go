@@ -335,3 +335,51 @@ func TestDetectScreenshotGaps_VisionPathResolvesRelativeURLs(t *testing.T) {
 		"https://docs.example.com/guide/img/parent.png",
 	}, sentImageSrcs, "vision call must receive absolute URLs resolved against the page URL")
 }
+
+// TestDetectScreenshotGaps_VisionVerdictIndicesMatchUnfilteredRefs pins the
+// fix for the verdict/refs index drift bug. When filtering drops images from
+// the vision pass, the surviving images must keep the indices they had in the
+// unfiltered refs list — otherwise verdicts emitted by the vision pass land
+// on the wrong images in buildDetectionPromptWithVerdicts (which keys lookups
+// off refs's positional 1-based index). On a page with PNG, SVG, JPG, ICO,
+// the JPG sits at position 3 and must be labelled "img-3" in the relevance
+// prompt, even though it's the second supported image to ship to vision.
+func TestDetectScreenshotGaps_VisionVerdictIndicesMatchUnfilteredRefs(t *testing.T) {
+	client := &scriptedClient{
+		caps: ModelCapabilities{Vision: true},
+		multimodalResps: []json.RawMessage{
+			json.RawMessage(`{"image_issues":[],"verdicts":[{"index":"img-1","matches":true},{"index":"img-3","matches":true}]}`),
+		},
+		detectionResp: json.RawMessage(`{"gaps":[]}`),
+	}
+	pages := []DocPage{{
+		URL:  "https://x/p",
+		Path: "/tmp/p.md",
+		Content: "# Page\n\nIntro.\n\n![dash](dashboard.png)\n\n" +
+			"![logo](logo.svg)\n\n" +
+			"![photo](photo.jpg)\n\n" +
+			"![icon](favicon.ico)\n",
+	}}
+
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+
+	require.Len(t, client.multimodalMsgs, 1)
+	require.Len(t, client.multimodalMsgs[0], 1)
+
+	var promptText string
+	for _, b := range client.multimodalMsgs[0][0].ContentBlocks {
+		if b.Type == ContentBlockText {
+			promptText = b.Text
+			break
+		}
+	}
+	require.NotEmpty(t, promptText)
+
+	assert.Contains(t, promptText, `img-1: src="https://x/dashboard.png"`,
+		"PNG sits at refs[0] in the unfiltered list — must be labelled img-1")
+	assert.Contains(t, promptText, `img-3: src="https://x/photo.jpg"`,
+		"JPG sits at refs[2] in the unfiltered list — must be labelled img-3, not img-2")
+	assert.NotContains(t, promptText, `img-2: src="https://x/photo.jpg"`,
+		"JPG must NOT inherit the SVG's position — that's the bug being fixed")
+}

@@ -33,6 +33,13 @@ type imageRef struct {
 	Src            string
 	SectionHeading string // most recent "# ..." or "## ..." heading above this image; "" if none
 	ParagraphIndex int    // 0-based index of the paragraph block containing this image
+	// OriginalIndex is the 1-based position of this ref in the page's
+	// unfiltered image list (set by extractImages). The vision relevance
+	// pass uses it to label images as "img-N" so verdicts stay aligned with
+	// the unfiltered refs that the detection prompt iterates — even after
+	// resolveVisionRefs / filterVisionSupportedImages drop unsupported or
+	// unresolvable srcs.
+	OriginalIndex int
 }
 
 var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
@@ -117,6 +124,9 @@ func extractImages(md string) []imageRef {
 	}
 	flush()
 
+	for i := range refs {
+		refs[i].OriginalIndex = i + 1
+	}
 	return refs
 }
 
@@ -601,17 +611,22 @@ var relevancePassSchema = JSONSchema{
 }
 
 // buildRelevancePrompt assembles the multimodal prompt for one batch in the
-// vision relevance pass. startIdx is the 0-based offset of the first image in
-// this batch within the page's full image list, so the model emits indices
-// numbered globally across batches (img-1, img-2, …) and downstream merging
-// stays collision-free.
-func buildRelevancePrompt(page DocPage, batch []imageRef, startIdx int) string {
-	first := startIdx + 1
-	last := startIdx + len(batch)
-
+// vision relevance pass. Each image's "img-N" label comes from its
+// OriginalIndex (its 1-based position in the page's unfiltered image list),
+// so verdicts emitted by the model stay aligned with the indices the
+// detection prompt uses — even when filtering has dropped images that sit
+// between two surviving ones (a sparse batch like img-1, img-3 is normal).
+func buildRelevancePrompt(page DocPage, batch []imageRef) string {
+	first, last := 0, 0
 	var refsList []string
 	for i, r := range batch {
-		idx := startIdx + i + 1
+		idx := r.OriginalIndex
+		if i == 0 || idx < first {
+			first = idx
+		}
+		if idx > last {
+			last = idx
+		}
 		section := r.SectionHeading
 		if section == "" {
 			section = "(no heading)"
@@ -655,15 +670,17 @@ If every image matches its prose, return "image_issues": [] and one matches=true
 
 // relevancePass walks the page's images in batches of <=5 (Groq cap), issues
 // one CompleteJSONMultimodal call per batch, and merges issues + verdicts
-// across batches. Indices are numbered globally so merging is collision-free
-// regardless of batch boundaries. Per-batch JSON parse errors are logged and
-// skipped (fail-open) so one bad batch doesn't poison the page.
+// across batches. Each image's img-N label is its OriginalIndex in the
+// unfiltered refs list, so verdicts merge cleanly across batches and align
+// with the indices buildDetectionPromptWithVerdicts uses downstream — even
+// when filtering has dropped some refs before this pass. Per-batch JSON parse
+// errors are logged and skipped (fail-open) so one bad batch doesn't poison
+// the page.
 func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []imageRef) ([]ImageIssue, []ImageVerdict, error) {
 	var issues []ImageIssue
 	var verdicts []ImageVerdict
-	startIdx := 0
 	for batchN, batch := range splitImageBatches(refs, 5) {
-		prompt := buildRelevancePrompt(page, batch, startIdx)
+		prompt := buildRelevancePrompt(page, batch)
 		blocks := make([]ContentBlock, 0, len(batch)+1)
 		blocks = append(blocks, ContentBlock{Type: ContentBlockText, Text: prompt})
 		for _, r := range batch {
@@ -677,7 +694,6 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		var resp relevancePassResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			log.Warnf("relevancePass: invalid JSON for %s batch %d: %v", page.URL, batchN, err)
-			startIdx += len(batch)
 			continue
 		}
 		for i := range resp.ImageIssues {
@@ -687,7 +703,6 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		}
 		issues = append(issues, resp.ImageIssues...)
 		verdicts = append(verdicts, resp.Verdicts...)
-		startIdx += len(batch)
 	}
 	return issues, verdicts, nil
 }

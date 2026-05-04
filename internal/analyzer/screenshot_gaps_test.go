@@ -15,7 +15,7 @@ func TestExtractImages_MarkdownSyntax(t *testing.T) {
 	md := "# Title\n\nIntro paragraph.\n\n![Dashboard](dashboard.png)\n\nNext paragraph.\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 2},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 2, OriginalIndex: 1},
 	}, got)
 }
 
@@ -23,7 +23,7 @@ func TestExtractImages_HTMLSyntax(t *testing.T) {
 	md := "# Title\n\n<img src=\"dashboard.png\" alt=\"Dashboard\">\n\nNext paragraph.\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1, OriginalIndex: 1},
 	}, got)
 }
 
@@ -31,7 +31,7 @@ func TestExtractImages_HTMLSyntax_SingleQuotes(t *testing.T) {
 	md := "# Title\n\n<img src='dashboard.png' alt='Dashboard'>\n\nNext paragraph.\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1, OriginalIndex: 1},
 	}, got)
 }
 
@@ -39,7 +39,7 @@ func TestExtractImages_HTMLSyntax_AttrsReversed(t *testing.T) {
 	md := "# Title\n\n<img alt=\"Dashboard\" src=\"dashboard.png\">\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1, OriginalIndex: 1},
 	}, got)
 }
 
