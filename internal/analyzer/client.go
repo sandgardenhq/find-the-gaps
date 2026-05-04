@@ -13,6 +13,10 @@ type ModelCapabilities struct {
 	Model    string
 	ToolUse  bool
 	Vision   bool
+	// MaxCompletionTokens is the per-model output cap. Some providers (notably
+	// Groq's llama-4-scout) reject requests whose max_completion_tokens exceed
+	// the model's specific limit. Zero means "use the BifrostClient default".
+	MaxCompletionTokens int
 }
 
 // LLMClient sends a prompt and returns the completion text.

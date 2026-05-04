@@ -34,12 +34,23 @@ type bifrostRequester interface {
 	ChatCompletionRequest(ctx *schemas.BifrostContext, req *schemas.BifrostChatRequest) (*schemas.BifrostChatResponse, *schemas.BifrostError)
 }
 
-// bifrostMaxCompletionTokens caps every completion's output length. Bifrost's Anthropic
-// provider silently defaults to 4096 for any model it doesn't recognize (e.g.
-// claude-opus-4-7 is missing from its static map as of v1.5.2), which truncates
-// large mapper responses and surfaces as "unexpected end of JSON input". 32k is
-// within the supported output window of every current Opus/Sonnet/Haiku model.
-const bifrostMaxCompletionTokens = 32_000
+// bifrostDefaultMaxCompletionTokens is the fallback output cap when caps don't
+// specify one. Bifrost's Anthropic provider silently defaults to 4096 for any
+// model it doesn't recognize (e.g. claude-opus-4-7 is missing from its static
+// map as of v1.5.2), which truncates large mapper responses and surfaces as
+// "unexpected end of JSON input". 32k is within the supported output window of
+// every current Opus/Sonnet/Haiku model. Models with a smaller hard cap (Groq
+// llama-4-scout at 8192) override this via ModelCapabilities.MaxCompletionTokens.
+const bifrostDefaultMaxCompletionTokens = 32_000
+
+// maxCompletionTokens returns the effective output cap for this client's model:
+// the per-model value from capabilities when set, otherwise the default.
+func (c *BifrostClient) maxCompletionTokens() int {
+	if c.caps.MaxCompletionTokens > 0 {
+		return c.caps.MaxCompletionTokens
+	}
+	return bifrostDefaultMaxCompletionTokens
+}
 
 // BifrostClient implements LLMClient using the Bifrost Go SDK.
 type BifrostClient struct {
@@ -297,7 +308,7 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 		Input:    bifrostMsgs,
 		Params: &schemas.ChatParameters{
 			Tools:               bifrostTools,
-			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+			MaxCompletionTokens: schemas.Ptr(c.maxCompletionTokens()),
 		},
 	})
 	if bifrostErr != nil {
@@ -413,7 +424,7 @@ func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages
 		Input:    c.renderBifrostMessages(messages),
 		Params: &schemas.ChatParameters{
 			ResponseFormat:      &rfIface,
-			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+			MaxCompletionTokens: schemas.Ptr(c.maxCompletionTokens()),
 		},
 	})
 	if bifrostErr != nil {
@@ -474,7 +485,7 @@ func (c *BifrostClient) completeJSONAnthropicMessages(ctx context.Context, messa
 		Params: &schemas.ChatParameters{
 			Tools:               []schemas.ChatTool{tool},
 			ToolChoice:          toolChoice,
-			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+			MaxCompletionTokens: schemas.Ptr(c.maxCompletionTokens()),
 		},
 	})
 	if bifrostErr != nil {
@@ -532,7 +543,7 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 			},
 		},
 		Params: &schemas.ChatParameters{
-			MaxCompletionTokens: schemas.Ptr(bifrostMaxCompletionTokens),
+			MaxCompletionTokens: schemas.Ptr(c.maxCompletionTokens()),
 		},
 	})
 	if bifrostErr != nil {
