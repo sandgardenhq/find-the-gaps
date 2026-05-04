@@ -43,6 +43,11 @@ var knownModels = []ModelCapabilities{
 	{Provider: "groq", Model: "meta-llama/llama-4-scout-17b-16e-instruct", ToolUse: true, Vision: true, MaxCompletionTokens: 8192},
 	{Provider: "ollama", Model: "*"},
 	{Provider: "lmstudio", Model: "*"},
+	// Gateway aliases are opaque to find-the-gaps: the gateway resolves the
+	// alias to a real provider+model server-side. We trust the user that the
+	// model behind any alias is vision- and tool-use-capable. Wildcard match
+	// covers every alias name.
+	{Provider: "gateway", Model: "*", ToolUse: true, Vision: true},
 }
 
 // ResolveCapabilities returns the capability flags for (provider, model).

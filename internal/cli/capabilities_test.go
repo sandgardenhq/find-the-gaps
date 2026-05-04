@@ -57,6 +57,51 @@ func TestResolveCapabilities_OpenAI2026Lineup(t *testing.T) {
 	}
 }
 
+func TestResolveCapabilities_Gateway_TrustsUser(t *testing.T) {
+	// The gateway provider exposes opaque aliases; find-the-gaps trusts the
+	// user that whichever model the gateway resolves the alias to is
+	// vision-capable and tool-use-capable. Capabilities are static for any
+	// alias name (wildcard row).
+	caps, ok := ResolveCapabilities("gateway", "cheap-tier")
+	if !ok {
+		t.Fatal("gateway provider must be recognized")
+	}
+	if !caps.Vision {
+		t.Error("gateway aliases must report Vision=true")
+	}
+	if !caps.ToolUse {
+		t.Error("gateway aliases must report ToolUse=true")
+	}
+	if caps.MaxCompletionTokens != 0 {
+		t.Errorf("gateway aliases must use the BifrostClient default cap (0); got %d", caps.MaxCompletionTokens)
+	}
+}
+
+func TestResolveCapabilities_Gateway_AnyAliasName(t *testing.T) {
+	// Wildcard match: every alias the user invents flows through.
+	for _, alias := range []string{"cheap-tier", "balanced", "team-a/best", "with.dots"} {
+		caps, ok := ResolveCapabilities("gateway", alias)
+		if !ok {
+			t.Errorf("alias %q must resolve via wildcard", alias)
+		}
+		if !caps.Vision || !caps.ToolUse {
+			t.Errorf("alias %q must inherit static caps", alias)
+		}
+	}
+}
+
+func TestKnownProviders_IncludesGateway(t *testing.T) {
+	// validateTierConfigs's "valid: ..." error message reads from knownProviders().
+	// Gateway must appear so users see it as a valid choice when they typo a tier.
+	got := knownProviders()
+	for _, p := range got {
+		if p == "gateway" {
+			return
+		}
+	}
+	t.Fatalf("gateway must be in knownProviders(); got %v", got)
+}
+
 // TestOpenAIDefaults_AreVisionAndToolCapable pins the contract that the
 // OpenAI tier defaults flipped to by tierFallbacks() resolve to models with
 // both ToolUse and Vision in the registry. Without this, an OpenAI-only
