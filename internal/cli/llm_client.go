@@ -152,10 +152,11 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 
 	caps, _ := ResolveCapabilities(provider, model)
 	analyzerCaps := analyzer.ModelCapabilities{
-		Provider: caps.Provider,
-		Model:    caps.Model,
-		ToolUse:  caps.ToolUse,
-		Vision:   caps.Vision,
+		Provider:            caps.Provider,
+		Model:               caps.Model,
+		ToolUse:             caps.ToolUse,
+		Vision:              caps.Vision,
+		MaxCompletionTokens: caps.MaxCompletionTokens,
 	}
 	client, err := analyzer.NewBifrostClientWithProvider(bifrostProvider, apiKey, model, baseURL, analyzerCaps)
 	if err != nil {
