@@ -561,6 +561,8 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		}
 		for i := range resp.ImageIssues {
 			resp.ImageIssues[i].PageURL = page.URL
+			resp.ImageIssues[i].Reason = unescapeLiteralWhitespace(resp.ImageIssues[i].Reason)
+			resp.ImageIssues[i].SuggestedAction = unescapeLiteralWhitespace(resp.ImageIssues[i].SuggestedAction)
 		}
 		issues = append(issues, resp.ImageIssues...)
 		verdicts = append(verdicts, resp.Verdicts...)
