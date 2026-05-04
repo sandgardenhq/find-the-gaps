@@ -345,22 +345,27 @@ func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing
 	assert.Equal(t, want, got)
 }
 
-// The legacy prompt previously framed itself as "aggressively conservative"
-// with a "default is to flag nothing" stance, which produced too few findings
-// in practice. Both prompts (legacy + verdict-enriched) should now lean toward
-// flagging when a UI moment isn't visually covered.
-func TestBuildScreenshotPrompt_LeansTowardFlagging(t *testing.T) {
+// Both prompts must be selective: not the prior "aggressively conservative /
+// flag nothing" extreme, but not the "lean toward flagging / when in doubt
+// flag" extreme either (that produced 113 findings on a single docs site in
+// practice). The intended posture is "flag a screenshot only when it earns
+// its place" — when in doubt, omit.
+func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
 	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"legacy prompt should no longer instruct the model to be aggressively conservative")
 	assert.NotContains(t, lower, "default is to flag nothing",
 		"legacy prompt should no longer set 'flag nothing' as the default")
-	assert.Contains(t, lower, "when in doubt, flag",
-		"legacy prompt should bias the model toward flagging gaps")
+	assert.NotContains(t, lower, "lean toward flagging",
+		"legacy prompt should no longer bias the model toward over-flagging")
+	assert.NotContains(t, lower, "when in doubt, flag",
+		"legacy prompt should not tell the model to flag when uncertain")
+	assert.Contains(t, lower, "when in doubt, do not flag",
+		"legacy prompt should bias the model away from flagging when uncertain")
 }
 
-func TestBuildDetectionPromptWithVerdicts_LeansTowardFlagging(t *testing.T) {
+func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
 	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
@@ -369,8 +374,12 @@ func TestBuildDetectionPromptWithVerdicts_LeansTowardFlagging(t *testing.T) {
 		"verdict prompt should no longer instruct the model to be aggressively conservative")
 	assert.NotContains(t, lower, "default is to flag nothing",
 		"verdict prompt should no longer set 'flag nothing' as the default")
-	assert.Contains(t, lower, "when in doubt, flag",
-		"verdict prompt should bias the model toward flagging gaps")
+	assert.NotContains(t, lower, "lean toward flagging",
+		"verdict prompt should no longer bias the model toward over-flagging")
+	assert.NotContains(t, lower, "when in doubt, flag",
+		"verdict prompt should not tell the model to flag when uncertain")
+	assert.Contains(t, lower, "when in doubt, do not flag",
+		"verdict prompt should bias the model away from flagging when uncertain")
 }
 
 // Both prompts must continue to exclude three known-false-positive patterns
