@@ -344,3 +344,72 @@ func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing
 	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs))
 	assert.Equal(t, want, got)
 }
+
+// The legacy prompt previously framed itself as "aggressively conservative"
+// with a "default is to flag nothing" stance, which produced too few findings
+// in practice. Both prompts (legacy + verdict-enriched) should now lean toward
+// flagging when a UI moment isn't visually covered.
+func TestBuildScreenshotPrompt_LeansTowardFlagging(t *testing.T) {
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	lower := strings.ToLower(got)
+	assert.NotContains(t, lower, "aggressively conservative",
+		"legacy prompt should no longer instruct the model to be aggressively conservative")
+	assert.NotContains(t, lower, "default is to flag nothing",
+		"legacy prompt should no longer set 'flag nothing' as the default")
+	assert.Contains(t, lower, "when in doubt, flag",
+		"legacy prompt should bias the model toward flagging gaps")
+}
+
+func TestBuildDetectionPromptWithVerdicts_LeansTowardFlagging(t *testing.T) {
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	lower := strings.ToLower(got)
+	assert.NotContains(t, lower, "aggressively conservative",
+		"verdict prompt should no longer instruct the model to be aggressively conservative")
+	assert.NotContains(t, lower, "default is to flag nothing",
+		"verdict prompt should no longer set 'flag nothing' as the default")
+	assert.Contains(t, lower, "when in doubt, flag",
+		"verdict prompt should bias the model toward flagging gaps")
+}
+
+// Both prompts must continue to exclude three known-false-positive patterns
+// that produced noise before: trivial single-action interactions, terminal
+// sessions already shown as code blocks, and reference material like API
+// signatures and option tables.
+func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
+	cases := map[string]string{
+		"legacy": buildScreenshotPrompt("https://x", "content", nil),
+		"verdict": buildDetectionPromptWithVerdicts("https://x", "content",
+			[]imageRef{{Src: "a.png"}},
+			[]ImageVerdict{{Index: "img-1", Matches: true}}),
+	}
+	for name, prompt := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Contains(t, prompt, `Single-action interactions`,
+				"prompt should still tell the model not to flag single-action UI moments")
+			assert.Contains(t, prompt, `click Save`,
+				"prompt should keep the canonical 'click Save' example")
+			assert.Contains(t, prompt, `Terminal sessions whose output is already shown inline in a code block`,
+				"prompt should still exclude terminal sessions already shown inline as code")
+			assert.Contains(t, prompt, `API signatures, option tables, type listings`,
+				"prompt should keep the reference-material exclusion")
+		})
+	}
+}
+
+// In the vision case we want the prompt to explicitly orient the model around
+// the question "is a relevant screenshot already on the page?" rather than
+// burying that check inside the locality rule.
+func TestBuildDetectionPromptWithVerdicts_AsksWhetherScreenshotIsAlreadyOnPage(t *testing.T) {
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	lower := strings.ToLower(got)
+	assert.Contains(t, lower, "existing image",
+		"verdict prompt should direct the model to check for an existing image on the page")
+	// The instruction should treat the verdict (not just locality / alt text)
+	// as the authoritative signal that the screenshot is already present.
+	assert.Contains(t, got, "AUTHORITATIVE",
+		"verdict prompt should mark the relevance verdicts as the authoritative coverage signal")
+}
