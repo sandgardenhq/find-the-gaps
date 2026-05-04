@@ -14,5 +14,6 @@ stderr 'BIFROST_GATEWAY_URL'
 # we're verifying here — analyze still exits 0.)
 env BIFROST_GATEWAY_URL=http://gateway.local:8080
 exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.com --llm-small gateway/cheap-tier
+stdout 'scanned 0 files'
 ! stderr 'BIFROST_GATEWAY_URL'
 ! stderr 'unknown provider'
