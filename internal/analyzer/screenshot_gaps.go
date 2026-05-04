@@ -175,8 +175,8 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	// PROMPT: Identifies the small number of passages in a documentation page where a screenshot is essential — multi-step flows, visually dense moments, or visual recognition the reader cannot reconstruct from prose. Applies a locality rule: a passage is already covered if an image appears in the same section heading or within 3 paragraphs before/after. Default is to flag nothing; over-flagging is worse than missing a gap.
-	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot is ESSENTIAL — not merely helpful. The default is to flag nothing. Be aggressively conservative; over-flagging is worse than missing a gap.
+	// PROMPT: Identifies passages in a documentation page that would meaningfully benefit from a screenshot — multi-step flows, concrete UI surfaces, visual recognition asks, setup/result states. Applies a locality rule: a passage may be covered when an existing image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after. Biases toward flagging — false positives are cheap to dismiss; missed gaps stay missed.
+	return fmt.Sprintf(`You are reviewing a documentation page to find places where a screenshot would meaningfully help the reader. Lean toward flagging gaps: a maintainer can dismiss a false positive in seconds, but a missed gap stays missed.
 
 URL: %s
 
@@ -186,28 +186,29 @@ Existing images on this page (if any):
 Page content:
 %s
 
-A passage is ALREADY COVERED (do not flag it) if an existing image on this page appears in the same section heading as the passage, OR within 3 paragraphs before/after the passage.
+A passage may already be visually covered by an existing image, but ONLY when the image's alt text and src plausibly describe the same UI moment as the passage AND the image appears in the same section heading or within 3 paragraphs before/after. An off-topic nearby image (e.g., an architecture diagram next to UI-walkthrough prose) does NOT cover the passage.
 
-Flag a passage ONLY if at least one is true:
-1. MULTI-STEP FLOW: It describes a sequence of two or more distinct user actions across changing UI states, and the reader needs to see the intermediate states to stay oriented (e.g., a wizard, an OAuth handshake screen-by-screen, a guided onboarding).
-2. VISUALLY DENSE: It describes a moment where prose cannot reasonably enumerate what is on screen — a dashboard with multiple panels, a chart whose shape matters, a configuration page with many interacting fields, a complex error state with specific layout.
-3. VISUAL RECOGNITION: The reader is asked to recognize something they cannot reconstruct from text alone — "look for the red banner at the top", "the chart should resemble this shape", "find the icon that looks like…".
+Flag a passage when at least one is true:
+1. MULTI-STEP FLOW: a sequence of two or more user actions across changing UI states (a wizard, an OAuth handshake, guided onboarding, a configuration walkthrough).
+2. VISUAL UI MOMENT: any concrete UI surface a reader would benefit from seeing — a screen, dashboard, panel, form, configuration page, settings tab, modal, chart, error state, success state, banner.
+3. VISUAL RECOGNITION: the reader must recognize, locate, or identify something on screen ("look for the red banner", "find the gear icon", "the chart should resemble this shape").
+4. SETUP / FIRST-RUN STATE: install, configure, or first-launch steps whose payoff is reaching a particular screen or output state the reader is trying to confirm.
+5. RESULT / OUTPUT: prose describing what the user should see after performing an action.
 
 Do NOT flag:
 - Single-action interactions ("click Save", "press Enter", "fill in the email field").
 - Terminal sessions whose output is already shown inline in a code block.
 - Reference material (API signatures, option tables, type listings).
-- Abstract prose with no specific UI moment.
-- Anything covered by the locality rule above.
-- Passages where you cannot name, in one sentence, exactly what would be lost if the reader followed prose alone.
+- Pure conceptual prose with no UI moment.
+- Passages already covered by a topically-matching image under the locality rule above.
 
-Populate "gaps" with one object per REMAINING gap. Each object must have:
+Populate "gaps" with one object per gap. Each object must have:
 - "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
 - "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption, under 100 characters.
 - "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
 
-Return an empty "gaps" array if nothing meets the bar. This is the expected outcome for most pages.`, pageURL, coverageSummary, content)
+When in doubt, flag the gap.`, pageURL, coverageSummary, content)
 }
 
 // buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
@@ -278,38 +279,39 @@ func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, 
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	// PROMPT: Verdict-enriched screenshot-gap detection. Same locality + bar-of-essentiality rules as the legacy prompt, plus: when an image marked "verdict: matches" already covers a passage, do NOT flag it as a missing screenshot. Instead, emit it under "suppressed_by_image" so audit stats can count what was suppressed without a second LLM round-trip. Images marked "verdict: does not match" do NOT cover their surrounding prose — treat them as if they were absent.
-	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot is ESSENTIAL — not merely helpful. The default is to flag nothing. Be aggressively conservative; over-flagging is worse than missing a gap.
+	// PROMPT: Verdict-enriched screenshot-gap detection. A vision model has already inspected each existing image and emitted an authoritative verdict. The first question for every UI moment in the prose is: is there an existing image on this page whose verdict is "matches" and that sits near the passage? If yes, suppress (record under "suppressed_by_image"). If no, flag a gap. Biases toward flagging; "verdict: does not match" images do NOT cover their surrounding prose — treat them as if absent.
+	return fmt.Sprintf(`You are reviewing a documentation page to find places where a screenshot would meaningfully help the reader. Lean toward flagging gaps: a maintainer can dismiss a false positive in seconds, but a missed gap stays missed.
 
 URL: %s
 
-Existing images on this page, each annotated with the relevance-pass verdict:
+Existing images on this page, each annotated with the relevance-pass verdict (a vision model already inspected the actual image contents):
 %s
 
 Page content:
 %s
 
-Verdict semantics:
-- "verdict: matches" — the image's actual contents accurately reflect the surrounding prose. Treat the moment as ALREADY COVERED.
-- "verdict: does not match" — the image's actual contents do NOT reflect the surrounding prose. Treat the moment as NOT covered (as if no image were present at all).
-- "verdict: unknown" — fall back to the locality rule (same section heading, or within 3 paragraphs).
+The verdicts above are AUTHORITATIVE. Do not second-guess them based on filename, alt text, or location:
+- "verdict: matches" — the image's actual contents accurately depict what the surrounding prose describes. The passage IS visually covered by this image.
+- "verdict: does not match" — the image's actual contents do NOT depict what the surrounding prose describes. Treat the passage as uncovered, exactly as if the image were absent.
+- "verdict: unknown" — fall back to the locality rule: a passage is covered only when an image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after.
 
-A passage is ALREADY COVERED (do not flag it) if a "verdict: matches" image appears in the same section heading as the passage, OR within 3 paragraphs before/after the passage. The locality rule alone (without a matching verdict) is NOT sufficient when a verdict is present for the relevant image.
+KEY QUESTION for every UI moment in the prose: is there an existing image on this page whose verdict is "matches" and that sits in the same section heading or within 3 paragraphs of the passage? If yes, the passage is already covered — do NOT add it to "gaps"; record it in "suppressed_by_image" instead. If no, flag a gap.
 
-Flag a passage ONLY if at least one is true:
-1. MULTI-STEP FLOW: It describes a sequence of two or more distinct user actions across changing UI states, and the reader needs to see the intermediate states to stay oriented (e.g., a wizard, an OAuth handshake screen-by-screen, a guided onboarding).
-2. VISUALLY DENSE: It describes a moment where prose cannot reasonably enumerate what is on screen — a dashboard with multiple panels, a chart whose shape matters, a configuration page with many interacting fields, a complex error state with specific layout.
-3. VISUAL RECOGNITION: The reader is asked to recognize something they cannot reconstruct from text alone — "look for the red banner at the top", "the chart should resemble this shape", "find the icon that looks like…".
+Flag a passage when at least one is true:
+1. MULTI-STEP FLOW: a sequence of two or more user actions across changing UI states (a wizard, an OAuth handshake, guided onboarding, a configuration walkthrough).
+2. VISUAL UI MOMENT: any concrete UI surface a reader would benefit from seeing — a screen, dashboard, panel, form, configuration page, settings tab, modal, chart, error state, success state, banner.
+3. VISUAL RECOGNITION: the reader must recognize, locate, or identify something on screen ("look for the red banner", "find the gear icon", "the chart should resemble this shape").
+4. SETUP / FIRST-RUN STATE: install, configure, or first-launch steps whose payoff is reaching a particular screen or output state the reader is trying to confirm.
+5. RESULT / OUTPUT: prose describing what the user should see after performing an action.
 
 Do NOT flag:
 - Single-action interactions ("click Save", "press Enter", "fill in the email field").
 - Terminal sessions whose output is already shown inline in a code block.
 - Reference material (API signatures, option tables, type listings).
-- Abstract prose with no specific UI moment.
-- Anything covered by the locality rule above when paired with a "verdict: matches" image.
-- Passages where you cannot name, in one sentence, exactly what would be lost if the reader followed prose alone.
+- Pure conceptual prose with no UI moment.
+- Passages where a "verdict: matches" image already sits in the same section heading or within 3 paragraphs (record these in "suppressed_by_image" instead of "gaps").
 
-Populate "gaps" with one object per REMAINING gap (one that would be flagged AND is not already covered by a matching image). Each object must have:
+Populate "gaps" with one object per gap (a passage that should have a screenshot AND no "verdict: matches" image already covers it). Each object must have:
 - "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
 - "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption, under 100 characters.
@@ -317,7 +319,7 @@ Populate "gaps" with one object per REMAINING gap (one that would be flagged AND
 
 Populate "suppressed_by_image" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a "verdict: matches" image already covers it. Same four fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
 
-Return empty arrays for both "gaps" and "suppressed_by_image" when nothing meets the bar. This is the expected outcome for most pages.`, pageURL, coverageSummary, content)
+When in doubt, flag the gap.`, pageURL, coverageSummary, content)
 }
 
 // fitContentToBudget returns content sized so that the assembled
