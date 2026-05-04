@@ -1186,3 +1186,48 @@ func TestBifrostClient_Gateway_DoesNotEmitCacheControl(t *testing.T) {
 		t.Fatalf("expected ContentStr=\"hello\", got %+v", rendered[0].Content)
 	}
 }
+
+func TestBifrostClient_Gateway_CompleteJSON_UsesResponseFormat(t *testing.T) {
+	// Stub a fake response that satisfies completeJSONOpenAIMessages: a single
+	// choice with a ContentStr containing a JSON document conforming to schema.
+	answer := `{"answer":"42"}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &answer}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "cheap-tier")
+
+	schema := JSONSchema{
+		Name: "TestAnswer",
+		Doc: json.RawMessage(`{
+			"type": "object",
+			"properties": {"answer": {"type": "string"}},
+			"required": ["answer"],
+			"additionalProperties": false
+		}`),
+	}
+
+	got, err := client.CompleteJSON(context.Background(), "what is the answer?", schema)
+	require.NoError(t, err)
+	require.JSONEq(t, answer, string(got))
+
+	// Inspect the captured request: response_format must be set, tools must be empty.
+	require.NotNil(t, fake.lastRequest, "fake should have captured the request")
+	require.NotNil(t, fake.lastRequest.Params, "Params must be set")
+	require.NotNil(t, fake.lastRequest.Params.ResponseFormat, "gateway lane must set ResponseFormat (json_schema)")
+	if len(fake.lastRequest.Params.Tools) != 0 {
+		t.Fatalf("gateway lane must NOT use forced-tool-use; got %d tool(s)", len(fake.lastRequest.Params.Tools))
+	}
+
+	// Optional: peek at the response_format value to confirm strict json_schema shape.
+	rf, ok := (*fake.lastRequest.Params.ResponseFormat).(map[string]any)
+	require.True(t, ok, "ResponseFormat must be a map[string]any")
+	require.Equal(t, "json_schema", rf["type"])
+	js, ok := rf["json_schema"].(map[string]any)
+	require.True(t, ok, "json_schema field must be a map[string]any")
+	require.Equal(t, true, js["strict"])
+	require.Equal(t, "TestAnswer", js["name"])
+}
