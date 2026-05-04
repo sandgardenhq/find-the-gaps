@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -94,12 +95,9 @@ func TestKnownProviders_IncludesGateway(t *testing.T) {
 	// validateTierConfigs's "valid: ..." error message reads from knownProviders().
 	// Gateway must appear so users see it as a valid choice when they typo a tier.
 	got := knownProviders()
-	for _, p := range got {
-		if p == "gateway" {
-			return
-		}
+	if !slices.Contains(got, "gateway") {
+		t.Fatalf("gateway must be in knownProviders(); got %v", got)
 	}
-	t.Fatalf("gateway must be in knownProviders(); got %v", got)
 }
 
 // TestOpenAIDefaults_AreVisionAndToolCapable pins the contract that the
