@@ -31,6 +31,7 @@ type scriptedClient struct {
 	multimodalCalls atomic.Int64
 	detectionCalls  atomic.Int64
 	lastSchemaName  string
+	multimodalMsgs  [][]ChatMessage
 }
 
 func (s *scriptedClient) Complete(_ context.Context, _ string) (string, error) {
@@ -43,7 +44,7 @@ func (s *scriptedClient) CompleteJSON(_ context.Context, _ string, schema JSONSc
 	return s.detectionResp, nil
 }
 
-func (s *scriptedClient) CompleteJSONMultimodal(ctx context.Context, _ []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
+func (s *scriptedClient) CompleteJSONMultimodal(ctx context.Context, msgs []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	// Honor ctx cancellation so tests can pin the propagation contract: a
 	// cancelled context inside the vision relevance pass must surface as an
 	// error from DetectScreenshotGaps without partial state.
@@ -52,6 +53,9 @@ func (s *scriptedClient) CompleteJSONMultimodal(ctx context.Context, _ []ChatMes
 	}
 	idx := int(s.multimodalCalls.Add(1) - 1)
 	s.lastSchemaName = schema.Name
+	dup := make([]ChatMessage, len(msgs))
+	copy(dup, msgs)
+	s.multimodalMsgs = append(s.multimodalMsgs, dup)
 	if idx >= len(s.multimodalResps) {
 		idx = len(s.multimodalResps) - 1
 	}
@@ -242,4 +246,92 @@ func TestDetectScreenshotGaps_VisionPathContextCanceled(t *testing.T) {
 	assert.True(t, errors.Is(err, context.Canceled), "wrapped error must satisfy errors.Is(context.Canceled)")
 	assert.Empty(t, res.ImageIssues, "no partial image-issue state on cancellation")
 	assert.Empty(t, res.MissingGaps, "no partial missing-gap state on cancellation")
+}
+
+// TestDetectScreenshotGaps_VisionPathFiltersUnsupportedImageFormats pins the
+// fix for the Anthropic "image.source.base64.data: The file format is invalid
+// or unsupported" failure: SVG/AVIF/etc must be filtered out before the vision
+// relevance call so one bad image cannot abort the whole batch. Detection-pass
+// stats still see the full image count (ImagesSeen) — only the vision branch
+// is filtered, since that's the only code path that actually sends pixels.
+func TestDetectScreenshotGaps_VisionPathFiltersUnsupportedImageFormats(t *testing.T) {
+	client := &scriptedClient{
+		caps: ModelCapabilities{Vision: true},
+		multimodalResps: []json.RawMessage{
+			json.RawMessage(`{"image_issues":[],"verdicts":[{"index":"img-0","matches":true},{"index":"img-1","matches":true}]}`),
+		},
+		detectionResp: json.RawMessage(`{"gaps":[]}`),
+	}
+	pages := []DocPage{{
+		URL:  "https://x/p",
+		Path: "/tmp/p.md",
+		Content: "# Page\n\nIntro.\n\n![dash](dashboard.png)\n\n" +
+			"![logo](logo.svg)\n\n" +
+			"![photo](photo.jpg)\n\n" +
+			"![icon](favicon.ico)\n",
+	}}
+
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+
+	// Exactly one vision call (the 2 PNG/JPG fit in one batch of 5 after SVG/ICO are filtered).
+	require.Equal(t, int64(1), client.multimodalCalls.Load(), "should issue exactly one vision call after filtering")
+	require.Len(t, client.multimodalMsgs, 1)
+	require.Len(t, client.multimodalMsgs[0], 1, "one user message per call")
+
+	var sentImageSrcs []string
+	for _, b := range client.multimodalMsgs[0][0].ContentBlocks {
+		if b.Type == ContentBlockImageURL {
+			sentImageSrcs = append(sentImageSrcs, b.ImageURL)
+		}
+	}
+	assert.Equal(t, []string{"https://x/dashboard.png", "https://x/photo.jpg"}, sentImageSrcs,
+		"vision call must NOT receive SVG or ICO sources — Anthropic rejects them")
+
+	// Audit: ImagesSeen counts the raw extracted images (4); RelevanceBatches
+	// reflects the filtered count (2 → 1 batch).
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 4, res.AuditStats[0].ImagesSeen, "raw image extraction should still see all 4 images")
+	assert.Equal(t, 1, res.AuditStats[0].RelevanceBatches, "post-filter, 2 supported images fit in one batch")
+}
+
+// TestDetectScreenshotGaps_VisionPathResolvesRelativeURLs pins the second-half
+// of the bug fix: relative srcs (root-relative, dot-slash, bare, parent) must
+// be resolved against the docs page URL before being shipped to the vision
+// API. Otherwise Bifrost can't fetch them, base64-encodes an HTML 404 page,
+// and Anthropic rejects it with the same "invalid or unsupported" error.
+func TestDetectScreenshotGaps_VisionPathResolvesRelativeURLs(t *testing.T) {
+	client := &scriptedClient{
+		caps: ModelCapabilities{Vision: true},
+		multimodalResps: []json.RawMessage{
+			json.RawMessage(`{"image_issues":[],"verdicts":[{"index":"img-0","matches":true},{"index":"img-1","matches":true},{"index":"img-2","matches":true},{"index":"img-3","matches":true}]}`),
+		},
+		detectionResp: json.RawMessage(`{"gaps":[]}`),
+	}
+	pages := []DocPage{{
+		URL:  "https://docs.example.com/guide/intro/",
+		Path: "/tmp/p.md",
+		Content: "# Guide\n\nIntro.\n\n" +
+			"![root](/static/img/root.png)\n\n" +
+			"![dot](./img/dot.png)\n\n" +
+			"![bare](img/bare.png)\n\n" +
+			"![parent](../img/parent.png)\n",
+	}}
+
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	require.NoError(t, err)
+
+	require.Len(t, client.multimodalMsgs, 1)
+	var sentImageSrcs []string
+	for _, b := range client.multimodalMsgs[0][0].ContentBlocks {
+		if b.Type == ContentBlockImageURL {
+			sentImageSrcs = append(sentImageSrcs, b.ImageURL)
+		}
+	}
+	assert.Equal(t, []string{
+		"https://docs.example.com/static/img/root.png",
+		"https://docs.example.com/guide/intro/img/dot.png",
+		"https://docs.example.com/guide/intro/img/bare.png",
+		"https://docs.example.com/guide/img/parent.png",
+	}, sentImageSrcs, "vision call must receive absolute URLs resolved against the page URL")
 }

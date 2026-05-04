@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -117,6 +118,126 @@ func extractImages(md string) []imageRef {
 	flush()
 
 	return refs
+}
+
+// visionUnsupportedExts is the set of image extensions Anthropic's vision API
+// rejects with "The file format is invalid or unsupported". Anthropic accepts
+// only jpeg, png, gif, and webp; everything else (vector, next-gen, legacy)
+// errors out and aborts the relevance batch. Filtering by extension is the
+// minimal, no-network defense.
+var visionUnsupportedExts = map[string]struct{}{
+	".svg":  {},
+	".avif": {},
+	".ico":  {},
+	".bmp":  {},
+	".tif":  {},
+	".tiff": {},
+	".heic": {},
+	".heif": {},
+}
+
+// visionUnsupportedDataMimes is the set of data: URI mime types Anthropic
+// rejects. Mirrors visionUnsupportedExts for the inline-image path.
+var visionUnsupportedDataMimes = map[string]struct{}{
+	"image/svg+xml": {},
+	"image/avif":    {},
+	"image/x-icon":  {},
+	"image/bmp":     {},
+	"image/tiff":    {},
+	"image/heic":    {},
+	"image/heif":    {},
+}
+
+// resolveImageSrc converts a possibly-relative image src into an absolute URL
+// usable by Bifrost / Anthropic's vision API. Returns ok=false when the src is
+// empty/whitespace/fragment-only or when a relative src cannot be resolved
+// against pageURL (e.g. unparseable page URL, or page URL itself has no host).
+// Data URIs and already-absolute URLs are returned verbatim.
+func resolveImageSrc(pageURL, src string) (string, bool) {
+	src = strings.TrimSpace(src)
+	if src == "" || strings.HasPrefix(src, "#") {
+		return "", false
+	}
+	if strings.HasPrefix(src, "data:") {
+		return src, true
+	}
+	ref, err := url.Parse(src)
+	if err != nil {
+		return "", false
+	}
+	if ref.IsAbs() {
+		return ref.String(), true
+	}
+	base, err := url.Parse(pageURL)
+	if err != nil || !base.IsAbs() || base.Host == "" {
+		return "", false
+	}
+	return base.ResolveReference(ref).String(), true
+}
+
+// resolveVisionRefs returns a copy of refs with each Src resolved against
+// pageURL. Refs whose src cannot be resolved (empty, fragment-only, or
+// relative against an unparseable page URL) are dropped — sending an
+// unresolvable src to the vision API guarantees an "invalid image" error.
+func resolveVisionRefs(pageURL string, refs []imageRef) []imageRef {
+	if len(refs) == 0 {
+		return refs
+	}
+	out := make([]imageRef, 0, len(refs))
+	for _, r := range refs {
+		abs, ok := resolveImageSrc(pageURL, r.Src)
+		if !ok {
+			continue
+		}
+		r.Src = abs
+		out = append(out, r)
+	}
+	return out
+}
+
+// filterVisionSupportedImages drops imageRefs whose Src is a known-unsupported
+// format for Anthropic's vision API, preventing a single bad image from
+// erroring out the whole relevance batch. Unknown extensions and extensionless
+// URLs are kept (inclusive-by-default): the upstream API can still fetch them,
+// and dropping them would silently shrink coverage.
+func filterVisionSupportedImages(refs []imageRef) []imageRef {
+	if len(refs) == 0 {
+		return refs
+	}
+	out := make([]imageRef, 0, len(refs))
+	for _, r := range refs {
+		if visionSupported(r.Src) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// visionSupported reports whether a single src URL/data-URI is acceptable to
+// Anthropic's vision API. Returns false only for KNOWN-unsupported formats so
+// we don't drop legitimate images served from extensionless CDN URLs.
+func visionSupported(src string) bool {
+	if rest, ok := strings.CutPrefix(src, "data:"); ok {
+		// data:<mime>[;params],<payload>
+		mime := rest
+		if i := strings.IndexAny(rest, ";,"); i >= 0 {
+			mime = rest[:i]
+		}
+		_, bad := visionUnsupportedDataMimes[strings.ToLower(mime)]
+		return !bad
+	}
+	// Strip query and fragment before extension check.
+	path := src
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		path = path[:i]
+	}
+	dot := strings.LastIndex(path, ".")
+	if dot < 0 {
+		return true
+	}
+	ext := strings.ToLower(path[dot:])
+	_, bad := visionUnsupportedExts[ext]
+	return !bad
 }
 
 // splitImageBatches groups refs into chunks of size <= max, preserving order.
@@ -695,8 +816,20 @@ func DetectScreenshotGaps(
 		var verdicts []ImageVerdict
 		if client.Capabilities().Vision && len(refs) > 0 {
 			stats.VisionEnabled = true
-			stats.RelevanceBatches = len(splitImageBatches(refs, 5))
-			issues, vs, err := relevancePass(ctx, client, page, refs)
+			// Two-step prep before the vision call:
+			//   1. Resolve relative srcs against page.URL — Bifrost can't
+			//      fetch "/static/foo.png" without a base; it ends up
+			//      base64-encoding an HTML 404 which Anthropic rejects.
+			//   2. Drop formats Anthropic's vision API rejects (SVG, AVIF,
+			//      ICO, etc.) — one bad image otherwise errors the whole
+			//      batch with "image.source.base64.data: The file format is
+			//      invalid or unsupported".
+			// Detection still sees the unfiltered refs, since the text-only
+			// pass doesn't ship pixels.
+			visionRefs := resolveVisionRefs(page.URL, refs)
+			visionRefs = filterVisionSupportedImages(visionRefs)
+			stats.RelevanceBatches = len(splitImageBatches(visionRefs, 5))
+			issues, vs, err := relevancePass(ctx, client, page, visionRefs)
 			if err != nil {
 				return result, err
 			}
