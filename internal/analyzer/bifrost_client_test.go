@@ -1143,3 +1143,20 @@ func TestNewBifrostClientWithProvider_Gateway_RequiresBaseURL(t *testing.T) {
 		t.Fatalf("error should mention baseURL, got %v", err)
 	}
 }
+
+func TestNewBifrostClientWithProvider_Gateway_ReturnsClient(t *testing.T) {
+	const baseURL = "http://gateway.local:8080"
+	client, err := NewBifrostClientWithProvider("gateway", "gw-key", "cheap-tier", baseURL, ModelCapabilities{Vision: true, ToolUse: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.provider != schemas.OpenAI {
+		t.Fatalf("expected provider schemas.OpenAI (gateway lane is OpenAI-compatible), got %q", client.provider)
+	}
+	if client.model != "cheap-tier" {
+		t.Fatalf("expected model %q, got %q", "cheap-tier", client.model)
+	}
+}
