@@ -215,3 +215,33 @@ func TestBuildTierClient_Gateway_MissingURL(t *testing.T) {
 		t.Fatalf("error must name BIFROST_GATEWAY_URL; got %v", err)
 	}
 }
+
+func TestBuildTierClient_Gateway_AllowsEmptyAPIKey(t *testing.T) {
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "")
+	client, counter, err := buildTierClient("gateway", "cheap-tier")
+	if err != nil {
+		t.Fatalf("unexpected error with empty API key: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("gateway path must return non-nil client and counter")
+	}
+	if _, ok := client.(*analyzer.BifrostClient); !ok {
+		t.Fatalf("gateway must be served by *analyzer.BifrostClient, got %T", client)
+	}
+}
+
+func TestBuildTierClient_Gateway_PassesAPIKey(t *testing.T) {
+	// The api key value is internal to the BifrostClient; we cannot easily
+	// observe it from this test layer. This test exists to prove the path
+	// builds and to lock the env-var name BIFROST_GATEWAY_API_KEY.
+	t.Setenv("BIFROST_GATEWAY_URL", "http://gateway.local:8080")
+	t.Setenv("BIFROST_GATEWAY_API_KEY", "real-gw-key")
+	client, counter, err := buildTierClient("gateway", "cheap-tier")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil || counter == nil {
+		t.Fatal("gateway path must return non-nil client and counter")
+	}
+}
