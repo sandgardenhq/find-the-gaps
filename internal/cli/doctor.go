@@ -51,17 +51,19 @@ func newDoctorCmd() *cobra.Command {
 
 // printTierCapabilities renders one line per tier showing the resolved
 // (provider, model) pair and the boolean capability flags from the per-model
-// registry. Empty inputs fall back to the same defaults the analyze command
-// uses (defaultSmallTier / defaultTypicalTier / defaultLargeTier) so doctor
-// shows what the next analyze run would actually use.
+// registry. Empty inputs fall back through tierFallbacks() — the same helper
+// validateTierConfigs uses — so doctor reports the exact tier strings the
+// next analyze run would actually use, including the OpenAI flip when only
+// OPENAI_API_KEY is set.
 func printTierCapabilities(w io.Writer, small, typical, large string) {
+	smallFB, typicalFB, largeFB := tierFallbacks()
 	for _, tc := range []struct {
 		name, raw string
 		fallback  string
 	}{
-		{"small", small, defaultSmallTier},
-		{"typical", typical, defaultTypicalTier},
-		{"large", large, defaultLargeTier},
+		{"small", small, smallFB},
+		{"typical", typical, typicalFB},
+		{"large", large, largeFB},
 	} {
 		s := tc.raw
 		if s == "" {

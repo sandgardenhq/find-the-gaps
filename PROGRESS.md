@@ -1312,3 +1312,15 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   --skip-screenshot-check removed entirely. Action input renamed to
   experimental-check-screenshots; self-test workflow updated. Historical
   plan docs left intact as record of original implementation.
+
+## Task: Review-feedback fixes (vision-image-analysis branch) — COMPLETE
+- Started: 2026-05-04
+- Tests: all passing (`go test ./...` clean across 12 packages)
+- Build: ✅ Successful
+- Linting: ✅ Clean (golangci-lint, 0 issues on changed packages)
+- Completed: 2026-05-04
+- Notes:
+  - Fix #1: `printTierCapabilities` now calls `tierFallbacks()` instead of the static `defaultSmallTier`/etc. constants, so `ftg doctor` reports the same defaults `ftg analyze` would actually use (including the OpenAI flip when only `OPENAI_API_KEY` is set). New test `TestDoctor_PrintsOpenAIDefaultsWhenOnlyOpenAIKeySet` pins the contract; existing tier tests now setenv the API keys explicitly so they don't depend on ambient env.
+  - OpenAI defaults refreshed to the 2026 lineup per a fresh web search: small=`gpt-5.4-nano`, typical=`gpt-5.4-mini`, large=`gpt-5.5`. New rows added to the capability registry for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano` (all `tool_use=true vision=true`); legacy `gpt-5`/`gpt-5-mini`/`gpt-4o`/`gpt-4o-mini` rows kept for backwards compatibility.
+  - Fix #2: Added `ImageIssues []analyzer.ImageIssue` to `site.Inputs` and threaded `screenshotResult.ImageIssues` from `analyze.go`. `materializeExpanded` now renders the `## Image Issues` section into `content/screenshots/_index.md` so expanded-mode sites match mirror mode (which picks up the section transitively from screenshots.md). Two new tests pin both the populated and absent cases.
+  - README updated: Configuration section's OpenAI fallback list and the "vision-capable small-tier models" table.

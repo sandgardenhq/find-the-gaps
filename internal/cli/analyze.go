@@ -482,6 +482,7 @@ func newAnalyzeCmd() *cobra.Command {
 						AllDocFeatures: docCoveredFeatures,
 						Drift:          driftFindings,
 						Screenshots:    screenshotResult.MissingGaps,
+						ImageIssues:    screenshotResult.ImageIssues,
 						ScreenshotsRan: experimentalCheckScreenshots,
 					},
 					site.BuildOptions{

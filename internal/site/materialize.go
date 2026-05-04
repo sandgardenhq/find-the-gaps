@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
 // materialize writes a Hugo source tree into srcDir based on the inputs and options.
@@ -183,9 +185,37 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 			}
 		}
 		// also write a section index for screenshots — frontmatter title is
-		// the page heading, so no body H1.
-		ssIdx := "+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n"
-		if err := os.WriteFile(filepath.Join(ssDir, "_index.md"), []byte(ssIdx), 0o644); err != nil {
+		// the page heading, so no body H1. When the vision pass produced
+		// image issues, render them as `## Image Issues` into the index so
+		// expanded-mode sites match mirror mode (which picks the section up
+		// transitively by reading screenshots.md verbatim).
+		var ssIdx strings.Builder
+		ssIdx.WriteString("+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n")
+		if len(in.ImageIssues) > 0 {
+			ssIdx.WriteString("\n## Image Issues\n\n")
+			// Group by page, preserving first-occurrence order so readers
+			// can scan one page's issues together. Mirrors the reporter's
+			// ordering rule.
+			seenPage := map[string]bool{}
+			var pageOrder []string
+			byPage := map[string][]analyzer.ImageIssue{}
+			for _, ii := range in.ImageIssues {
+				if !seenPage[ii.PageURL] {
+					seenPage[ii.PageURL] = true
+					pageOrder = append(pageOrder, ii.PageURL)
+				}
+				byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
+			}
+			for _, page := range pageOrder {
+				for _, ii := range byPage[page] {
+					fmt.Fprintf(&ssIdx, "- **Page:** %s\n", ii.PageURL)
+					fmt.Fprintf(&ssIdx, "  **Image:** ![%s](%s)\n", ii.Index, ii.Src)
+					fmt.Fprintf(&ssIdx, "  **Issue:** %s\n", ii.Reason)
+					fmt.Fprintf(&ssIdx, "  **Suggested action:** %s\n\n", ii.SuggestedAction)
+				}
+			}
+		}
+		if err := os.WriteFile(filepath.Join(ssDir, "_index.md"), []byte(ssIdx.String()), 0o644); err != nil {
 			return err
 		}
 	}

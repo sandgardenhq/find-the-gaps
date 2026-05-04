@@ -21,6 +21,14 @@ var knownModels = []ModelCapabilities{
 	{"anthropic", "claude-haiku-4-5", true, true},
 	{"anthropic", "claude-sonnet-4-6", true, true},
 	{"anthropic", "claude-opus-4-7", true, true},
+	// OpenAI's 2026 lineup. GPT-5.4 (March 2026) and GPT-5.5 (April 2026)
+	// all support tool use and vision; the nano/mini/standard split is the
+	// usual cheap-fast / mid / flagship ladder. Older entries (gpt-5,
+	// gpt-4o family) stay so existing configs keep working.
+	{"openai", "gpt-5.5", true, true},
+	{"openai", "gpt-5.4", true, true},
+	{"openai", "gpt-5.4-mini", true, true},
+	{"openai", "gpt-5.4-nano", true, true},
 	{"openai", "gpt-5", true, true},
 	{"openai", "gpt-5-mini", true, true},
 	{"openai", "gpt-4o", true, true},

@@ -97,14 +97,14 @@ func TestTierFallbacks_OpenAIWhenOnlyOpenAIKeySet(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "test-openai")
 	small, typical, large := tierFallbacks()
-	if small != "openai/gpt-4o-mini" {
-		t.Errorf("small fallback: want openai/gpt-4o-mini, got %q", small)
+	if small != defaultSmallTierOpenAI {
+		t.Errorf("small fallback: want %q, got %q", defaultSmallTierOpenAI, small)
 	}
-	if typical != "openai/gpt-4o" {
-		t.Errorf("typical fallback: want openai/gpt-4o, got %q", typical)
+	if typical != defaultTypicalTierOpenAI {
+		t.Errorf("typical fallback: want %q, got %q", defaultTypicalTierOpenAI, typical)
 	}
-	if large != "openai/gpt-4o" {
-		t.Errorf("large fallback: want openai/gpt-4o, got %q", large)
+	if large != defaultLargeTierOpenAI {
+		t.Errorf("large fallback: want %q, got %q", defaultLargeTierOpenAI, large)
 	}
 }
 

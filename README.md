@@ -174,10 +174,10 @@ investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
 tier may use any supported provider; it only makes single non-tool calls.
 
 If `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is not, the tier defaults
-flip to OpenAI (`openai/gpt-4o-mini`, `openai/gpt-4o`, `openai/gpt-4o`) so
-OpenAI-only users can run `ftg analyze` without spelling out three `--llm-*`
-flags. Any explicit tier flag still wins. With both keys set, Anthropic
-defaults stand.
+flip to OpenAI (`openai/gpt-5.4-nano`, `openai/gpt-5.4-mini`, `openai/gpt-5.5`)
+so OpenAI-only users can run `ftg analyze` without spelling out three
+`--llm-*` flags. Any explicit tier flag still wins. With both keys set,
+Anthropic defaults stand.
 
 Configure tiers via flag or environment variable:
 
@@ -206,7 +206,7 @@ Vision-capable small-tier models today:
 | Provider | Models |
 |---|---|
 | `anthropic` | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7` |
-| `openai` | `gpt-4o`, `gpt-4o-mini`, `gpt-5`, `gpt-5-mini` |
+| `openai` | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5`, `gpt-5-mini`, `gpt-4o`, `gpt-4o-mini` |
 | `groq` | `meta-llama/llama-4-scout-17b-16e-instruct` |
 
 Run `ftg doctor` to see what your current configuration resolves to — it
@@ -216,9 +216,9 @@ Groq is a hosted API, so there is nothing extra to install — set
 `GROQ_API_KEY` and you're done. Groq's vision endpoint caps each request at
 five images, which the screenshot pass handles transparently by batching.
 
-Findings land in a new `## Image Issues` section at the top of
-`screenshots.md` (and on the rendered Hugo page). Page-level audit log lines
-with `--verbose` document the per-page counts: `vision=on/off
+Findings land in a new `## Image Issues` section in `screenshots.md`,
+appended after the missing-screenshots list (and rendered the same way on
+the Hugo page). Per-page audit log lines document the counts: `vision=on/off
 relevance_batches=N images_seen=N image_issues=N missing_screenshots=N
 missing_suppressed=N detection_skipped=true|false`.
 

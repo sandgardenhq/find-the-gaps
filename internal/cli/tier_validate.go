@@ -12,9 +12,12 @@ const (
 	defaultTypicalTier = "anthropic/claude-sonnet-4-6"
 	defaultLargeTier   = "anthropic/claude-opus-4-7"
 
-	defaultSmallTierOpenAI   = "openai/gpt-4o-mini"
-	defaultTypicalTierOpenAI = "openai/gpt-4o"
-	defaultLargeTierOpenAI   = "openai/gpt-4o"
+	// 2026 lineup. nano/mini/5.5 mirrors the Anthropic haiku/sonnet/opus
+	// ladder: the small tier is cheap/fast and vision-capable, the typical
+	// tier is mid-cost with tool use, and the large tier is the flagship.
+	defaultSmallTierOpenAI   = "openai/gpt-5.4-nano"
+	defaultTypicalTierOpenAI = "openai/gpt-5.4-mini"
+	defaultLargeTierOpenAI   = "openai/gpt-5.5"
 )
 
 // knownProviders returns the deduplicated provider list for "valid: ..."

@@ -781,6 +781,86 @@ func TestStripLeadingH1(t *testing.T) {
 	}
 }
 
+// TestMaterializeExpandedScreenshotIndexRendersImageIssues pins the contract
+// that vision-pass image issues land on the rendered Hugo site in expanded
+// mode. Mirror mode reads screenshots.md verbatim, so it picks up the
+// reporter's `## Image Issues` section automatically; expanded mode renders
+// from typed Inputs and must thread `ImageIssues` into the screenshots
+// section index. Without this, the README/CHANGELOG promise that vision
+// findings appear on the rendered site only holds for mirror mode.
+func TestMaterializeExpandedScreenshotIndexRendersImageIssues(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Inputs{
+		ScreenshotsRan: true,
+		ImageIssues: []analyzer.ImageIssue{{
+			PageURL:         "https://example.com/docs/dash",
+			Index:           "img-3",
+			Src:             "https://example.com/img/dash.png",
+			Reason:          "shows dashboard but prose describes settings",
+			SuggestedAction: "replace",
+		}},
+	}
+	if err := materialize(srcDir, in, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "_index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	for _, want := range []string{
+		`title = "Screenshots"`,
+		"## Image Issues",
+		"https://example.com/docs/dash",
+		"https://example.com/img/dash.png",
+		"shows dashboard but prose describes settings",
+		"replace",
+	} {
+		if !contains(s, want) {
+			t.Errorf("expanded screenshots/_index.md missing %q; got:\n%s", want, s)
+		}
+	}
+}
+
+// TestMaterializeExpandedScreenshotIndexOmitsImageIssuesWhenAbsent pins the
+// contract that the `## Image Issues` heading is suppressed when the vision
+// pass produced no issues — same shape as the reporter's screenshots.md and
+// the mirror-mode rendering. Without this, expanded sites would render an
+// empty section header.
+func TestMaterializeExpandedScreenshotIndexOmitsImageIssuesWhenAbsent(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"),
+		[]byte("# Gaps\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialize(srcDir, Inputs{ScreenshotsRan: true}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(srcDir, "content", "screenshots", "_index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(string(body), "## Image Issues") {
+		t.Errorf("expanded screenshots/_index.md must omit `## Image Issues` when no issues exist; got:\n%s", string(body))
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
 }

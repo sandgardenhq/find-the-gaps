@@ -41,6 +41,11 @@ type Inputs struct {
 	AllDocFeatures []string
 	Drift          []analyzer.DriftFinding
 	Screenshots    []analyzer.ScreenshotGap
+	// ImageIssues are the vision-pass image-relevance findings. Mirror mode
+	// reads them transitively from screenshots.md; expanded mode renders
+	// from typed inputs and consumes this field directly so the section
+	// reaches the rendered Hugo site in either mode.
+	ImageIssues    []analyzer.ImageIssue
 	ScreenshotsRan bool
 }
 

@@ -40,6 +40,27 @@
   structs (matching the existing `gaps.md` pattern). Net negative line count
   and the `## Image Issues` section flows through to the Hugo site without
   any per-section template.
+- **OpenAI default tiers refreshed to the 2026 lineup.** When only
+  `OPENAI_API_KEY` is set, `tierFallbacks()` now resolves to
+  `openai/gpt-5.4-nano` (small), `openai/gpt-5.4-mini` (typical), and
+  `openai/gpt-5.5` (large) — all vision- and tool-use-capable. The capability
+  registry gained rows for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and
+  `gpt-5.4-nano`; legacy `gpt-5`/`gpt-5-mini`/`gpt-4o`/`gpt-4o-mini` rows
+  remain so existing configs keep working.
+
+### Fixed
+- **`ftg doctor` reported the wrong tier defaults to OpenAI-only users.**
+  `printTierCapabilities` now calls `tierFallbacks()` instead of the static
+  Anthropic constants, so the output matches what the next `ftg analyze`
+  actually resolves to (including the OpenAI flip when only `OPENAI_API_KEY`
+  is set).
+- **Vision `## Image Issues` now reaches the rendered site in expanded mode.**
+  Previously, only mirror mode picked up the section (it reads `screenshots.md`
+  verbatim). Expanded mode rendered the screenshots section from typed inputs
+  with no path for image issues, so the README/CHANGELOG promise that vision
+  findings appear on the rendered Hugo page only held in mirror mode.
+  `site.Inputs` gained an `ImageIssues` field; `materializeExpanded` renders
+  the section into `content/screenshots/_index.md`.
 
 ## v0.2.0
 
