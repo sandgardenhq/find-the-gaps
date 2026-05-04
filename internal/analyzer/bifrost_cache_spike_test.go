@@ -21,11 +21,12 @@ import (
 // from cache.
 //
 // IMPORTANT — propagation lag:
-//   Anthropic's cache requires several seconds for a fresh write to
-//   become globally readable. Two calls in milliseconds may BOTH report
-//   cache_write > 0 with cache_read = 0 — that is normal, not a bug.
-//   This spike intentionally inserts a 10s delay after the first call
-//   to clear the lag window.
+//
+//	Anthropic's cache requires several seconds for a fresh write to
+//	become globally readable. Two calls in milliseconds may BOTH report
+//	cache_write > 0 with cache_read = 0 — that is normal, not a bug.
+//	This spike intentionally inserts a 10s delay after the first call
+//	to clear the lag window.
 //
 // Run with: go test -tags=cachespike -run TestBifrostUserBlockCacheControlEndToEnd -v ./internal/analyzer/
 func TestBifrostUserBlockCacheControlEndToEnd(t *testing.T) {

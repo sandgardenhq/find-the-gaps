@@ -26,28 +26,28 @@ import (
 //
 //   - translation_unit         — root
 //   - preproc_include          — `#include <x>` or `#include "x"`; contains a
-//                                `system_lib_string` or `string_literal` child
-//                                whose content is `<x>` / `"x"` (delimiters
-//                                must be stripped)
+//     `system_lib_string` or `string_literal` child
+//     whose content is `<x>` / `"x"` (delimiters
+//     must be stripped)
 //   - preproc_def              — `#define NAME ...`; skipped entirely
 //   - declaration              — a function prototype (contains a
-//                                `function_declarator`) OR a global variable
-//                                (contains an `init_declarator` or bare
-//                                identifier declarator)
+//     `function_declarator`) OR a global variable
+//     (contains an `init_declarator` or bare
+//     identifier declarator)
 //   - function_definition      — a function with a body (`compound_statement`)
 //   - storage_class_specifier  — wraps a `static` / `extern` / etc. keyword;
-//                                `.Content()` yields e.g. "static"
+//     `.Content()` yields e.g. "static"
 //   - struct_specifier         — `struct X { ... }`; fields: name=type_identifier,
-//                                body=field_declaration_list
+//     body=field_declaration_list
 //   - union_specifier          — `union X { ... }`; same shape as struct
 //   - type_definition          — `typedef ... Name;`; the last `type_identifier`
-//                                child is the new type name. A
-//                                `typedef struct X { ... } Y;` wraps a
-//                                struct_specifier.
+//     child is the new type name. A
+//     `typedef struct X { ... } Y;` wraps a
+//     struct_specifier.
 //   - enum_specifier           — `enum X { ... }`; name=type_identifier
 //   - function_declarator      — contains an `identifier` name child
 //   - init_declarator          — a global variable initializer; first child is
-//                                an `identifier`
+//     an `identifier`
 type CExtractor struct{}
 
 func (e *CExtractor) Language() string     { return "C" }
