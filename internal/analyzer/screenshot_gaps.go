@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -41,12 +42,20 @@ type imageRef struct {
 	// resolveVisionRefs / filterVisionSupportedImages drop unsupported or
 	// unresolvable srcs.
 	OriginalIndex int
+	// DeclaredWidth and DeclaredHeight are the integer values of the HTML
+	// width / height attrs, if present and parseable; zero otherwise.
+	// Markdown ![]() syntax cannot carry dimensions, so refs from that
+	// syntax always have zero values here.
+	DeclaredWidth  int
+	DeclaredHeight int
 }
 
 var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var htmlImgRe = regexp.MustCompile(`(?i)<img\s+([^>]+?)>`)
 var htmlAttrSrcRe = regexp.MustCompile(`(?i)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 var htmlAttrAltRe = regexp.MustCompile(`(?i)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+var htmlAttrWidthRe = regexp.MustCompile(`(?i)\bwidth\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+var htmlAttrHeightRe = regexp.MustCompile(`(?i)\bheight\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 var atxHeadingRe = regexp.MustCompile(`^#{1,6}\s`)
 
 // extractImages returns all image references in the markdown, annotated with their
@@ -89,9 +98,30 @@ func extractImages(md string) []imageRef {
 					alt = mm[2]
 				}
 			}
+			w, h := 0, 0
+			if mm := htmlAttrWidthRe.FindStringSubmatch(attrs); mm != nil {
+				v := mm[1]
+				if v == "" {
+					v = mm[2]
+				}
+				if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+					w = n
+				}
+			}
+			if mm := htmlAttrHeightRe.FindStringSubmatch(attrs); mm != nil {
+				v := mm[1]
+				if v == "" {
+					v = mm[2]
+				}
+				if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+					h = n
+				}
+			}
 			refs = append(refs, imageRef{
 				AltText:        alt,
 				Src:            src,
+				DeclaredWidth:  w,
+				DeclaredHeight: h,
 				SectionHeading: currentHeading,
 				ParagraphIndex: pIdx,
 			})

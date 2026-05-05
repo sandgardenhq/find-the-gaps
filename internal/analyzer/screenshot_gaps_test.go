@@ -536,3 +536,52 @@ func TestBuildDetectionPromptWithVerdicts_AsksWhetherScreenshotIsAlreadyOnPage(t
 	assert.Contains(t, got, "AUTHORITATIVE",
 		"verdict prompt should mark the relevance verdicts as the authoritative coverage signal")
 }
+
+func TestExtractImagesParsesWidthAndHeightAttrs(t *testing.T) {
+	cases := []struct {
+		name  string
+		md    string
+		wantW int
+		wantH int
+	}{
+		{
+			name:  "double-quoted width and height",
+			md:    `<img src="a.png" width="800" height="600">`,
+			wantW: 800, wantH: 600,
+		},
+		{
+			name:  "single-quoted width only",
+			md:    `<img src='a.png' width='400'>`,
+			wantW: 400, wantH: 0,
+		},
+		{
+			name:  "absent attrs",
+			md:    `<img src="a.png">`,
+			wantW: 0, wantH: 0,
+		},
+		{
+			name:  "non-numeric width is ignored",
+			md:    `<img src="a.png" width="auto" height="100">`,
+			wantW: 0, wantH: 100,
+		},
+		{
+			name:  "markdown image carries no dimensions",
+			md:    `![alt](a.png)`,
+			wantW: 0, wantH: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := extractImages(tc.md)
+			if len(refs) != 1 {
+				t.Fatalf("expected 1 ref, got %d", len(refs))
+			}
+			if refs[0].DeclaredWidth != tc.wantW {
+				t.Errorf("DeclaredWidth: got %d, want %d", refs[0].DeclaredWidth, tc.wantW)
+			}
+			if refs[0].DeclaredHeight != tc.wantH {
+				t.Errorf("DeclaredHeight: got %d, want %d", refs[0].DeclaredHeight, tc.wantH)
+			}
+		})
+	}
+}
