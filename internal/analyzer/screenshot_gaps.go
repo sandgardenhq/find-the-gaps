@@ -984,7 +984,6 @@ type ScreenshotPageStats struct {
 	ImagesSeen         int
 	ImageIssues        int
 	MissingScreenshots int
-	MissingSuppressed  int
 	PossiblyCovered    int
 	DetectionSkipped   bool
 }
@@ -1140,7 +1139,6 @@ func DetectScreenshotGaps(
 			return result, err
 		}
 		stats.MissingScreenshots = len(gaps)
-		stats.MissingSuppressed = len(suppressed)
 		stats.PossiblyCovered = len(suppressed)
 		stats.DetectionSkipped = skipped
 		result.MissingGaps = append(result.MissingGaps, gaps...)

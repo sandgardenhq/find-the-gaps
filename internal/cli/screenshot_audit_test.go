@@ -33,7 +33,7 @@ func TestAnalyze_EmitsScreenshotAuditLine(t *testing.T) {
 			ImagesSeen:         12,
 			ImageIssues:        2,
 			MissingScreenshots: 4,
-			MissingSuppressed:  1,
+			PossiblyCovered:    1,
 		},
 	}
 
@@ -47,7 +47,7 @@ func TestAnalyze_EmitsScreenshotAuditLine(t *testing.T) {
 		"images_seen=12",
 		"image_issues=2",
 		"missing_screenshots=4",
-		"missing_suppressed=1",
+		"possibly_covered=1",
 		"detection_skipped=",
 	} {
 		assert.Contains(t, out, want, "audit log missing %q; full output:\n%s", want, out)
@@ -85,7 +85,7 @@ func TestAnalyze_EmitsScreenshotAuditLine_VisionOff(t *testing.T) {
 		"images_seen=0",
 		"image_issues=0",
 		"missing_screenshots=7",
-		"missing_suppressed=0",
+		"possibly_covered=0",
 		"detection_skipped=",
 	} {
 		assert.Contains(t, out, want, "audit log missing %q; full output:\n%s", want, out)

@@ -131,7 +131,7 @@ func TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats(t *testi
 	assert.Equal(t, 6, res.AuditStats[0].ImagesSeen)
 	assert.Equal(t, 1, res.AuditStats[0].ImageIssues)
 	assert.Equal(t, 1, res.AuditStats[0].MissingScreenshots)
-	assert.Equal(t, 1, res.AuditStats[0].MissingSuppressed)
+	assert.Equal(t, 1, res.AuditStats[0].PossiblyCovered)
 	assert.Equal(t, "https://x/p", res.AuditStats[0].PageURL)
 
 	// Call count: 2 vision calls + 1 detection call.
