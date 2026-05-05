@@ -5,6 +5,8 @@
 ## Features
 
 {{ range .Features -}}
+<div class="hx:my-6 hx:p-6 hx:rounded-lg hx:border hx:border-gray-200 hx:bg-white hx:dark:border-neutral-800 hx:dark:bg-neutral-900 hx:shadow-sm">
+
 ### {{ .Name }}
 
 {{ if .Description }}> {{ .Description }}
@@ -35,5 +37,7 @@
 {{ else -}}
 _(none)_
 
-{{ end -}}
+{{ end }}
+</div>
+
 {{ end }}

@@ -91,14 +91,17 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 	}
 	for _, want := range []string{
 		"A small CLI demo.",
-		"17 features",
-		"4 undocumented (user-facing)",
-		"2 drift findings",
-		"3 missing screenshots",
 		"2026-04-24",
-		"[Mapping](/mapping/)",
-		"[Gaps](/gaps/)",
-		"[Screenshots](/screenshots/)",
+		// Counts are rendered as links so a maintainer can click straight
+		// from the at-a-glance numbers to the section they care about.
+		// Mirror mode points the feature count at /mapping/; both gap-
+		// related counts share /gaps/; missing screenshots points at
+		// /screenshots/. The dedicated "## Sections" block no longer
+		// exists (these links replace it).
+		"[**17 features**](/mapping/)",
+		"[**4 undocumented (user-facing)**](/gaps/)",
+		"[**2 drift findings**](/gaps/)",
+		"[**3 missing screenshots**](/screenshots/)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -106,6 +109,32 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 	}
 	if strings.Contains(got, "# demo") {
 		t.Errorf("home page must not contain `# demo` H1 (frontmatter title supplies the heading); got:\n%s", got)
+	}
+}
+
+// TestRenderHomeGeneratedAtPrecedesSummary pins the home page layout: the
+// "_Generated ..._" timestamp must sit directly under the page header (the
+// frontmatter title rendered as H1) and before the summary paragraph. Until
+// this fix the timestamp appeared at the bottom of the intro region, after
+// the summary, where it read as an aside instead of a subheading.
+func TestRenderHomeGeneratedAtPrecedesSummary(t *testing.T) {
+	in := homeData{
+		ProjectName: "demo",
+		GeneratedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Summary:     "A small CLI demo.",
+		Mode:        ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := strings.Index(got, "_Generated ")
+	sum := strings.Index(got, "A small CLI demo.")
+	if gen < 0 || sum < 0 {
+		t.Fatalf("expected both timestamp and summary in output; got:\n%s", got)
+	}
+	if gen > sum {
+		t.Errorf("timestamp must precede summary; got:\n%s", got)
 	}
 }
 
@@ -127,19 +156,94 @@ func TestRenderHomeOmitsScreenshotsWhenNotRan(t *testing.T) {
 
 func TestRenderHomeExpandedLinksToFeatures(t *testing.T) {
 	in := homeData{
-		ProjectName: "demo",
-		GeneratedAt: time.Now(),
-		Mode:        ModeExpanded,
+		ProjectName:  "demo",
+		GeneratedAt:  time.Now(),
+		FeatureCount: 5,
+		Mode:         ModeExpanded,
 	}
 	got, err := renderHome(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "[Features](/features/)") {
-		t.Errorf("expanded home should link to /features/, got:\n%s", got)
+	// In expanded mode the feature-count bullet links to /features/
+	// (mirror mode points the same bullet at /mapping/).
+	if !strings.Contains(got, "[**5 features**](/features/)") {
+		t.Errorf("expanded home should link feature count to /features/, got:\n%s", got)
 	}
-	if strings.Contains(got, "[Mapping](/mapping/)") {
-		t.Error("expanded home should not link to mapping")
+	if strings.Contains(got, "(/mapping/)") {
+		t.Error("expanded home should not link to /mapping/")
+	}
+}
+
+// TestRenderHomeOmitsSectionsBlock pins the removal of the dedicated
+// `## Sections` list. The at-a-glance bullets carry the navigation links
+// now, so a separate Sections block is redundant.
+func TestRenderHomeOmitsSectionsBlock(t *testing.T) {
+	in := homeData{
+		ProjectName:    "demo",
+		GeneratedAt:    time.Now(),
+		FeatureCount:   3,
+		ScreenshotsRan: true,
+		Mode:           ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "## Sections") {
+		t.Errorf("home should not contain `## Sections`; got:\n%s", got)
+	}
+}
+
+// TestSingleLayoutH1IsNotCenterAligned pins that the per-page (mapping,
+// gaps, screenshots, per-feature) layout uses the default left alignment
+// for the page header instead of Hextra's stock `hx:text-center`. The
+// home page still uses `home.html` and remains centered — this test only
+// guards `single.html`.
+func TestSingleLayoutH1IsNotCenterAligned(t *testing.T) {
+	body, err := themeFS.ReadFile("assets/theme/hextra/layouts/single.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.Contains(line, "<h1") && strings.Contains(line, ".Title") {
+			if strings.Contains(line, "hx:text-center") {
+				t.Errorf("single.html H1 must not use hx:text-center, got:\n%s", line)
+			}
+			return
+		}
+	}
+	t.Fatalf("could not find the .Title H1 line in single.html")
+}
+
+// TestRenderMappingPageWrapsEachFeatureInCard pins that the rendered
+// mapping page wraps each feature block in a card-style `<div>` so
+// adjacent features are visually separated. Hugo's `markup.goldmark.
+// renderer.unsafe = true` (set in our hugo.toml) enables the raw HTML.
+func TestRenderMappingPageWrapsEachFeatureInCard(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo",
+		Features: []mappingFeature{
+			{Name: "Alpha", UserFacing: true, Documented: true, Files: []string{"a.go"}},
+			{Name: "Beta", UserFacing: false, Documented: false, Files: []string{"b.go"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each feature gets its own opening `<div class="...">` with card
+	// styling. Two features → two opening divs and two closing divs.
+	openCount := strings.Count(got, `<div class="hx:`)
+	if openCount < 2 {
+		t.Errorf("expected at least 2 card-wrapper <div> opens (one per feature), got %d in:\n%s", openCount, got)
+	}
+	closeCount := strings.Count(got, "</div>")
+	if closeCount < 2 {
+		t.Errorf("expected at least 2 closing </div> tags (one per feature), got %d in:\n%s", closeCount, got)
+	}
+	// Sanity: opens equal closes so the markup is balanced.
+	if openCount != closeCount {
+		t.Errorf("card wrapper opens (%d) and closes (%d) must match in:\n%s", openCount, closeCount, got)
 	}
 }
 
