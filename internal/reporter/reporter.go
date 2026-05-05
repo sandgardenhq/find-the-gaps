@@ -195,6 +195,30 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 		}
 	}
 
+	if len(res.PossiblyCovered) > 0 {
+		sb.WriteString("\n## Possibly Covered\n\n")
+		sb.WriteString("Suppressed because an unanalyzable but plausibly screenshot-shaped image is already on the page. Quick visual check is enough to confirm or override.\n\n")
+		seen := map[string]bool{}
+		var order []string
+		byPage := map[string][]analyzer.ScreenshotGap{}
+		for _, g := range res.PossiblyCovered {
+			if !seen[g.PageURL] {
+				seen[g.PageURL] = true
+				order = append(order, g.PageURL)
+			}
+			byPage[g.PageURL] = append(byPage[g.PageURL], g)
+		}
+		for _, page := range order {
+			fmt.Fprintf(&sb, "### %s\n\n", page)
+			for _, g := range byPage[page] {
+				fmt.Fprintf(&sb, "- **Passage:**\n\n")
+				fmt.Fprintf(&sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
+				fmt.Fprintf(&sb, "  - **Would have suggested:** %s\n", g.ShouldShow)
+				fmt.Fprintf(&sb, "  - **Insert (if uncovered):** %s\n\n", g.InsertionHint)
+			}
+		}
+	}
+
 	visionRan := false
 	for _, s := range res.AuditStats {
 		if s.VisionEnabled {
