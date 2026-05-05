@@ -1,7 +1,10 @@
 name: Find the Gaps
 description: Ai analysis finds what's missing or inaccurate in your documentation.
 author: Sandgarden
-
+branding:
+  color: blue
+  icon: book
+  
 inputs:
   docs-url:
     description: URL of the live documentation site to analyze against.
