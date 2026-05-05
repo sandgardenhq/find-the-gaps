@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0
 
 ### Added
 - **Per-model capability registry.** Replaces the flat provider whitelist with
