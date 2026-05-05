@@ -1,5 +1,5 @@
 name: Find the Gaps
-description: Analyze a repository against its docs site to surface documentation gaps.
+description: Ai analysis finds what's missing or inaccurate in your documentation.
 author: Sandgarden
 
 inputs:
