@@ -951,3 +951,60 @@ func TestScreenshotPageStatsHasPossiblyCovered(t *testing.T) {
 		t.Fatal("PossiblyCovered field unusable")
 	}
 }
+
+func TestDetectScreenshotGapsRoutesGifGapsToPossiblyCovered(t *testing.T) {
+	page := DocPage{
+		URL:  "https://x.com/p",
+		Path: "p.md",
+		Content: `# Demo
+<img src="https://x.com/demo.gif" width="800">
+
+This is a guided multi-step OAuth flow with several intermediate states the reader needs to see.
+`,
+	}
+	// scriptedClient supports vision capability; we don't need real vision
+	// calls to fire because the only image is a GIF (suppression-eligible),
+	// so visionPathRefs is empty and the relevance pass is skipped. The
+	// detection pass returns gaps=[] and one suppressed_by_image item to
+	// pin that DetectScreenshotGaps surfaces it as result.PossiblyCovered.
+	client := &scriptedClient{
+		caps: ModelCapabilities{Vision: true},
+		detectionResp: json.RawMessage(`{
+			"gaps": [],
+			"suppressed_by_image": [{
+				"quoted_passage": "guided multi-step OAuth flow",
+				"should_show": "OAuth steps",
+				"suggested_alt": "OAuth flow",
+				"insertion_hint": "after the OAuth paragraph"
+			}]
+		}`),
+	}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, nil)
+	require.NoError(t, err)
+	if len(res.MissingGaps) != 0 {
+		t.Errorf("MissingGaps = %d, want 0", len(res.MissingGaps))
+	}
+	if len(res.PossiblyCovered) != 1 {
+		t.Fatalf("PossiblyCovered = %d, want 1", len(res.PossiblyCovered))
+	}
+	require.Len(t, res.AuditStats, 1)
+	if res.AuditStats[0].PossiblyCovered != 1 {
+		t.Errorf("AuditStats[0].PossiblyCovered = %d, want 1", res.AuditStats[0].PossiblyCovered)
+	}
+}
+
+func TestPartitionRefsForVision(t *testing.T) {
+	refs := []imageRef{
+		{Src: "https://x.com/a.png"},
+		{Src: "https://x.com/b.gif"},
+		{Src: "https://x.com/c.svg"},
+		{Src: "https://x.com/d.webp"},
+	}
+	visionPath, suppressionPath := partitionRefsForVision(refs)
+	if len(visionPath) != 2 {
+		t.Errorf("vision path len = %d, want 2 (png, webp)", len(visionPath))
+	}
+	if len(suppressionPath) != 2 {
+		t.Errorf("suppression path len = %d, want 2 (gif, svg)", len(suppressionPath))
+	}
+}

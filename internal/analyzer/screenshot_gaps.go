@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/log"
 )
@@ -368,6 +369,23 @@ func decideAllSuppressions(ctx context.Context, client *http.Client, refs []imag
 	}
 	wg.Wait()
 	return out
+}
+
+// partitionRefsForVision splits image refs by whether they should go through
+// the vision relevance pass (returned first) or the unanalyzable-image
+// suppression layer (returned second). Order is preserved within each
+// returned slice; OriginalIndex values are inherited unchanged from the
+// input refs so synthetic verdicts emitted from the suppression path align
+// with the same global "img-N" numbering the detection prompt iterates.
+func partitionRefsForVision(refs []imageRef) (visionPath, suppressionPath []imageRef) {
+	for _, r := range refs {
+		if suppressionEligible(r) {
+			suppressionPath = append(suppressionPath, r)
+		} else {
+			visionPath = append(visionPath, r)
+		}
+	}
+	return visionPath, suppressionPath
 }
 
 // resolveImageSrc converts a possibly-relative image src into an absolute URL
@@ -1066,8 +1084,15 @@ func DetectScreenshotGaps(
 			PageURL:    page.URL,
 			ImagesSeen: len(refs),
 		}
+
+		// Partition refs: vision-supported (and non-GIF) take the relevance
+		// pass; GIFs and vision-unsupported formats take the suppression
+		// path so we don't ask a vision provider to judge a frame it cannot
+		// reliably render.
+		visionPathRefs, suppressionPathRefs := partitionRefsForVision(refs)
+
 		var verdicts []ImageVerdict
-		if client.Capabilities().Vision && len(refs) > 0 {
+		if client.Capabilities().Vision && len(visionPathRefs) > 0 {
 			stats.VisionEnabled = true
 			// Two-step prep before the vision call:
 			//   1. Resolve relative srcs against page.URL — Bifrost can't
@@ -1079,7 +1104,7 @@ func DetectScreenshotGaps(
 			//      invalid or unsupported".
 			// Detection still sees the unfiltered refs, since the text-only
 			// pass doesn't ship pixels.
-			visionRefs := resolveVisionRefs(page.URL, refs)
+			visionRefs := resolveVisionRefs(page.URL, visionPathRefs)
 			visionRefs = filterVisionSupportedImages(visionRefs)
 			stats.RelevanceBatches = len(splitImageBatches(visionRefs, 5))
 			issues, vs, err := relevancePass(ctx, client, page, visionRefs)
@@ -1090,14 +1115,36 @@ func DetectScreenshotGaps(
 			stats.ImageIssues = len(issues)
 			verdicts = vs
 		}
+
+		// Suppression decisions for unanalyzable images. Runs even when the
+		// model lacks vision capability — the heuristic is text/HEAD only.
+		// Only decided=true refs emit a synthetic matches=true verdict;
+		// decided=false means "no signal" (NOT "definitely not a screenshot")
+		// so we omit the verdict and let the locality rule apply.
+		if len(suppressionPathRefs) > 0 {
+			headCtx, cancel := context.WithTimeout(ctx, 5*time.Second*time.Duration(len(suppressionPathRefs)))
+			decisions := decideAllSuppressions(headCtx, http.DefaultClient, suppressionPathRefs, SuppressionConcurrencyCap)
+			for j, r := range suppressionPathRefs {
+				if decisions[j] {
+					verdicts = append(verdicts, ImageVerdict{
+						Index:   fmt.Sprintf("img-%d", r.OriginalIndex),
+						Matches: true,
+					})
+				}
+			}
+			cancel()
+		}
+
 		gaps, suppressed, skipped, err := detectionPass(ctx, client, page, refs, verdicts)
 		if err != nil {
 			return result, err
 		}
 		stats.MissingScreenshots = len(gaps)
 		stats.MissingSuppressed = len(suppressed)
+		stats.PossiblyCovered = len(suppressed)
 		stats.DetectionSkipped = skipped
 		result.MissingGaps = append(result.MissingGaps, gaps...)
+		result.PossiblyCovered = append(result.PossiblyCovered, suppressed...)
 		result.AuditStats = append(result.AuditStats, stats)
 		if progress != nil {
 			progress(i+1, total, page.URL)
