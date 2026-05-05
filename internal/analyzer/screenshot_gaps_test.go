@@ -614,3 +614,28 @@ func TestSuppressionEligible(t *testing.T) {
 		})
 	}
 }
+
+func TestHTMLAttrsSuggestScreenshot(t *testing.T) {
+	cases := []struct {
+		name string
+		w, h int
+		want bool
+	}{
+		{"both zero", 0, 0, false},
+		{"width below threshold", 399, 0, false},
+		{"width at threshold", 400, 0, true},
+		{"width above threshold", 800, 100, true},
+		{"height at threshold, width below", 100, 400, true},
+		{"both well below threshold (typical icon)", 24, 24, false},
+		{"only width set, above threshold", 800, 0, true},
+		{"only height set, above threshold", 0, 1200, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := imageRef{DeclaredWidth: tc.w, DeclaredHeight: tc.h}
+			if got := htmlAttrsSuggestScreenshot(r); got != tc.want {
+				t.Errorf("got %v, want %v (w=%d h=%d)", got, tc.want, tc.w, tc.h)
+			}
+		})
+	}
+}

@@ -30,6 +30,12 @@ import (
 // headroom for the response.
 const ScreenshotPromptBudget = 150_000
 
+// SuppressionMinDimension is the minimum max(width, height) in pixels of
+// a declared HTML attr that suggests an image is plausibly a screenshot
+// rather than an inline icon or thumbnail. 400px is the inflection point
+// between "decoration" and "deliberate page real estate" on docs sites.
+const SuppressionMinDimension = 400
+
 // imageRef is one image occurrence on a docs page.
 type imageRef struct {
 	AltText        string
@@ -225,6 +231,17 @@ func suppressionEligible(r imageRef) bool {
 	}
 	_, bad := visionUnsupportedExts[ext]
 	return bad
+}
+
+// htmlAttrsSuggestScreenshot reports whether an imageRef's declared
+// width / height attrs cross the screenshot-shaped threshold. Either
+// dimension alone is sufficient.
+func htmlAttrsSuggestScreenshot(r imageRef) bool {
+	larger := r.DeclaredWidth
+	if r.DeclaredHeight > larger {
+		larger = r.DeclaredHeight
+	}
+	return larger >= SuppressionMinDimension
 }
 
 // resolveImageSrc converts a possibly-relative image src into an absolute URL
