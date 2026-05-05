@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -32,6 +33,13 @@ type imageRef struct {
 	Src            string
 	SectionHeading string // most recent "# ..." or "## ..." heading above this image; "" if none
 	ParagraphIndex int    // 0-based index of the paragraph block containing this image
+	// OriginalIndex is the 1-based position of this ref in the page's
+	// unfiltered image list (set by extractImages). The vision relevance
+	// pass uses it to label images as "img-N" so verdicts stay aligned with
+	// the unfiltered refs that the detection prompt iterates — even after
+	// resolveVisionRefs / filterVisionSupportedImages drop unsupported or
+	// unresolvable srcs.
+	OriginalIndex int
 }
 
 var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
@@ -116,7 +124,130 @@ func extractImages(md string) []imageRef {
 	}
 	flush()
 
+	for i := range refs {
+		refs[i].OriginalIndex = i + 1
+	}
 	return refs
+}
+
+// visionUnsupportedExts is the set of image extensions Anthropic's vision API
+// rejects with "The file format is invalid or unsupported". Anthropic accepts
+// only jpeg, png, gif, and webp; everything else (vector, next-gen, legacy)
+// errors out and aborts the relevance batch. Filtering by extension is the
+// minimal, no-network defense.
+var visionUnsupportedExts = map[string]struct{}{
+	".svg":  {},
+	".avif": {},
+	".ico":  {},
+	".bmp":  {},
+	".tif":  {},
+	".tiff": {},
+	".heic": {},
+	".heif": {},
+}
+
+// visionUnsupportedDataMimes is the set of data: URI mime types Anthropic
+// rejects. Mirrors visionUnsupportedExts for the inline-image path.
+var visionUnsupportedDataMimes = map[string]struct{}{
+	"image/svg+xml": {},
+	"image/avif":    {},
+	"image/x-icon":  {},
+	"image/bmp":     {},
+	"image/tiff":    {},
+	"image/heic":    {},
+	"image/heif":    {},
+}
+
+// resolveImageSrc converts a possibly-relative image src into an absolute URL
+// usable by Bifrost / Anthropic's vision API. Returns ok=false when the src is
+// empty/whitespace/fragment-only or when a relative src cannot be resolved
+// against pageURL (e.g. unparseable page URL, or page URL itself has no host).
+// Data URIs and already-absolute URLs are returned verbatim.
+func resolveImageSrc(pageURL, src string) (string, bool) {
+	src = strings.TrimSpace(src)
+	if src == "" || strings.HasPrefix(src, "#") {
+		return "", false
+	}
+	if strings.HasPrefix(src, "data:") {
+		return src, true
+	}
+	ref, err := url.Parse(src)
+	if err != nil {
+		return "", false
+	}
+	if ref.IsAbs() {
+		return ref.String(), true
+	}
+	base, err := url.Parse(pageURL)
+	if err != nil || !base.IsAbs() || base.Host == "" {
+		return "", false
+	}
+	return base.ResolveReference(ref).String(), true
+}
+
+// resolveVisionRefs returns a copy of refs with each Src resolved against
+// pageURL. Refs whose src cannot be resolved (empty, fragment-only, or
+// relative against an unparseable page URL) are dropped — sending an
+// unresolvable src to the vision API guarantees an "invalid image" error.
+func resolveVisionRefs(pageURL string, refs []imageRef) []imageRef {
+	if len(refs) == 0 {
+		return refs
+	}
+	out := make([]imageRef, 0, len(refs))
+	for _, r := range refs {
+		abs, ok := resolveImageSrc(pageURL, r.Src)
+		if !ok {
+			continue
+		}
+		r.Src = abs
+		out = append(out, r)
+	}
+	return out
+}
+
+// filterVisionSupportedImages drops imageRefs whose Src is a known-unsupported
+// format for Anthropic's vision API, preventing a single bad image from
+// erroring out the whole relevance batch. Unknown extensions and extensionless
+// URLs are kept (inclusive-by-default): the upstream API can still fetch them,
+// and dropping them would silently shrink coverage.
+func filterVisionSupportedImages(refs []imageRef) []imageRef {
+	if len(refs) == 0 {
+		return refs
+	}
+	out := make([]imageRef, 0, len(refs))
+	for _, r := range refs {
+		if visionSupported(r.Src) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// visionSupported reports whether a single src URL/data-URI is acceptable to
+// Anthropic's vision API. Returns false only for KNOWN-unsupported formats so
+// we don't drop legitimate images served from extensionless CDN URLs.
+func visionSupported(src string) bool {
+	if rest, ok := strings.CutPrefix(src, "data:"); ok {
+		// data:<mime>[;params],<payload>
+		mime := rest
+		if i := strings.IndexAny(rest, ";,"); i >= 0 {
+			mime = rest[:i]
+		}
+		_, bad := visionUnsupportedDataMimes[strings.ToLower(mime)]
+		return !bad
+	}
+	// Strip query and fragment before extension check.
+	path := src
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		path = path[:i]
+	}
+	dot := strings.LastIndex(path, ".")
+	if dot < 0 {
+		return true
+	}
+	ext := strings.ToLower(path[dot:])
+	_, bad := visionUnsupportedExts[ext]
+	return !bad
 }
 
 // splitImageBatches groups refs into chunks of size <= max, preserving order.
@@ -480,17 +611,22 @@ var relevancePassSchema = JSONSchema{
 }
 
 // buildRelevancePrompt assembles the multimodal prompt for one batch in the
-// vision relevance pass. startIdx is the 0-based offset of the first image in
-// this batch within the page's full image list, so the model emits indices
-// numbered globally across batches (img-1, img-2, …) and downstream merging
-// stays collision-free.
-func buildRelevancePrompt(page DocPage, batch []imageRef, startIdx int) string {
-	first := startIdx + 1
-	last := startIdx + len(batch)
-
+// vision relevance pass. Each image's "img-N" label comes from its
+// OriginalIndex (its 1-based position in the page's unfiltered image list),
+// so verdicts emitted by the model stay aligned with the indices the
+// detection prompt uses — even when filtering has dropped images that sit
+// between two surviving ones (a sparse batch like img-1, img-3 is normal).
+func buildRelevancePrompt(page DocPage, batch []imageRef) string {
+	first, last := 0, 0
 	var refsList []string
 	for i, r := range batch {
-		idx := startIdx + i + 1
+		idx := r.OriginalIndex
+		if i == 0 || idx < first {
+			first = idx
+		}
+		if idx > last {
+			last = idx
+		}
 		section := r.SectionHeading
 		if section == "" {
 			section = "(no heading)"
@@ -534,15 +670,17 @@ If every image matches its prose, return "image_issues": [] and one matches=true
 
 // relevancePass walks the page's images in batches of <=5 (Groq cap), issues
 // one CompleteJSONMultimodal call per batch, and merges issues + verdicts
-// across batches. Indices are numbered globally so merging is collision-free
-// regardless of batch boundaries. Per-batch JSON parse errors are logged and
-// skipped (fail-open) so one bad batch doesn't poison the page.
+// across batches. Each image's img-N label is its OriginalIndex in the
+// unfiltered refs list, so verdicts merge cleanly across batches and align
+// with the indices buildDetectionPromptWithVerdicts uses downstream — even
+// when filtering has dropped some refs before this pass. Per-batch JSON parse
+// errors are logged and skipped (fail-open) so one bad batch doesn't poison
+// the page.
 func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []imageRef) ([]ImageIssue, []ImageVerdict, error) {
 	var issues []ImageIssue
 	var verdicts []ImageVerdict
-	startIdx := 0
 	for batchN, batch := range splitImageBatches(refs, 5) {
-		prompt := buildRelevancePrompt(page, batch, startIdx)
+		prompt := buildRelevancePrompt(page, batch)
 		blocks := make([]ContentBlock, 0, len(batch)+1)
 		blocks = append(blocks, ContentBlock{Type: ContentBlockText, Text: prompt})
 		for _, r := range batch {
@@ -556,7 +694,6 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		var resp relevancePassResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			log.Warnf("relevancePass: invalid JSON for %s batch %d: %v", page.URL, batchN, err)
-			startIdx += len(batch)
 			continue
 		}
 		for i := range resp.ImageIssues {
@@ -566,7 +703,6 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		}
 		issues = append(issues, resp.ImageIssues...)
 		verdicts = append(verdicts, resp.Verdicts...)
-		startIdx += len(batch)
 	}
 	return issues, verdicts, nil
 }
@@ -695,8 +831,20 @@ func DetectScreenshotGaps(
 		var verdicts []ImageVerdict
 		if client.Capabilities().Vision && len(refs) > 0 {
 			stats.VisionEnabled = true
-			stats.RelevanceBatches = len(splitImageBatches(refs, 5))
-			issues, vs, err := relevancePass(ctx, client, page, refs)
+			// Two-step prep before the vision call:
+			//   1. Resolve relative srcs against page.URL — Bifrost can't
+			//      fetch "/static/foo.png" without a base; it ends up
+			//      base64-encoding an HTML 404 which Anthropic rejects.
+			//   2. Drop formats Anthropic's vision API rejects (SVG, AVIF,
+			//      ICO, etc.) — one bad image otherwise errors the whole
+			//      batch with "image.source.base64.data: The file format is
+			//      invalid or unsupported".
+			// Detection still sees the unfiltered refs, since the text-only
+			// pass doesn't ship pixels.
+			visionRefs := resolveVisionRefs(page.URL, refs)
+			visionRefs = filterVisionSupportedImages(visionRefs)
+			stats.RelevanceBatches = len(splitImageBatches(visionRefs, 5))
+			issues, vs, err := relevancePass(ctx, client, page, visionRefs)
 			if err != nil {
 				return result, err
 			}

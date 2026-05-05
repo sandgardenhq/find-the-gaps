@@ -15,7 +15,7 @@ func TestExtractImages_MarkdownSyntax(t *testing.T) {
 	md := "# Title\n\nIntro paragraph.\n\n![Dashboard](dashboard.png)\n\nNext paragraph.\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 2},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 2, OriginalIndex: 1},
 	}, got)
 }
 
@@ -23,7 +23,7 @@ func TestExtractImages_HTMLSyntax(t *testing.T) {
 	md := "# Title\n\n<img src=\"dashboard.png\" alt=\"Dashboard\">\n\nNext paragraph.\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1, OriginalIndex: 1},
 	}, got)
 }
 
@@ -31,7 +31,7 @@ func TestExtractImages_HTMLSyntax_SingleQuotes(t *testing.T) {
 	md := "# Title\n\n<img src='dashboard.png' alt='Dashboard'>\n\nNext paragraph.\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1, OriginalIndex: 1},
 	}, got)
 }
 
@@ -39,7 +39,7 @@ func TestExtractImages_HTMLSyntax_AttrsReversed(t *testing.T) {
 	md := "# Title\n\n<img alt=\"Dashboard\" src=\"dashboard.png\">\n"
 	got := extractImages(md)
 	assert.Equal(t, []imageRef{
-		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1},
+		{AltText: "Dashboard", Src: "dashboard.png", SectionHeading: "Title", ParagraphIndex: 1, OriginalIndex: 1},
 	}, got)
 }
 
@@ -341,6 +341,97 @@ func TestSplitImageBatches(t *testing.T) {
 			assert.Equal(t, tc.want, gotSizes)
 		})
 	}
+}
+
+func TestFilterVisionSupportedImages(t *testing.T) {
+	in := []imageRef{
+		{Src: "logo.svg"},
+		{Src: "diagram.SVG"},
+		{Src: "https://example.com/img/dashboard.png"},
+		{Src: "https://example.com/img/photo.JPG"},
+		{Src: "photo.jpeg"},
+		{Src: "anim.gif"},
+		{Src: "modern.webp"},
+		{Src: "next-gen.avif"},
+		{Src: "favicon.ico"},
+		{Src: "scan.tiff"},
+		{Src: "scan.tif"},
+		{Src: "shot.bmp"},
+		{Src: "iphone.heic"},
+		{Src: "iphone.heif"},
+		{Src: "logo.svg?v=2"},
+		{Src: "https://cdn.example.com/asset?id=42"}, // no extension, keep
+		{Src: "https://example.com/page.png#frag"},
+		{Src: "data:image/png;base64,AAAA"},
+		{Src: "data:image/svg+xml;utf8,<svg/>"},
+	}
+	got := filterVisionSupportedImages(in)
+	var gotSrcs []string
+	for _, r := range got {
+		gotSrcs = append(gotSrcs, r.Src)
+	}
+	assert.Equal(t, []string{
+		"https://example.com/img/dashboard.png",
+		"https://example.com/img/photo.JPG",
+		"photo.jpeg",
+		"anim.gif",
+		"modern.webp",
+		"https://cdn.example.com/asset?id=42",
+		"https://example.com/page.png#frag",
+		"data:image/png;base64,AAAA",
+	}, gotSrcs)
+}
+
+func TestFilterVisionSupportedImages_EmptyAndNil(t *testing.T) {
+	assert.Nil(t, filterVisionSupportedImages(nil))
+	assert.Empty(t, filterVisionSupportedImages([]imageRef{}))
+}
+
+func TestResolveImageSrc(t *testing.T) {
+	const pageURL = "https://docs.example.com/guide/intro/"
+	for _, tc := range []struct {
+		name    string
+		src     string
+		want    string
+		wantOK  bool
+	}{
+		{"absolute https", "https://cdn.example.com/img/dash.png", "https://cdn.example.com/img/dash.png", true},
+		{"absolute http", "http://other.test/x.png", "http://other.test/x.png", true},
+		{"protocol relative", "//cdn.example.com/img/dash.png", "https://cdn.example.com/img/dash.png", true},
+		{"root relative", "/static/img/dash.png", "https://docs.example.com/static/img/dash.png", true},
+		{"dot-slash relative", "./img/dash.png", "https://docs.example.com/guide/intro/img/dash.png", true},
+		{"bare relative", "img/dash.png", "https://docs.example.com/guide/intro/img/dash.png", true},
+		{"parent relative", "../img/dash.png", "https://docs.example.com/guide/img/dash.png", true},
+		{"data uri passthrough", "data:image/png;base64,AAAA", "data:image/png;base64,AAAA", true},
+		{"empty src", "", "", false},
+		{"whitespace src", "   ", "", false},
+		{"fragment-only src", "#frag", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := resolveImageSrc(pageURL, tc.src)
+			assert.Equal(t, tc.wantOK, ok, "ok flag")
+			assert.Equal(t, tc.want, got, "resolved url")
+		})
+	}
+}
+
+func TestResolveImageSrc_BadPageURL(t *testing.T) {
+	// Relative src + unparseable page URL → cannot resolve, drop.
+	got, ok := resolveImageSrc("::not-a-url", "img/dash.png")
+	assert.False(t, ok)
+	assert.Empty(t, got)
+
+	// Absolute src + bad page URL → still resolvable.
+	got, ok = resolveImageSrc("::not-a-url", "https://cdn.example.com/x.png")
+	assert.True(t, ok)
+	assert.Equal(t, "https://cdn.example.com/x.png", got)
+}
+
+func TestResolveImageSrc_RelativeButPageHasNoHost(t *testing.T) {
+	// Page URL is itself relative — root-relative src can't be resolved against it.
+	got, ok := resolveImageSrc("guide/intro", "/static/x.png")
+	assert.False(t, ok)
+	assert.Empty(t, got)
 }
 
 func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
