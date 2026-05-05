@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -804,4 +806,71 @@ func TestDecisionForImageRef(t *testing.T) {
 			t.Error("expected false: HEAD failure means no signal -> no suppression")
 		}
 	})
+}
+
+func TestDecideAllSuppressionsDedupesByURL(t *testing.T) {
+	var heads int32
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		atomic.AddInt32(&heads, 1)
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Length": []string{"50000"}},
+			Body:       http.NoBody,
+		}, nil
+	})}
+	refs := []imageRef{
+		{Src: "https://x.com/a.gif"},
+		{Src: "https://x.com/a.gif"},
+		{Src: "https://x.com/a.gif"},
+	}
+	decisions := decideAllSuppressions(context.Background(), client, refs, 8)
+	if len(decisions) != 3 {
+		t.Fatalf("expected 3 decisions, got %d", len(decisions))
+	}
+	for i, d := range decisions {
+		if !d {
+			t.Errorf("decision[%d] = false, want true", i)
+		}
+	}
+	if atomic.LoadInt32(&heads) != 1 {
+		t.Errorf("expected 1 HEAD (deduped), got %d", heads)
+	}
+}
+
+func TestDecideAllSuppressionsRespectsConcurrencyCap(t *testing.T) {
+	var inflight int32
+	var maxInflight int32
+	gate := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cur := atomic.AddInt32(&inflight, 1)
+		for {
+			peak := atomic.LoadInt32(&maxInflight)
+			if cur <= peak || atomic.CompareAndSwapInt32(&maxInflight, peak, cur) {
+				break
+			}
+		}
+		<-gate
+		atomic.AddInt32(&inflight, -1)
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Length": []string{"100"}},
+			Body:       http.NoBody,
+		}, nil
+	})}
+	refs := make([]imageRef, 20)
+	for i := range refs {
+		refs[i] = imageRef{Src: fmt.Sprintf("https://x.com/img-%d.gif", i)}
+	}
+	done := make(chan struct{})
+	go func() {
+		decideAllSuppressions(context.Background(), client, refs, 4)
+		close(done)
+	}()
+	// Give worker pool time to ramp up to its cap.
+	time.Sleep(50 * time.Millisecond)
+	close(gate)
+	<-done
+	if maxInflight > 4 {
+		t.Errorf("max in-flight HEADs = %d, want <= 4", maxInflight)
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/log"
 )
@@ -305,6 +306,68 @@ func decisionForImageRef(ctx context.Context, client *http.Client, r imageRef) b
 		return false
 	}
 	return ok
+}
+
+// SuppressionConcurrencyCap is the maximum number of in-flight HEAD
+// requests for the suppression decider. Image-heavy pages can have
+// dozens of unanalyzable images; a small cap prevents fan-out storms.
+const SuppressionConcurrencyCap = 8
+
+// decideAllSuppressions runs decisionForImageRef for every input ref in
+// parallel, deduplicating by absolute Src so one image referenced from
+// N pages produces a single HEAD. The returned slice is index-aligned
+// with refs. concurrencyCap is the maximum in-flight HEAD count
+// (0 -> default).
+func decideAllSuppressions(ctx context.Context, client *http.Client, refs []imageRef, concurrencyCap int) []bool {
+	if concurrencyCap <= 0 {
+		concurrencyCap = SuppressionConcurrencyCap
+	}
+	out := make([]bool, len(refs))
+	if len(refs) == 0 {
+		return out
+	}
+	type cached struct {
+		done <-chan struct{}
+		val  bool
+	}
+	cache := make(map[string]*cached)
+	var mu sync.Mutex
+	sem := make(chan struct{}, concurrencyCap)
+	var wg sync.WaitGroup
+	for i, r := range refs {
+		i, r := i, r
+		mu.Lock()
+		c, ok := cache[r.Src]
+		if !ok {
+			ch := make(chan struct{})
+			c = &cached{done: ch}
+			cache[r.Src] = c
+			mu.Unlock()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				v := decisionForImageRef(ctx, client, r)
+				mu.Lock()
+				c.val = v
+				mu.Unlock()
+				close(ch)
+			}()
+		} else {
+			mu.Unlock()
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-c.done
+			mu.Lock()
+			out[i] = c.val
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return out
 }
 
 // resolveImageSrc converts a possibly-relative image src into an absolute URL
