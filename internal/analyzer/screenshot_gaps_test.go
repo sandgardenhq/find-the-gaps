@@ -585,3 +585,32 @@ func TestExtractImagesParsesWidthAndHeightAttrs(t *testing.T) {
 		})
 	}
 }
+
+func TestSuppressionEligible(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"png is not eligible", "https://x.com/a.png", false},
+		{"jpeg is not eligible", "https://x.com/a.jpg", false},
+		{"webp is not eligible", "https://x.com/a.webp", false},
+		{"gif is eligible", "https://x.com/a.gif", true},
+		{"GIF uppercase is eligible", "https://x.com/a.GIF", true},
+		{"svg is eligible", "https://x.com/a.svg", true},
+		{"avif is eligible", "https://x.com/a.avif", true},
+		{"image/gif data URI is eligible", "data:image/gif;base64,abc", true},
+		{"image/svg+xml data URI is eligible", "data:image/svg+xml;base64,abc", true},
+		{"image/png data URI is not eligible", "data:image/png;base64,abc", false},
+		{"extensionless URL is not eligible (vision-supported by default)", "https://x.com/img/abc", false},
+		{"empty src is not eligible", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := suppressionEligible(imageRef{Src: tc.src})
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

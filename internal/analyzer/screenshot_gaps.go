@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -187,6 +188,43 @@ var visionUnsupportedDataMimes = map[string]struct{}{
 	"image/tiff":    {},
 	"image/heic":    {},
 	"image/heif":    {},
+}
+
+// suppressionEligible reports whether a given imageRef should be routed
+// through the unanalyzable-image suppression layer instead of the vision
+// relevance pass. Eligible images are: vision-unsupported formats (per
+// visionUnsupportedExts / visionUnsupportedDataMimes) and ALL GIFs.
+// GIFs are eligible because every vision provider treats them as a single
+// still (typically the first frame), which silently misleads on animated
+// demos; the suppression layer's bytes-and-dimensions heuristic is more
+// honest than a first-frame relevance verdict.
+func suppressionEligible(r imageRef) bool {
+	src := strings.TrimSpace(r.Src)
+	if src == "" {
+		return false
+	}
+	if strings.HasPrefix(src, "data:") {
+		mimeEnd := strings.IndexAny(src[len("data:"):], ";,")
+		if mimeEnd < 0 {
+			return false
+		}
+		mime := strings.ToLower(src[len("data:") : len("data:")+mimeEnd])
+		if mime == "image/gif" {
+			return true
+		}
+		_, bad := visionUnsupportedDataMimes[mime]
+		return bad
+	}
+	u, err := url.Parse(src)
+	if err != nil {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(u.Path))
+	if ext == ".gif" {
+		return true
+	}
+	_, bad := visionUnsupportedExts[ext]
+	return bad
 }
 
 // resolveImageSrc converts a possibly-relative image src into an absolute URL
