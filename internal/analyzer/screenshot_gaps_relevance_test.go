@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -163,4 +164,64 @@ func TestRelevancePass_BatchesAtFiveImages(t *testing.T) {
 		}
 		assert.Equal(t, wantSizes[i], images, "batch %d image count", i)
 	}
+}
+
+// flakyJSONClient errors on the first CompleteJSONMultimodal call and returns
+// the canned JSON on subsequent calls. Used to verify relevancePass is
+// fail-open: a batch-level error (e.g. Bifrost cannot download an image URL)
+// should be logged and skipped, not propagated, so the rest of the run
+// continues. Without this, one unreachable image src on one page aborts the
+// whole analyze.
+type flakyJSONClient struct {
+	caps     ModelCapabilities
+	jsonResp json.RawMessage
+	calls    atomic.Int64
+}
+
+func (f *flakyJSONClient) Complete(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+
+func (f *flakyJSONClient) CompleteJSON(_ context.Context, _ string, _ JSONSchema) (json.RawMessage, error) {
+	return f.jsonResp, nil
+}
+
+func (f *flakyJSONClient) CompleteJSONMultimodal(_ context.Context, _ []ChatMessage, _ JSONSchema) (json.RawMessage, error) {
+	n := f.calls.Add(1)
+	if n == 1 {
+		return nil, errors.New("bifrost CompleteJSON: Unable to download the file. Please verify the URL and try again")
+	}
+	return f.jsonResp, nil
+}
+
+func (f *flakyJSONClient) Capabilities() ModelCapabilities { return f.caps }
+
+// TestRelevancePass_FailOpenOnBatchError pins the contract that a batch-level
+// LLM error does NOT abort the page or the run. With 8 refs (two batches of
+// 5+3) and the first call erroring, relevancePass must still call the second
+// batch, return its issues, and return nil error.
+func TestRelevancePass_FailOpenOnBatchError(t *testing.T) {
+	resp := json.RawMessage(`{
+	  "image_issues": [
+	    {"index":"img-6","src":"f.png","reason":"mismatch","suggested_action":"replace"}
+	  ],
+	  "verdicts": [
+	    {"index":"img-6","matches":false}
+	  ]
+	}`)
+	client := &flakyJSONClient{
+		caps:     ModelCapabilities{Vision: true},
+		jsonResp: resp,
+	}
+	page := DocPage{URL: "https://x/p", Content: "..."}
+	refs := make([]imageRef, 8)
+	for i := range refs {
+		refs[i] = imageRef{Src: fmt.Sprintf("img-%d.png", i+1)}
+	}
+
+	issues, _, err := relevancePass(context.Background(), client, page, refs)
+	require.NoError(t, err, "batch errors must be logged and skipped, not returned")
+	assert.Equal(t, int64(2), client.calls.Load(), "second batch must still be issued after first errors")
+	require.Len(t, issues, 1, "issues from the surviving batch must be preserved")
+	assert.Equal(t, "img-6", issues[0].Index)
 }
