@@ -945,9 +945,10 @@ type ScreenshotProgressFunc func(done, total int, currentPage string)
 // findings from the vision relevance pass, and per-page audit stats used by
 // the audit log line and the reporter.
 type ScreenshotResult struct {
-	MissingGaps []ScreenshotGap
-	ImageIssues []ImageIssue
-	AuditStats  []ScreenshotPageStats
+	MissingGaps     []ScreenshotGap
+	PossiblyCovered []ScreenshotGap
+	ImageIssues     []ImageIssue
+	AuditStats      []ScreenshotPageStats
 }
 
 // ScreenshotPageStats records what each per-page screenshot pass did. Emitted
@@ -966,6 +967,7 @@ type ScreenshotPageStats struct {
 	ImageIssues        int
 	MissingScreenshots int
 	MissingSuppressed  int
+	PossiblyCovered    int
 	DetectionSkipped   bool
 }
 

@@ -931,3 +931,23 @@ func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
 		t.Errorf("suppressed InsertionHint = %q", suppressed[0].InsertionHint)
 	}
 }
+
+func TestScreenshotResultHasPossiblyCovered(t *testing.T) {
+	// Compile-time guarantee that the field exists with the expected type.
+	var r ScreenshotResult
+	r.PossiblyCovered = []ScreenshotGap{{PageURL: "https://x.com"}}
+	if len(r.PossiblyCovered) != 1 {
+		t.Fatal("PossiblyCovered field unusable")
+	}
+	if r.PossiblyCovered[0].PageURL != "https://x.com" {
+		t.Fatal("ScreenshotGap shape on PossiblyCovered does not match")
+	}
+}
+
+func TestScreenshotPageStatsHasPossiblyCovered(t *testing.T) {
+	var s ScreenshotPageStats
+	s.PossiblyCovered = 3
+	if s.PossiblyCovered != 3 {
+		t.Fatal("PossiblyCovered field unusable")
+	}
+}
