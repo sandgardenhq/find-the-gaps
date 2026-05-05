@@ -184,7 +184,7 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 			byPage[g.PageURL] = append(byPage[g.PageURL], g)
 		}
 		for _, page := range order {
-			fmt.Fprintf(&sb, "### %s\n\n", page)
+			fmt.Fprintf(&sb, "### %s {#%s}\n\n", page, urlAnchor(page))
 			for _, g := range byPage[page] {
 				fmt.Fprintf(&sb, "- **Passage:**\n\n")
 				fmt.Fprintf(&sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
@@ -255,6 +255,33 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 	}
 
 	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+}
+
+// urlAnchor produces a deterministic, lowercase, kebab-case anchor id from a
+// URL. Hugo's default heading-id generator returns an empty id when a heading
+// is composed entirely of an autolinked URL — the inline permalink span and
+// the right-hand TOC then both end up pointing at "#". Emitting an explicit
+// `{#anchor}` heading attribute bypasses the auto-id step and gives the page
+// stable per-section anchors.
+func urlAnchor(s string) string {
+	var b strings.Builder
+	prevDash := true
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + 32)
+			prevDash = false
+		default:
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // fencedCodeBlock wraps s in a markdown code fence whose backtick run is one

@@ -3,27 +3,19 @@ title = "{{ .ProjectName }}"
 type = "docs"
 +++
 
-{{ if .Summary }}{{ .Summary }}{{ end }}
-
 _Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}_
+
+{{ if .Summary }}{{ .Summary }}{{ end }}
 
 ## At a glance
 
-- **{{ .FeatureCount }} features**
-- **{{ .UndocumentedUserCount }} undocumented (user-facing)**
-- **{{ .DriftCount }} drift findings**
-{{- if .ScreenshotsRan }}
-- **{{ .ScreenshotGapCount }} missing screenshots**
-{{- end }}
-
-## Sections
-
 {{ if .Expanded -}}
-- [Features](/features/)
+- [**{{ .FeatureCount }} features**](/features/)
 {{- else -}}
-- [Mapping](/mapping/)
+- [**{{ .FeatureCount }} features**](/mapping/)
 {{- end }}
-- [Gaps](/gaps/)
+- [**{{ .UndocumentedUserCount }} undocumented (user-facing)**](/gaps/)
+- [**{{ .DriftCount }} drift findings**](/gaps/)
 {{- if .ScreenshotsRan }}
-- [Screenshots](/screenshots/)
+- [**{{ .ScreenshotGapCount }} missing screenshots**](/screenshots/)
 {{- end }}

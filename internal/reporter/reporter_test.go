@@ -498,6 +498,30 @@ func TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks(t *testing.T) {
 	assert.NotContains(t, s, `\"`, "screenshots.md must not contain the literal escape `\\\"`")
 }
 
+// TestWriteScreenshots_PerPageHeadingHasExplicitAnchor pins the fix for a
+// Hugo-rendering bug: when a heading consists entirely of an autolinked URL,
+// Hugo's default auto-heading-ID generator returns an empty id. The result
+// is that the inline permalink span and the right-hand TOC both link to
+// "#" instead of a real anchor. The reporter MUST emit an explicit
+// `{#anchor}` attribute so goldmark uses our deterministic id and bypasses
+// the broken auto-id path. The slug is deterministic (lowercase, runs of
+// non-alphanumerics collapsed to a single hyphen, leading/trailing hyphens
+// trimmed) so refreshing the report doesn't churn anchors.
+func TestWriteScreenshots_PerPageHeadingHasExplicitAnchor(t *testing.T) {
+	dir := t.TempDir()
+	gaps := []analyzer.ScreenshotGap{
+		{PageURL: "https://example.com/docs/start", QuotedPassage: "p"},
+		{PageURL: "https://example.com/docs/admin", QuotedPassage: "p"},
+	}
+	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+
+	assert.Contains(t, s, "### https://example.com/docs/start {#https-example-com-docs-start}")
+	assert.Contains(t, s, "### https://example.com/docs/admin {#https-example-com-docs-admin}")
+}
+
 func TestWriteScreenshots_RendersImageIssuesSection(t *testing.T) {
 	tmp := t.TempDir()
 	res := analyzer.ScreenshotResult{
