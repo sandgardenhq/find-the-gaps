@@ -749,3 +749,59 @@ func TestHeadSuggestsScreenshot(t *testing.T) {
 		}
 	})
 }
+
+func TestDecisionForImageRef(t *testing.T) {
+	t.Run("HTML attrs sufficient: HEAD is not issued", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("HEAD must not be issued when HTML attrs already cross threshold")
+			return nil, nil
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif", DeclaredWidth: 800, DeclaredHeight: 0}
+		if !decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected true: width=800 attr alone should suppress")
+		}
+	})
+
+	t.Run("HTML attrs absent: falls through to HEAD", func(t *testing.T) {
+		called := false
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"50000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif"}
+		if !decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected true via HEAD")
+		}
+		if !called {
+			t.Error("expected HEAD to be issued when HTML attrs absent")
+		}
+	})
+
+	t.Run("HTML attrs below threshold and HEAD says small: false", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"5000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif", DeclaredWidth: 100}
+		if decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected false: small attr + small bytes")
+		}
+	})
+
+	t.Run("HEAD failure produces false (no signal)", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("network down")
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif"}
+		if decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected false: HEAD failure means no signal -> no suppression")
+		}
+	})
+}

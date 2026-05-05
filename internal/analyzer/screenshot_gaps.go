@@ -291,6 +291,22 @@ func headSuggestsScreenshot(ctx context.Context, client *http.Client, src string
 	return n >= SuppressionMinBytes, nil
 }
 
+// decisionForImageRef applies the design's signal precedence: HTML attrs
+// win, HEAD as fallback, no signal -> no suppression. HEAD errors are
+// swallowed (logged at debug) because the design's "no signal -> no
+// suppression" rule means failure is operationally identical to absence.
+func decisionForImageRef(ctx context.Context, client *http.Client, r imageRef) bool {
+	if htmlAttrsSuggestScreenshot(r) {
+		return true
+	}
+	ok, err := headSuggestsScreenshot(ctx, client, r.Src)
+	if err != nil {
+		log.Debugf("suppression: HEAD failed for %s: %v", r.Src, err)
+		return false
+	}
+	return ok
+}
+
 // resolveImageSrc converts a possibly-relative image src into an absolute URL
 // usable by Bifrost / Anthropic's vision API. Returns ok=false when the src is
 // empty/whitespace/fragment-only or when a relative src cannot be resolved
