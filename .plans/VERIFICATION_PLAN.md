@@ -292,6 +292,7 @@ Before any scenario runs:
 2. Inspect `<projectDir>/screenshots.md` and the per-page audit log lines.
 3. **Sub-case (b) — Ollama no-vision.** With a local Ollama running, re-run with `--llm-small=ollama/llama3` (typical and large still on Anthropic). Inspect `<projectDir>/screenshots.md` and the audit log.
 4. **Sub-case (c) — Groq vision with batching.** Set `GROQ_API_KEY`. Re-run with `--llm-small=groq/meta-llama/llama-4-scout-17b-16e-instruct -v`. Pick a page with `images_seen > 5` from earlier audit output. Inspect the audit log for that page and the resulting `screenshots.md`.
+5. **Sub-case (d) — Unanalyzable image suppression.** Pick a docs page on the same fixture site that contains either an animated GIF demo or a large SVG illustration in the same section as a multi-step UI flow or other prose passage that would otherwise be flagged as a screenshot gap. Re-run with `--llm-small=anthropic/claude-haiku-4-5 -v`. Inspect `<projectDir>/screenshots.md` and `<projectDir>/site/screenshots/`.
 
 **Success Criteria**:
 - [ ] **(a)** `screenshots.md` contains a populated `## Image Issues` section with at least one finding (page URL, image src, and model reasoning) on the chosen docs site. Audit log lines show `vision=on` and `relevance_batches >= 1` on pages with images.
@@ -299,9 +300,12 @@ Before any scenario runs:
 - [ ] **(b)** `screenshots.md` is identical in shape to today's behavior: no `## Image Issues` section is rendered (or it renders empty), audit log lines show `vision=off` and `relevance_batches=0`, and missing-screenshot output matches the pre-vision baseline.
 - [ ] **(c)** For at least one page with more than five images, the audit log shows `relevance_batches >= 2` (the Groq 5-image cap forced batching).
 - [ ] **(c)** `## Image Issues` is populated; no Bifrost or Groq errors appear in stderr; analyze exits `0`.
-- [ ] All three sub-cases run against the same fixture + docs URL so the only variable is `--llm-small`.
+- [ ] All three vision sub-cases run against the same fixture + docs URL so the only variable is `--llm-small`.
+- [ ] **(d)** `screenshots.md` renders a `## Possibly Covered` section listing the chosen passage; the same passage does NOT appear under `## Missing Screenshots`.
+- [ ] **(d)** `<projectDir>/site/screenshots/` renders the new section through Hextra (heading visible in the right-rail TOC, body rendered with the passage and its image reference).
+- [ ] **(d)** Audit log line for the page shows `possibly_covered >= 1`.
 
-**If Blocked**: If sub-case (a) produces an empty `## Image Issues` section against a docs site you know has prose/image mismatches, capture the audit log + the relevant docs page URL and ask before retuning the relevance prompt. If sub-case (c) produces only one batch on a page with more than five images, the batching helper is wrong — stop and ask. If the vision-off run in sub-case (b) drifts from today's screenshot output, the vision branch is leaking into the non-vision path; stop and ask.
+**If Blocked**: If sub-case (a) produces an empty `## Image Issues` section against a docs site you know has prose/image mismatches, capture the audit log + the relevant docs page URL and ask before retuning the relevance prompt. If sub-case (c) produces only one batch on a page with more than five images, the batching helper is wrong — stop and ask. If the vision-off run in sub-case (b) drifts from today's screenshot output, the vision branch is leaking into the non-vision path; stop and ask. If sub-case (d) produces a missing-screenshot finding for a passage whose section already has a 400px+ animated GIF (or 30KB+ SVG), the suppression layer's signal is not reaching the detection prompt — capture the audit log and the rendered screenshots.md, then stop and ask.
 
 ---
 

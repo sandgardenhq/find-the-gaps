@@ -3,9 +3,13 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -535,4 +539,472 @@ func TestBuildDetectionPromptWithVerdicts_AsksWhetherScreenshotIsAlreadyOnPage(t
 	// as the authoritative signal that the screenshot is already present.
 	assert.Contains(t, got, "AUTHORITATIVE",
 		"verdict prompt should mark the relevance verdicts as the authoritative coverage signal")
+}
+
+func TestExtractImagesParsesWidthAndHeightAttrs(t *testing.T) {
+	cases := []struct {
+		name  string
+		md    string
+		wantW int
+		wantH int
+	}{
+		{
+			name:  "double-quoted width and height",
+			md:    `<img src="a.png" width="800" height="600">`,
+			wantW: 800, wantH: 600,
+		},
+		{
+			name:  "single-quoted width only",
+			md:    `<img src='a.png' width='400'>`,
+			wantW: 400, wantH: 0,
+		},
+		{
+			name:  "absent attrs",
+			md:    `<img src="a.png">`,
+			wantW: 0, wantH: 0,
+		},
+		{
+			name:  "non-numeric width is ignored",
+			md:    `<img src="a.png" width="auto" height="100">`,
+			wantW: 0, wantH: 100,
+		},
+		{
+			name:  "markdown image carries no dimensions",
+			md:    `![alt](a.png)`,
+			wantW: 0, wantH: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := extractImages(tc.md)
+			if len(refs) != 1 {
+				t.Fatalf("expected 1 ref, got %d", len(refs))
+			}
+			if refs[0].DeclaredWidth != tc.wantW {
+				t.Errorf("DeclaredWidth: got %d, want %d", refs[0].DeclaredWidth, tc.wantW)
+			}
+			if refs[0].DeclaredHeight != tc.wantH {
+				t.Errorf("DeclaredHeight: got %d, want %d", refs[0].DeclaredHeight, tc.wantH)
+			}
+		})
+	}
+}
+
+func TestSuppressionEligible(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"png is not eligible", "https://x.com/a.png", false},
+		{"jpeg is not eligible", "https://x.com/a.jpg", false},
+		{"webp is not eligible", "https://x.com/a.webp", false},
+		{"gif is eligible", "https://x.com/a.gif", true},
+		{"GIF uppercase is eligible", "https://x.com/a.GIF", true},
+		{"svg is eligible", "https://x.com/a.svg", true},
+		{"avif is eligible", "https://x.com/a.avif", true},
+		{"image/gif data URI is eligible", "data:image/gif;base64,abc", true},
+		{"image/svg+xml data URI is eligible", "data:image/svg+xml;base64,abc", true},
+		{"image/png data URI is not eligible", "data:image/png;base64,abc", false},
+		{"extensionless URL is not eligible (vision-supported by default)", "https://x.com/img/abc", false},
+		{"empty src is not eligible", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := suppressionEligible(imageRef{Src: tc.src})
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHTMLAttrsSuggestScreenshot(t *testing.T) {
+	cases := []struct {
+		name string
+		w, h int
+		want bool
+	}{
+		{"both zero", 0, 0, false},
+		{"width below threshold", 399, 0, false},
+		{"width at threshold", 400, 0, true},
+		{"width above threshold", 800, 100, true},
+		{"height at threshold, width below", 100, 400, true},
+		{"both well below threshold (typical icon)", 24, 24, false},
+		{"only width set, above threshold", 800, 0, true},
+		{"only height set, above threshold", 0, 1200, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := imageRef{DeclaredWidth: tc.w, DeclaredHeight: tc.h}
+			if got := htmlAttrsSuggestScreenshot(r); got != tc.want {
+				t.Errorf("got %v, want %v (w=%d h=%d)", got, tc.want, tc.w, tc.h)
+			}
+		})
+	}
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestHeadSuggestsScreenshot(t *testing.T) {
+	t.Run("data URI uses inline length and short-circuits HEAD", func(t *testing.T) {
+		// "image/png;base64," + 30KB of base64 padding = > 30720 bytes
+		big := "data:image/png;base64," + strings.Repeat("A", 40000)
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("HEAD should not be issued for data URI")
+			return nil, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, big)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Errorf("expected true for >30KB data URI, got false")
+		}
+	})
+
+	t.Run("small data URI returns false", func(t *testing.T) {
+		small := "data:image/svg+xml,<svg></svg>"
+		got, err := headSuggestsScreenshot(context.Background(), &http.Client{}, small)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got {
+			t.Errorf("expected false for small data URI, got true")
+		}
+	})
+
+	t.Run("HEAD 200 with Content-Length above threshold returns true", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Method != http.MethodHead {
+				t.Errorf("expected HEAD, got %s", req.Method)
+			}
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"50000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.svg")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Error("expected true for 50KB Content-Length")
+		}
+	})
+
+	t.Run("HEAD 200 with Content-Length below threshold returns false", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"5000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.gif")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got {
+			t.Error("expected false for 5KB Content-Length")
+		}
+	})
+
+	t.Run("missing Content-Length returns false with no error (no signal)", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: http.NoBody}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.gif")
+		if err != nil {
+			t.Errorf("missing Content-Length should not be an error: %v", err)
+		}
+		if got {
+			t.Error("expected false when no Content-Length header")
+		}
+	})
+
+	t.Run("non-2xx returns false with error", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 404, Header: http.Header{}, Body: http.NoBody}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/missing.svg")
+		if err == nil {
+			t.Error("expected error on 404")
+		}
+		if got {
+			t.Error("expected false on 404")
+		}
+	})
+
+	t.Run("transport error propagates", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("network down")
+		})}
+		_, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.gif")
+		if err == nil {
+			t.Error("expected error from transport")
+		}
+	})
+}
+
+func TestDecisionForImageRef(t *testing.T) {
+	t.Run("HTML attrs sufficient: HEAD is not issued", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("HEAD must not be issued when HTML attrs already cross threshold")
+			return nil, nil
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif", DeclaredWidth: 800, DeclaredHeight: 0}
+		if !decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected true: width=800 attr alone should suppress")
+		}
+	})
+
+	t.Run("HTML attrs absent: falls through to HEAD", func(t *testing.T) {
+		called := false
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"50000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif"}
+		if !decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected true via HEAD")
+		}
+		if !called {
+			t.Error("expected HEAD to be issued when HTML attrs absent")
+		}
+	})
+
+	t.Run("HTML attrs below threshold and HEAD says small: false", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"5000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif", DeclaredWidth: 100}
+		if decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected false: small attr + small bytes")
+		}
+	})
+
+	t.Run("HEAD failure produces false (no signal)", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("network down")
+		})}
+		ref := imageRef{Src: "https://x.com/a.gif"}
+		if decisionForImageRef(context.Background(), client, ref) {
+			t.Error("expected false: HEAD failure means no signal -> no suppression")
+		}
+	})
+}
+
+func TestDecideAllSuppressionsDedupesByURL(t *testing.T) {
+	var heads int32
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		atomic.AddInt32(&heads, 1)
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Length": []string{"50000"}},
+			Body:       http.NoBody,
+		}, nil
+	})}
+	refs := []imageRef{
+		{Src: "https://x.com/a.gif"},
+		{Src: "https://x.com/a.gif"},
+		{Src: "https://x.com/a.gif"},
+	}
+	decisions := decideAllSuppressions(context.Background(), client, refs, 8)
+	if len(decisions) != 3 {
+		t.Fatalf("expected 3 decisions, got %d", len(decisions))
+	}
+	for i, d := range decisions {
+		if !d {
+			t.Errorf("decision[%d] = false, want true", i)
+		}
+	}
+	if atomic.LoadInt32(&heads) != 1 {
+		t.Errorf("expected 1 HEAD (deduped), got %d", heads)
+	}
+}
+
+func TestDecideAllSuppressionsRespectsConcurrencyCap(t *testing.T) {
+	var inflight int32
+	var maxInflight int32
+	gate := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cur := atomic.AddInt32(&inflight, 1)
+		for {
+			peak := atomic.LoadInt32(&maxInflight)
+			if cur <= peak || atomic.CompareAndSwapInt32(&maxInflight, peak, cur) {
+				break
+			}
+		}
+		<-gate
+		atomic.AddInt32(&inflight, -1)
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Length": []string{"100"}},
+			Body:       http.NoBody,
+		}, nil
+	})}
+	refs := make([]imageRef, 20)
+	for i := range refs {
+		refs[i] = imageRef{Src: fmt.Sprintf("https://x.com/img-%d.gif", i)}
+	}
+	done := make(chan struct{})
+	go func() {
+		decideAllSuppressions(context.Background(), client, refs, 4)
+		close(done)
+	}()
+	// Give worker pool time to ramp up to its cap.
+	time.Sleep(50 * time.Millisecond)
+	close(gate)
+	<-done
+	if maxInflight > 4 {
+		t.Errorf("max in-flight HEADs = %d, want <= 4", maxInflight)
+	}
+}
+
+func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
+	// Hand-rolled fake LLM client that returns a fixed JSON response
+	// containing both gaps and suppressed_by_image. We use the existing
+	// fakeLLMClient (responses []string, one per call); detectionPass makes
+	// exactly one CompleteJSON call per page.
+	client := &fakeLLMClient{
+		responses: []string{`{
+			"gaps": [{
+				"quoted_passage": "Click Save to continue.",
+				"should_show": "save dialog",
+				"suggested_alt": "save dialog",
+				"insertion_hint": "after the click-save paragraph"
+			}],
+			"suppressed_by_image": [{
+				"quoted_passage": "Watch the demo gif of the upload flow.\\nIt shows the steps.",
+				"should_show": "upload flow",
+				"suggested_alt": "upload demo",
+				"insertion_hint": "after the demo-gif paragraph"
+			}]
+		}`},
+	}
+	page := DocPage{URL: "https://x.com/p", Path: "p.md", Content: "# Hello\n\nClick Save."}
+	gaps, suppressed, skipped, err := detectionPass(context.Background(), client, page, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if skipped {
+		t.Fatal("did not expect skipped=true")
+	}
+	if len(gaps) != 1 {
+		t.Errorf("expected 1 gap, got %d", len(gaps))
+	}
+	if len(suppressed) != 1 {
+		t.Fatalf("expected 1 suppressed item, got %d", len(suppressed))
+	}
+	// Literal escape sequences must be unescaped, matching the gaps treatment.
+	wantPassage := "Watch the demo gif of the upload flow.\nIt shows the steps."
+	if suppressed[0].QuotedPassage != wantPassage {
+		t.Errorf("suppressed passage mismatch:\n got: %q\nwant: %q", suppressed[0].QuotedPassage, wantPassage)
+	}
+	if suppressed[0].PageURL != page.URL {
+		t.Errorf("suppressed PageURL = %q, want %q", suppressed[0].PageURL, page.URL)
+	}
+	if suppressed[0].PagePath != page.Path {
+		t.Errorf("suppressed PagePath = %q, want %q", suppressed[0].PagePath, page.Path)
+	}
+	if suppressed[0].ShouldShow != "upload flow" {
+		t.Errorf("suppressed ShouldShow = %q", suppressed[0].ShouldShow)
+	}
+	if suppressed[0].SuggestedAlt != "upload demo" {
+		t.Errorf("suppressed SuggestedAlt = %q", suppressed[0].SuggestedAlt)
+	}
+	if suppressed[0].InsertionHint != "after the demo-gif paragraph" {
+		t.Errorf("suppressed InsertionHint = %q", suppressed[0].InsertionHint)
+	}
+}
+
+func TestScreenshotResultHasPossiblyCovered(t *testing.T) {
+	// Compile-time guarantee that the field exists with the expected type.
+	var r ScreenshotResult
+	r.PossiblyCovered = []ScreenshotGap{{PageURL: "https://x.com"}}
+	if len(r.PossiblyCovered) != 1 {
+		t.Fatal("PossiblyCovered field unusable")
+	}
+	if r.PossiblyCovered[0].PageURL != "https://x.com" {
+		t.Fatal("ScreenshotGap shape on PossiblyCovered does not match")
+	}
+}
+
+func TestScreenshotPageStatsHasPossiblyCovered(t *testing.T) {
+	var s ScreenshotPageStats
+	s.PossiblyCovered = 3
+	if s.PossiblyCovered != 3 {
+		t.Fatal("PossiblyCovered field unusable")
+	}
+}
+
+func TestDetectScreenshotGapsRoutesGifGapsToPossiblyCovered(t *testing.T) {
+	page := DocPage{
+		URL:  "https://x.com/p",
+		Path: "p.md",
+		Content: `# Demo
+<img src="https://x.com/demo.gif" width="800">
+
+This is a guided multi-step OAuth flow with several intermediate states the reader needs to see.
+`,
+	}
+	// scriptedClient supports vision capability; we don't need real vision
+	// calls to fire because the only image is a GIF (suppression-eligible),
+	// so visionPathRefs is empty and the relevance pass is skipped. The
+	// detection pass returns gaps=[] and one suppressed_by_image item to
+	// pin that DetectScreenshotGaps surfaces it as result.PossiblyCovered.
+	client := &scriptedClient{
+		caps: ModelCapabilities{Vision: true},
+		detectionResp: json.RawMessage(`{
+			"gaps": [],
+			"suppressed_by_image": [{
+				"quoted_passage": "guided multi-step OAuth flow",
+				"should_show": "OAuth steps",
+				"suggested_alt": "OAuth flow",
+				"insertion_hint": "after the OAuth paragraph"
+			}]
+		}`),
+	}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, nil)
+	require.NoError(t, err)
+	if len(res.MissingGaps) != 0 {
+		t.Errorf("MissingGaps = %d, want 0", len(res.MissingGaps))
+	}
+	if len(res.PossiblyCovered) != 1 {
+		t.Fatalf("PossiblyCovered = %d, want 1", len(res.PossiblyCovered))
+	}
+	require.Len(t, res.AuditStats, 1)
+	if res.AuditStats[0].PossiblyCovered != 1 {
+		t.Errorf("AuditStats[0].PossiblyCovered = %d, want 1", res.AuditStats[0].PossiblyCovered)
+	}
+}
+
+func TestPartitionRefsForVision(t *testing.T) {
+	refs := []imageRef{
+		{Src: "https://x.com/a.png"},
+		{Src: "https://x.com/b.gif"},
+		{Src: "https://x.com/c.svg"},
+		{Src: "https://x.com/d.webp"},
+	}
+	visionPath, suppressionPath := partitionRefsForVision(refs)
+	if len(visionPath) != 2 {
+		t.Errorf("vision path len = %d, want 2 (png, webp)", len(visionPath))
+	}
+	if len(suppressionPath) != 2 {
+		t.Errorf("suppression path len = %d, want 2 (gif, svg)", len(suppressionPath))
+	}
 }

@@ -571,6 +571,58 @@ func TestWriteScreenshots_VisionDidNotRun_OmitsImageIssuesHeader(t *testing.T) {
 	assert.NotContains(t, s, "## Image Issues")
 }
 
+func TestWriteScreenshotsRendersPossiblyCovered(t *testing.T) {
+	dir := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		MissingGaps: []analyzer.ScreenshotGap{},
+		PossiblyCovered: []analyzer.ScreenshotGap{{
+			PageURL:       "https://x.com/p",
+			QuotedPassage: "Watch the upload demo.",
+			ShouldShow:    "upload flow",
+			SuggestedAlt:  "upload demo",
+			InsertionHint: "after the demo paragraph",
+		}},
+		AuditStats: []analyzer.ScreenshotPageStats{{PageURL: "https://x.com/p", VisionEnabled: true}},
+	}
+	if err := reporter.WriteScreenshots(dir, res); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(body)
+	if !strings.Contains(got, "## Possibly Covered") {
+		t.Error("expected '## Possibly Covered' header in screenshots.md")
+	}
+	if !strings.Contains(got, "Watch the upload demo.") {
+		t.Error("expected the quoted passage in the rendered output")
+	}
+	// Ordering: ## Possibly Covered must come AFTER ## Missing Screenshots
+	// and BEFORE ## Image Issues so the file reads top-down by severity.
+	missingPos := strings.Index(got, "Missing Screenshots")
+	pcPos := strings.Index(got, "Possibly Covered")
+	imgPos := strings.Index(got, "Image Issues")
+	if missingPos >= pcPos || pcPos >= imgPos {
+		t.Errorf("section ordering wrong: missing=%d possibly=%d issues=%d", missingPos, pcPos, imgPos)
+	}
+}
+
+func TestWriteScreenshotsOmitsPossiblyCoveredWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		MissingGaps: []analyzer.ScreenshotGap{{PageURL: "https://x.com/p", QuotedPassage: "ok"}},
+		AuditStats:  []analyzer.ScreenshotPageStats{{PageURL: "https://x.com/p"}},
+	}
+	if err := reporter.WriteScreenshots(dir, res); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	if strings.Contains(string(body), "Possibly Covered") {
+		t.Error("Possibly Covered must not render when the slice is empty")
+	}
+}
+
 func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{

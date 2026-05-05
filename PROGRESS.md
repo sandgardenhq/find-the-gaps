@@ -1,5 +1,36 @@
 # Progress
 
+## Feature: Unanalyzable Image Suppression (animated-gif-vision) - COMPLETE
+- Started: 2026-05-05
+- Completed: 2026-05-05
+- Plan: `.plans/2026-05-05-unanalyzable-image-suppression-plan.md`
+- Design: `.plans/2026-05-05-unanalyzable-image-suppression-design.md`
+- Summary: Vision-unsupported image formats (SVG, AVIF, ICO, BMP, TIFF, HEIC) and ALL GIFs are now routed through a suppression layer instead of the vision relevance pass. The suppression layer uses HTML `width`/`height` attrs (≥400px on either axis) with a `Content-Length` HEAD probe (≥30KB) as a fallback to decide whether the image is plausibly the screenshot the surrounding prose is about. When yes, the corresponding "missing screenshot" finding is rerouted from `## Missing Screenshots` to a new `## Possibly Covered` subsection in `screenshots.md` (rendered for free through Hextra on the generated Hugo site). Per-page audit log line gains a `possibly_covered=N` token; the previous `missing_suppressed=N` token (and its now-vestigial `ScreenshotPageStats.MissingSuppressed` field) was renamed to consolidate state.
+- 13 atomic commits, one per task, each with full RED → GREEN TDD cycle:
+  1. `1e273cc` feat(analyzer): parse <img> width/height attrs in extractImages
+  2. `cc27d97` feat(analyzer): add suppressionEligible predicate
+  3. `aee0498` feat(analyzer): add htmlAttrsSuggestScreenshot predicate
+  4. `4a83fa3` feat(analyzer): add HEAD probe for unanalyzable image bytes
+  5. `50b8237` feat(analyzer): add decisionForImageRef orchestrator
+  6. `b146ce9` feat(analyzer): concurrent suppression decider with URL cache
+  7. `e126ef1` refactor(analyzer): return suppressed_by_image items from detectionPass
+  8. `65433b9` feat(analyzer): add PossiblyCovered to ScreenshotResult + ScreenshotPageStats
+  9. `89bd907` feat(analyzer): route gif/unsupported images through suppression layer
+  10. `a624856` feat(reporter): render ## Possibly Covered in screenshots.md
+  11. `227c63c` feat(cli): rename audit key missing_suppressed to possibly_covered
+  12. `95a1909` docs: rename missing_suppressed to possibly_covered in audit log refs
+  13. `2c4bb51` docs(verification): add Scenario 13 sub-case (d) for suppression
+- Coverage (per-package gates ≥90%):
+  - `internal/analyzer`: 94.3% statements
+  - `internal/reporter`: 98.7% statements
+  - `internal/cli`: 91.9% statements (93.1% across the merged profile)
+  - All-package total: 92.5%
+- Tests: `go test -race ./...` all green; new tests added: `TestExtractImagesParsesWidthAndHeightAttrs`, `TestSuppressionEligible`, `TestHTMLAttrsSuggestScreenshot`, `TestHeadSuggestsScreenshot`, `TestDecisionForImageRef`, `TestDecideAllSuppressionsDedupesByURL`, `TestDecideAllSuppressionsRespectsConcurrencyCap`, `TestDetectionPassReturnsSuppressedItems`, `TestScreenshotResultHasPossiblyCovered`, `TestScreenshotPageStatsHasPossiblyCovered`, `TestPartitionRefsForVision`, `TestDetectScreenshotGapsRoutesGifGapsToPossiblyCovered`, `TestWriteScreenshotsRendersPossiblyCovered`, `TestWriteScreenshotsOmitsPossiblyCoveredWhenEmpty`. Existing tests required no modifications except `screenshot_gaps_integration_test.go:134` which was retargeted from the deleted `MissingSuppressed` field to `PossiblyCovered`.
+- Build: `go build ./...` clean.
+- Linting: `golangci-lint run ./...` reports 0 issues. (IDE-only "default"-severity hints on pre-existing `splitImageBatches` and the new `decideAllSuppressions` worker pool — `minmax`, `forvar`, `waitgroup` — were noted by reviewers as optional modernizations and deferred.)
+- Verification: VERIFICATION_PLAN Scenario 13 sub-case (d) added; covers the end-to-end flow against a real docs site with an oversized GIF or SVG, asserting both `screenshots.md` and the rendered Hugo site show the new section, and `possibly_covered=N` appears in the audit log.
+- Code review: One reviewer-flagged item resolved in this branch (`MissingSuppressed`/`PossiblyCovered` duplicate state — consolidated in commit 11). Three optional polish items deferred (max-builtin modernization on Task 3, sync.WaitGroup.Go modernization on Task 6, defer-cancel on Task 9 context). Two README/CHANGELOG stale references caught and fixed in commit 12.
+
 ## Task 10 (vision-image-analysis): Wire vision branch into DetectScreenshotGaps - COMPLETE
 - Started: 2026-05-01
 - Plan: `.plans/VISION_IMAGE_ANALYSIS_IMPLEMENTATION_PLAN.md` (Task 10)

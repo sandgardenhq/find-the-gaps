@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/charmbracelet/log"
 )
@@ -28,6 +33,18 @@ import (
 // headroom for the response.
 const ScreenshotPromptBudget = 150_000
 
+// SuppressionMinDimension is the minimum max(width, height) in pixels of
+// a declared HTML attr that suggests an image is plausibly a screenshot
+// rather than an inline icon or thumbnail. 400px is the inflection point
+// between "decoration" and "deliberate page real estate" on docs sites.
+const SuppressionMinDimension = 400
+
+// SuppressionMinBytes is the minimum HEAD Content-Length (or inline data
+// URI byte length) below which an image is assumed to be too small to be
+// a screenshot. 30KB sits between "decoration" (icons, small logos) and
+// "content" (UI screenshots typically 50-300KB).
+const SuppressionMinBytes = 30 * 1024
+
 // imageRef is one image occurrence on a docs page.
 type imageRef struct {
 	AltText        string
@@ -41,12 +58,20 @@ type imageRef struct {
 	// resolveVisionRefs / filterVisionSupportedImages drop unsupported or
 	// unresolvable srcs.
 	OriginalIndex int
+	// DeclaredWidth and DeclaredHeight are the integer values of the HTML
+	// width / height attrs, if present and parseable; zero otherwise.
+	// Markdown ![]() syntax cannot carry dimensions, so refs from that
+	// syntax always have zero values here.
+	DeclaredWidth  int
+	DeclaredHeight int
 }
 
 var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var htmlImgRe = regexp.MustCompile(`(?i)<img\s+([^>]+?)>`)
 var htmlAttrSrcRe = regexp.MustCompile(`(?i)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 var htmlAttrAltRe = regexp.MustCompile(`(?i)\balt\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+var htmlAttrWidthRe = regexp.MustCompile(`(?i)\bwidth\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+var htmlAttrHeightRe = regexp.MustCompile(`(?i)\bheight\s*=\s*(?:"([^"]*)"|'([^']*)')`)
 var atxHeadingRe = regexp.MustCompile(`^#{1,6}\s`)
 
 // extractImages returns all image references in the markdown, annotated with their
@@ -89,9 +114,30 @@ func extractImages(md string) []imageRef {
 					alt = mm[2]
 				}
 			}
+			w, h := 0, 0
+			if mm := htmlAttrWidthRe.FindStringSubmatch(attrs); mm != nil {
+				v := mm[1]
+				if v == "" {
+					v = mm[2]
+				}
+				if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+					w = n
+				}
+			}
+			if mm := htmlAttrHeightRe.FindStringSubmatch(attrs); mm != nil {
+				v := mm[1]
+				if v == "" {
+					v = mm[2]
+				}
+				if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+					h = n
+				}
+			}
 			refs = append(refs, imageRef{
 				AltText:        alt,
 				Src:            src,
+				DeclaredWidth:  w,
+				DeclaredHeight: h,
 				SectionHeading: currentHeading,
 				ParagraphIndex: pIdx,
 			})
@@ -157,6 +203,189 @@ var visionUnsupportedDataMimes = map[string]struct{}{
 	"image/tiff":    {},
 	"image/heic":    {},
 	"image/heif":    {},
+}
+
+// suppressionEligible reports whether a given imageRef should be routed
+// through the unanalyzable-image suppression layer instead of the vision
+// relevance pass. Eligible images are: vision-unsupported formats (per
+// visionUnsupportedExts / visionUnsupportedDataMimes) and ALL GIFs.
+// GIFs are eligible because every vision provider treats them as a single
+// still (typically the first frame), which silently misleads on animated
+// demos; the suppression layer's bytes-and-dimensions heuristic is more
+// honest than a first-frame relevance verdict.
+func suppressionEligible(r imageRef) bool {
+	src := strings.TrimSpace(r.Src)
+	if src == "" {
+		return false
+	}
+	if strings.HasPrefix(src, "data:") {
+		mimeEnd := strings.IndexAny(src[len("data:"):], ";,")
+		if mimeEnd < 0 {
+			return false
+		}
+		mime := strings.ToLower(src[len("data:") : len("data:")+mimeEnd])
+		if mime == "image/gif" {
+			return true
+		}
+		_, bad := visionUnsupportedDataMimes[mime]
+		return bad
+	}
+	u, err := url.Parse(src)
+	if err != nil {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(u.Path))
+	if ext == ".gif" {
+		return true
+	}
+	_, bad := visionUnsupportedExts[ext]
+	return bad
+}
+
+// htmlAttrsSuggestScreenshot reports whether an imageRef's declared
+// width / height attrs cross the screenshot-shaped threshold. Either
+// dimension alone is sufficient.
+func htmlAttrsSuggestScreenshot(r imageRef) bool {
+	larger := r.DeclaredWidth
+	if r.DeclaredHeight > larger {
+		larger = r.DeclaredHeight
+	}
+	return larger >= SuppressionMinDimension
+}
+
+// headSuggestsScreenshot probes a single image URL with HEAD and reports
+// whether its Content-Length crosses SuppressionMinBytes. Data URIs short-
+// circuit and use the inline byte length without issuing a request.
+//
+// Failure semantics (matches the design's "no signal -> no suppression"
+// rule): missing Content-Length on a 2xx response returns (false, nil) so
+// the caller treats it as no signal. Transport errors and non-2xx responses
+// return (false, err) so the caller can log them but still falls through
+// to no-suppression — the orchestrator does not propagate the error.
+func headSuggestsScreenshot(ctx context.Context, client *http.Client, src string) (bool, error) {
+	src = strings.TrimSpace(src)
+	if strings.HasPrefix(src, "data:") {
+		// Inline byte length is a strict lower bound (base64 inflates by
+		// ~33%, so the real payload is even smaller); for the suppression
+		// threshold this is fine.
+		return len(src) >= SuppressionMinBytes, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, src, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("HEAD %s: status %d", src, resp.StatusCode)
+	}
+	cl := resp.Header.Get("Content-Length")
+	if cl == "" {
+		return false, nil
+	}
+	n, err := strconv.ParseInt(cl, 10, 64)
+	if err != nil {
+		return false, nil
+	}
+	return n >= SuppressionMinBytes, nil
+}
+
+// decisionForImageRef applies the design's signal precedence: HTML attrs
+// win, HEAD as fallback, no signal -> no suppression. HEAD errors are
+// swallowed (logged at debug) because the design's "no signal -> no
+// suppression" rule means failure is operationally identical to absence.
+func decisionForImageRef(ctx context.Context, client *http.Client, r imageRef) bool {
+	if htmlAttrsSuggestScreenshot(r) {
+		return true
+	}
+	ok, err := headSuggestsScreenshot(ctx, client, r.Src)
+	if err != nil {
+		log.Debugf("suppression: HEAD failed for %s: %v", r.Src, err)
+		return false
+	}
+	return ok
+}
+
+// SuppressionConcurrencyCap is the maximum number of in-flight HEAD
+// requests for the suppression decider. Image-heavy pages can have
+// dozens of unanalyzable images; a small cap prevents fan-out storms.
+const SuppressionConcurrencyCap = 8
+
+// decideAllSuppressions runs decisionForImageRef for every input ref in
+// parallel, deduplicating by absolute Src so one image referenced from
+// N pages produces a single HEAD. The returned slice is index-aligned
+// with refs. concurrencyCap is the maximum in-flight HEAD count
+// (0 -> default).
+func decideAllSuppressions(ctx context.Context, client *http.Client, refs []imageRef, concurrencyCap int) []bool {
+	if concurrencyCap <= 0 {
+		concurrencyCap = SuppressionConcurrencyCap
+	}
+	out := make([]bool, len(refs))
+	if len(refs) == 0 {
+		return out
+	}
+	type cached struct {
+		done <-chan struct{}
+		val  bool
+	}
+	cache := make(map[string]*cached)
+	var mu sync.Mutex
+	sem := make(chan struct{}, concurrencyCap)
+	var wg sync.WaitGroup
+	for i, r := range refs {
+		i, r := i, r
+		mu.Lock()
+		c, ok := cache[r.Src]
+		if !ok {
+			ch := make(chan struct{})
+			c = &cached{done: ch}
+			cache[r.Src] = c
+			mu.Unlock()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				v := decisionForImageRef(ctx, client, r)
+				mu.Lock()
+				c.val = v
+				mu.Unlock()
+				close(ch)
+			}()
+		} else {
+			mu.Unlock()
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-c.done
+			mu.Lock()
+			out[i] = c.val
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+// partitionRefsForVision splits image refs by whether they should go through
+// the vision relevance pass (returned first) or the unanalyzable-image
+// suppression layer (returned second). Order is preserved within each
+// returned slice; OriginalIndex values are inherited unchanged from the
+// input refs so synthetic verdicts emitted from the suppression path align
+// with the same global "img-N" numbering the detection prompt iterates.
+func partitionRefsForVision(refs []imageRef) (visionPath, suppressionPath []imageRef) {
+	for _, r := range refs {
+		if suppressionEligible(r) {
+			suppressionPath = append(suppressionPath, r)
+		} else {
+			visionPath = append(visionPath, r)
+		}
+	}
+	return visionPath, suppressionPath
 }
 
 // resolveImageSrc converts a possibly-relative image src into an absolute URL
@@ -734,9 +963,10 @@ type ScreenshotProgressFunc func(done, total int, currentPage string)
 // findings from the vision relevance pass, and per-page audit stats used by
 // the audit log line and the reporter.
 type ScreenshotResult struct {
-	MissingGaps []ScreenshotGap
-	ImageIssues []ImageIssue
-	AuditStats  []ScreenshotPageStats
+	MissingGaps     []ScreenshotGap
+	PossiblyCovered []ScreenshotGap
+	ImageIssues     []ImageIssue
+	AuditStats      []ScreenshotPageStats
 }
 
 // ScreenshotPageStats records what each per-page screenshot pass did. Emitted
@@ -754,7 +984,7 @@ type ScreenshotPageStats struct {
 	ImagesSeen         int
 	ImageIssues        int
 	MissingScreenshots int
-	MissingSuppressed  int
+	PossiblyCovered    int
 	DetectionSkipped   bool
 }
 
@@ -762,36 +992,39 @@ type ScreenshotPageStats struct {
 // page. When verdicts is non-empty, the prompt is verdict-enriched and the
 // response carries a suppressed_by_image array; when verdicts is nil it
 // delegates to the legacy prompt and only the gaps array is populated. The
-// returned `suppressed` count is for audit stats only — suppressed_by_image
-// items are NOT rendered to the user. The returned `skipped` is true when
-// the page's prompt overhead exceeded ScreenshotPromptBudget and the LLM
-// call was not issued; the caller surfaces this in audit stats so the audit
-// log line can distinguish a budget skip from a clean zero-findings result.
-// Per-page parse failures are logged and the function returns empty results
-// with err=nil so one bad page doesn't poison the whole run; context / network
-// errors propagate.
+// returned `suppressed` slice carries the suppressed_by_image items the
+// model would have flagged as missing screenshots if not for an existing
+// image whose verdict was matches=true. Items are unescaped with the same
+// treatment as `gaps` and have PageURL / PagePath set; whether they are
+// rendered to the user is the caller's decision. The returned `skipped` is
+// true when the page's prompt overhead exceeded ScreenshotPromptBudget and
+// the LLM call was not issued; the caller surfaces this in audit stats so
+// the audit log line can distinguish a budget skip from a clean
+// zero-findings result. Per-page parse failures are logged and the function
+// returns empty results with err=nil so one bad page doesn't poison the
+// whole run; context / network errors propagate.
 func detectionPass(
 	ctx context.Context,
 	client LLMClient,
 	page DocPage,
 	refs []imageRef,
 	verdicts []ImageVerdict,
-) (gaps []ScreenshotGap, suppressed int, skipped bool, err error) {
+) (gaps []ScreenshotGap, suppressed []ScreenshotGap, skipped bool, err error) {
 	coverage := buildCoverageMap(refs)
 	content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-		return nil, 0, true, nil
+		return nil, nil, true, nil
 	}
 	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+		return nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 	}
 	var resp screenshotGapsResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
-		return nil, 0, false, nil
+		return nil, nil, false, nil
 	}
 	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
 	for _, it := range resp.Gaps {
@@ -804,7 +1037,18 @@ func detectionPass(
 			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
 		})
 	}
-	return gaps, len(resp.SuppressedByImage), false, nil
+	suppressed = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
+	for _, it := range resp.SuppressedByImage {
+		suppressed = append(suppressed, ScreenshotGap{
+			PageURL:       page.URL,
+			PagePath:      page.Path,
+			QuotedPassage: unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:    unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:  unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
+		})
+	}
+	return gaps, suppressed, false, nil
 }
 
 // unescapeLiteralWhitespace converts the two-character escape sequences \n,
@@ -839,8 +1083,15 @@ func DetectScreenshotGaps(
 			PageURL:    page.URL,
 			ImagesSeen: len(refs),
 		}
+
+		// Partition refs: vision-supported (and non-GIF) take the relevance
+		// pass; GIFs and vision-unsupported formats take the suppression
+		// path so we don't ask a vision provider to judge a frame it cannot
+		// reliably render.
+		visionPathRefs, suppressionPathRefs := partitionRefsForVision(refs)
+
 		var verdicts []ImageVerdict
-		if client.Capabilities().Vision && len(refs) > 0 {
+		if client.Capabilities().Vision && len(visionPathRefs) > 0 {
 			stats.VisionEnabled = true
 			// Two-step prep before the vision call:
 			//   1. Resolve relative srcs against page.URL — Bifrost can't
@@ -852,7 +1103,7 @@ func DetectScreenshotGaps(
 			//      invalid or unsupported".
 			// Detection still sees the unfiltered refs, since the text-only
 			// pass doesn't ship pixels.
-			visionRefs := resolveVisionRefs(page.URL, refs)
+			visionRefs := resolveVisionRefs(page.URL, visionPathRefs)
 			visionRefs = filterVisionSupportedImages(visionRefs)
 			stats.RelevanceBatches = len(splitImageBatches(visionRefs, 5))
 			issues, vs, err := relevancePass(ctx, client, page, visionRefs)
@@ -863,14 +1114,35 @@ func DetectScreenshotGaps(
 			stats.ImageIssues = len(issues)
 			verdicts = vs
 		}
+
+		// Suppression decisions for unanalyzable images. Runs even when the
+		// model lacks vision capability — the heuristic is text/HEAD only.
+		// Only decided=true refs emit a synthetic matches=true verdict;
+		// decided=false means "no signal" (NOT "definitely not a screenshot")
+		// so we omit the verdict and let the locality rule apply.
+		if len(suppressionPathRefs) > 0 {
+			headCtx, cancel := context.WithTimeout(ctx, 5*time.Second*time.Duration(len(suppressionPathRefs)))
+			decisions := decideAllSuppressions(headCtx, http.DefaultClient, suppressionPathRefs, SuppressionConcurrencyCap)
+			for j, r := range suppressionPathRefs {
+				if decisions[j] {
+					verdicts = append(verdicts, ImageVerdict{
+						Index:   fmt.Sprintf("img-%d", r.OriginalIndex),
+						Matches: true,
+					})
+				}
+			}
+			cancel()
+		}
+
 		gaps, suppressed, skipped, err := detectionPass(ctx, client, page, refs, verdicts)
 		if err != nil {
 			return result, err
 		}
 		stats.MissingScreenshots = len(gaps)
-		stats.MissingSuppressed = suppressed
+		stats.PossiblyCovered = len(suppressed)
 		stats.DetectionSkipped = skipped
 		result.MissingGaps = append(result.MissingGaps, gaps...)
+		result.PossiblyCovered = append(result.PossiblyCovered, suppressed...)
 		result.AuditStats = append(result.AuditStats, stats)
 		if progress != nil {
 			progress(i+1, total, page.URL)
