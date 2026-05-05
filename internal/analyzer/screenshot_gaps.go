@@ -973,36 +973,39 @@ type ScreenshotPageStats struct {
 // page. When verdicts is non-empty, the prompt is verdict-enriched and the
 // response carries a suppressed_by_image array; when verdicts is nil it
 // delegates to the legacy prompt and only the gaps array is populated. The
-// returned `suppressed` count is for audit stats only — suppressed_by_image
-// items are NOT rendered to the user. The returned `skipped` is true when
-// the page's prompt overhead exceeded ScreenshotPromptBudget and the LLM
-// call was not issued; the caller surfaces this in audit stats so the audit
-// log line can distinguish a budget skip from a clean zero-findings result.
-// Per-page parse failures are logged and the function returns empty results
-// with err=nil so one bad page doesn't poison the whole run; context / network
-// errors propagate.
+// returned `suppressed` slice carries the suppressed_by_image items the
+// model would have flagged as missing screenshots if not for an existing
+// image whose verdict was matches=true. Items are unescaped with the same
+// treatment as `gaps` and have PageURL / PagePath set; whether they are
+// rendered to the user is the caller's decision. The returned `skipped` is
+// true when the page's prompt overhead exceeded ScreenshotPromptBudget and
+// the LLM call was not issued; the caller surfaces this in audit stats so
+// the audit log line can distinguish a budget skip from a clean
+// zero-findings result. Per-page parse failures are logged and the function
+// returns empty results with err=nil so one bad page doesn't poison the
+// whole run; context / network errors propagate.
 func detectionPass(
 	ctx context.Context,
 	client LLMClient,
 	page DocPage,
 	refs []imageRef,
 	verdicts []ImageVerdict,
-) (gaps []ScreenshotGap, suppressed int, skipped bool, err error) {
+) (gaps []ScreenshotGap, suppressed []ScreenshotGap, skipped bool, err error) {
 	coverage := buildCoverageMap(refs)
 	content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-		return nil, 0, true, nil
+		return nil, nil, true, nil
 	}
 	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+		return nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 	}
 	var resp screenshotGapsResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
-		return nil, 0, false, nil
+		return nil, nil, false, nil
 	}
 	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
 	for _, it := range resp.Gaps {
@@ -1015,7 +1018,18 @@ func detectionPass(
 			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
 		})
 	}
-	return gaps, len(resp.SuppressedByImage), false, nil
+	suppressed = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
+	for _, it := range resp.SuppressedByImage {
+		suppressed = append(suppressed, ScreenshotGap{
+			PageURL:       page.URL,
+			PagePath:      page.Path,
+			QuotedPassage: unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:    unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:  unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
+		})
+	}
+	return gaps, suppressed, false, nil
 }
 
 // unescapeLiteralWhitespace converts the two-character escape sequences \n,
@@ -1079,7 +1093,7 @@ func DetectScreenshotGaps(
 			return result, err
 		}
 		stats.MissingScreenshots = len(gaps)
-		stats.MissingSuppressed = suppressed
+		stats.MissingSuppressed = len(suppressed)
 		stats.DetectionSkipped = skipped
 		result.MissingGaps = append(result.MissingGaps, gaps...)
 		result.AuditStats = append(result.AuditStats, stats)

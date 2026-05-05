@@ -874,3 +874,60 @@ func TestDecideAllSuppressionsRespectsConcurrencyCap(t *testing.T) {
 		t.Errorf("max in-flight HEADs = %d, want <= 4", maxInflight)
 	}
 }
+
+func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
+	// Hand-rolled fake LLM client that returns a fixed JSON response
+	// containing both gaps and suppressed_by_image. We use the existing
+	// fakeLLMClient (responses []string, one per call); detectionPass makes
+	// exactly one CompleteJSON call per page.
+	client := &fakeLLMClient{
+		responses: []string{`{
+			"gaps": [{
+				"quoted_passage": "Click Save to continue.",
+				"should_show": "save dialog",
+				"suggested_alt": "save dialog",
+				"insertion_hint": "after the click-save paragraph"
+			}],
+			"suppressed_by_image": [{
+				"quoted_passage": "Watch the demo gif of the upload flow.\\nIt shows the steps.",
+				"should_show": "upload flow",
+				"suggested_alt": "upload demo",
+				"insertion_hint": "after the demo-gif paragraph"
+			}]
+		}`},
+	}
+	page := DocPage{URL: "https://x.com/p", Path: "p.md", Content: "# Hello\n\nClick Save."}
+	gaps, suppressed, skipped, err := detectionPass(context.Background(), client, page, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if skipped {
+		t.Fatal("did not expect skipped=true")
+	}
+	if len(gaps) != 1 {
+		t.Errorf("expected 1 gap, got %d", len(gaps))
+	}
+	if len(suppressed) != 1 {
+		t.Fatalf("expected 1 suppressed item, got %d", len(suppressed))
+	}
+	// Literal escape sequences must be unescaped, matching the gaps treatment.
+	wantPassage := "Watch the demo gif of the upload flow.\nIt shows the steps."
+	if suppressed[0].QuotedPassage != wantPassage {
+		t.Errorf("suppressed passage mismatch:\n got: %q\nwant: %q", suppressed[0].QuotedPassage, wantPassage)
+	}
+	if suppressed[0].PageURL != page.URL {
+		t.Errorf("suppressed PageURL = %q, want %q", suppressed[0].PageURL, page.URL)
+	}
+	if suppressed[0].PagePath != page.Path {
+		t.Errorf("suppressed PagePath = %q, want %q", suppressed[0].PagePath, page.Path)
+	}
+	if suppressed[0].ShouldShow != "upload flow" {
+		t.Errorf("suppressed ShouldShow = %q", suppressed[0].ShouldShow)
+	}
+	if suppressed[0].SuggestedAlt != "upload demo" {
+		t.Errorf("suppressed SuggestedAlt = %q", suppressed[0].SuggestedAlt)
+	}
+	if suppressed[0].InsertionHint != "after the demo-gif paragraph" {
+		t.Errorf("suppressed InsertionHint = %q", suppressed[0].InsertionHint)
+	}
+}
