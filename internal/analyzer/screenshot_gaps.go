@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -674,8 +675,9 @@ If every image matches its prose, return "image_issues": [] and one matches=true
 // unfiltered refs list, so verdicts merge cleanly across batches and align
 // with the indices buildDetectionPromptWithVerdicts uses downstream — even
 // when filtering has dropped some refs before this pass. Per-batch JSON parse
-// errors are logged and skipped (fail-open) so one bad batch doesn't poison
-// the page.
+// errors and per-batch LLM/transport errors (e.g. Bifrost cannot download an
+// image URL) are logged and skipped (fail-open) so one bad batch — or one
+// bad image — doesn't poison the page or abort the whole run.
 func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []imageRef) ([]ImageIssue, []ImageVerdict, error) {
 	var issues []ImageIssue
 	var verdicts []ImageVerdict
@@ -689,7 +691,16 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 		msg := ChatMessage{Role: "user", ContentBlocks: blocks}
 		raw, err := client.CompleteJSONMultimodal(ctx, []ChatMessage{msg}, relevancePassSchema)
 		if err != nil {
-			return nil, nil, fmt.Errorf("relevancePass batch %d: %w", batchN, err)
+			// Context cancellation/deadline must still abort — the caller
+			// is shutting down, not asking us to retry. Everything else
+			// (Bifrost transport errors, "Unable to download the file",
+			// upstream 5xx, etc.) is per-batch and fail-open: log and
+			// move on so one bad image src cannot kill the whole run.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, nil, fmt.Errorf("relevancePass batch %d: %w", batchN, err)
+			}
+			log.Warnf("relevancePass: skipping %s batch %d: %v", page.URL, batchN, err)
+			continue
 		}
 		var resp relevancePassResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
