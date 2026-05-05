@@ -220,7 +220,7 @@ Findings land in a new `## Image Issues` section in `screenshots.md`,
 appended after the missing-screenshots list (and rendered the same way on
 the Hugo page). Per-page audit log lines document the counts: `vision=on/off
 relevance_batches=N images_seen=N image_issues=N missing_screenshots=N
-missing_suppressed=N detection_skipped=true|false`.
+possibly_covered=N detection_skipped=true|false`.
 
 > **Breaking change.** The old `--llm-provider`, `--llm-model`, and
 > `--llm-base-url` flags were removed. Replace `--llm-provider X --llm-model Y`

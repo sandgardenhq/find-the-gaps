@@ -22,7 +22,7 @@
   vision-capable; absent otherwise. The Hugo site picks it up automatically.
 - **Per-page screenshot audit log.** New `log.Infof` line per page —
   `page=<url> vision=on/off relevance_batches=N images_seen=N
-  image_issues=N missing_screenshots=N missing_suppressed=N
+  image_issues=N missing_screenshots=N possibly_covered=N
   detection_skipped=true|false` — for run-time observability.
 - **`ftg doctor` capability output.** Prints the resolved tier model and its
   capabilities (`tool_use`, `vision`) so users can tell at a glance whether
