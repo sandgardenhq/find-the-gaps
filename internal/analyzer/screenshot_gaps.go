@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path"
 	"regexp"
@@ -35,6 +36,12 @@ const ScreenshotPromptBudget = 150_000
 // rather than an inline icon or thumbnail. 400px is the inflection point
 // between "decoration" and "deliberate page real estate" on docs sites.
 const SuppressionMinDimension = 400
+
+// SuppressionMinBytes is the minimum HEAD Content-Length (or inline data
+// URI byte length) below which an image is assumed to be too small to be
+// a screenshot. 30KB sits between "decoration" (icons, small logos) and
+// "content" (UI screenshots typically 50-300KB).
+const SuppressionMinBytes = 30 * 1024
 
 // imageRef is one image occurrence on a docs page.
 type imageRef struct {
@@ -242,6 +249,46 @@ func htmlAttrsSuggestScreenshot(r imageRef) bool {
 		larger = r.DeclaredHeight
 	}
 	return larger >= SuppressionMinDimension
+}
+
+// headSuggestsScreenshot probes a single image URL with HEAD and reports
+// whether its Content-Length crosses SuppressionMinBytes. Data URIs short-
+// circuit and use the inline byte length without issuing a request.
+//
+// Failure semantics (matches the design's "no signal -> no suppression"
+// rule): missing Content-Length on a 2xx response returns (false, nil) so
+// the caller treats it as no signal. Transport errors and non-2xx responses
+// return (false, err) so the caller can log them but still falls through
+// to no-suppression — the orchestrator does not propagate the error.
+func headSuggestsScreenshot(ctx context.Context, client *http.Client, src string) (bool, error) {
+	src = strings.TrimSpace(src)
+	if strings.HasPrefix(src, "data:") {
+		// Inline byte length is a strict lower bound (base64 inflates by
+		// ~33%, so the real payload is even smaller); for the suppression
+		// threshold this is fine.
+		return len(src) >= SuppressionMinBytes, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, src, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("HEAD %s: status %d", src, resp.StatusCode)
+	}
+	cl := resp.Header.Get("Content-Length")
+	if cl == "" {
+		return false, nil
+	}
+	n, err := strconv.ParseInt(cl, 10, 64)
+	if err != nil {
+		return false, nil
+	}
+	return n >= SuppressionMinBytes, nil
 }
 
 // resolveImageSrc converts a possibly-relative image src into an absolute URL

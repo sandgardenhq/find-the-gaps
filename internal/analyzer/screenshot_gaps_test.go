@@ -3,7 +3,9 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -638,4 +640,112 @@ func TestHTMLAttrsSuggestScreenshot(t *testing.T) {
 			}
 		})
 	}
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestHeadSuggestsScreenshot(t *testing.T) {
+	t.Run("data URI uses inline length and short-circuits HEAD", func(t *testing.T) {
+		// "image/png;base64," + 30KB of base64 padding = > 30720 bytes
+		big := "data:image/png;base64," + strings.Repeat("A", 40000)
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("HEAD should not be issued for data URI")
+			return nil, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, big)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Errorf("expected true for >30KB data URI, got false")
+		}
+	})
+
+	t.Run("small data URI returns false", func(t *testing.T) {
+		small := "data:image/svg+xml,<svg></svg>"
+		got, err := headSuggestsScreenshot(context.Background(), &http.Client{}, small)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got {
+			t.Errorf("expected false for small data URI, got true")
+		}
+	})
+
+	t.Run("HEAD 200 with Content-Length above threshold returns true", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Method != http.MethodHead {
+				t.Errorf("expected HEAD, got %s", req.Method)
+			}
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"50000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.svg")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Error("expected true for 50KB Content-Length")
+		}
+	})
+
+	t.Run("HEAD 200 with Content-Length below threshold returns false", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 200,
+				Header:     http.Header{"Content-Length": []string{"5000"}},
+				Body:       http.NoBody,
+			}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.gif")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got {
+			t.Error("expected false for 5KB Content-Length")
+		}
+	})
+
+	t.Run("missing Content-Length returns false with no error (no signal)", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: http.NoBody}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.gif")
+		if err != nil {
+			t.Errorf("missing Content-Length should not be an error: %v", err)
+		}
+		if got {
+			t.Error("expected false when no Content-Length header")
+		}
+	})
+
+	t.Run("non-2xx returns false with error", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 404, Header: http.Header{}, Body: http.NoBody}, nil
+		})}
+		got, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/missing.svg")
+		if err == nil {
+			t.Error("expected error on 404")
+		}
+		if got {
+			t.Error("expected false on 404")
+		}
+	})
+
+	t.Run("transport error propagates", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("network down")
+		})}
+		_, err := headSuggestsScreenshot(context.Background(), client, "https://x.com/a.gif")
+		if err == nil {
+			t.Error("expected error from transport")
+		}
+	})
 }
