@@ -778,6 +778,66 @@ func TestWriteScreenshots_GroupsByPriority(t *testing.T) {
 	assert.Contains(t, s, "quickstart")
 }
 
+func TestBuildGapsStaticPrefix_includesUndocumentedAndUnmapped(t *testing.T) {
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "beta"}, Files: []string{"b.go"}},
+	}
+	docFeatures := []string{"gamma"}
+	got := reporter.BuildGapsStaticPrefix(mapping, docFeatures)
+	assert.Contains(t, got, "## Undocumented Code")
+	assert.Contains(t, got, "alpha")
+	assert.Contains(t, got, "beta")
+	assert.Contains(t, got, "## Unmapped Features")
+	assert.Contains(t, got, "gamma")
+	assert.NotContains(t, got, "## Stale Documentation")
+}
+
+func TestBuildGapsStaticPrefix_omitsStaleSection(t *testing.T) {
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},
+	}
+	got := reporter.BuildGapsStaticPrefix(mapping, []string{"alpha"})
+	assert.NotContains(t, got, "## Stale Documentation")
+	assert.NotContains(t, got, "_None found._\n\n## Stale Documentation")
+}
+
+func TestBuildGapsStaleSection_priorityBucketing(t *testing.T) {
+	drift := []analyzer.DriftFinding{
+		{Feature: "alpha", Issues: []analyzer.DriftIssue{
+			{Page: "p1", Issue: "small-issue-A", Priority: analyzer.PrioritySmall, PriorityReason: "deep"},
+			{Page: "p2", Issue: "large-issue-A", Priority: analyzer.PriorityLarge, PriorityReason: "readme"},
+		}},
+		{Feature: "beta", Issues: []analyzer.DriftIssue{
+			{Page: "p3", Issue: "medium-issue-B", Priority: analyzer.PriorityMedium, PriorityReason: "reference"},
+			{Page: "p4", Issue: "large-issue-B", Priority: analyzer.PriorityLarge, PriorityReason: "quickstart"},
+		}},
+	}
+	got := reporter.BuildGapsStaleSection(drift)
+	idxLarge := strings.Index(got, "### Large")
+	idxMedium := strings.Index(got, "### Medium")
+	idxSmall := strings.Index(got, "### Small")
+	require.GreaterOrEqual(t, idxLarge, 0)
+	require.GreaterOrEqual(t, idxMedium, 0)
+	require.GreaterOrEqual(t, idxSmall, 0)
+	assert.Less(t, idxLarge, idxMedium)
+	assert.Less(t, idxMedium, idxSmall)
+	// The stale-section helper does NOT include the section header itself; the
+	// composing call (WriteGaps) renders "## Stale Documentation".
+	assert.NotContains(t, got, "## Stale Documentation")
+	// Within Large bucket, large-issue-A appears before large-issue-B.
+	largeBlock := got[idxLarge:idxMedium]
+	assert.Less(t, strings.Index(largeBlock, "large-issue-A"), strings.Index(largeBlock, "large-issue-B"))
+}
+
+func TestBuildGapsStaleSection_emptyInput(t *testing.T) {
+	got := reporter.BuildGapsStaleSection(nil)
+	assert.Contains(t, got, "_None found._")
+	assert.NotContains(t, got, "### Large")
+	assert.NotContains(t, got, "### Medium")
+	assert.NotContains(t, got, "### Small")
+}
+
 func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{

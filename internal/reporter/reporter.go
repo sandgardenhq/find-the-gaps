@@ -80,6 +80,19 @@ func WriteGaps(
 	allDocFeatures []string,
 	drift []analyzer.DriftFinding,
 ) error {
+	body := BuildGapsStaticPrefix(mapping, allDocFeatures) +
+		"\n## Stale Documentation\n\n" +
+		BuildGapsStaleSection(drift)
+	return os.WriteFile(filepath.Join(dir, "gaps.md"), []byte(body), 0o644)
+}
+
+// BuildGapsStaticPrefix renders the portion of gaps.md whose contents do not
+// change as drift findings stream in: the document title, Undocumented Code
+// (split by user-facing) and Unmapped Features. The returned string ends with
+// the trailing newline of the Unmapped Features body, so the caller composes
+// the Stale Documentation section by appending "\n## Stale Documentation\n\n"
+// followed by BuildGapsStaleSection.
+func BuildGapsStaticPrefix(mapping analyzer.FeatureMap, allDocFeatures []string) string {
 	codeFeatures := make(map[string]bool)
 	for _, entry := range mapping {
 		if len(entry.Files) > 0 {
@@ -94,8 +107,6 @@ func WriteGaps(
 	var sb strings.Builder
 	sb.WriteString("# Gaps Found\n\n")
 
-	// Undocumented code: features implemented in code but missing from docs.
-	// Split into user-facing and not user-facing subsections.
 	sb.WriteString("## Undocumented Code\n\n")
 
 	sb.WriteString("### User-facing\n\n")
@@ -122,7 +133,6 @@ func WriteGaps(
 		sb.WriteString("_None found._\n")
 	}
 
-	// Unmapped features: documented features with no code match.
 	sb.WriteString("\n## Unmapped Features\n\n")
 	found = false
 	for _, feat := range allDocFeatures {
@@ -135,36 +145,41 @@ func WriteGaps(
 		sb.WriteString("_None found._\n")
 	}
 
-	// Stale documentation: inaccuracies found in pages that DO cover a feature,
-	// grouped by priority (Large → Medium → Small). Empty buckets are omitted.
-	// Within a bucket, findings appear in stable original order (feature first,
-	// then issue position within that feature).
-	sb.WriteString("\n## Stale Documentation\n\n")
+	return sb.String()
+}
+
+// BuildGapsStaleSection renders the Stale Documentation section body in
+// priority order (Large → Medium → Small). Empty buckets are omitted; within a
+// bucket, findings appear in stable original order (feature first, then issue
+// position within that feature). The returned string does NOT include the
+// "## Stale Documentation" header — the composing call owns that so the writer
+// can render the static prefix once and re-render only the stale body as new
+// findings stream in.
+func BuildGapsStaleSection(drift []analyzer.DriftFinding) string {
 	flat := flattenDrift(drift)
 	if len(flat) == 0 {
-		sb.WriteString("_None found._\n")
-	} else {
-		for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
-			bucket := filterDriftByPriority(flat, p)
-			if len(bucket) == 0 {
-				continue
+		return "_None found._\n"
+	}
+	var sb strings.Builder
+	for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
+		bucket := filterDriftByPriority(flat, p)
+		if len(bucket) == 0 {
+			continue
+		}
+		fmt.Fprintf(&sb, "### %s\n\n", priorityHeading(p))
+		for _, item := range bucket {
+			if item.Issue.Page != "" {
+				fmt.Fprintf(&sb, "- **%s** — %s — %s\n", item.Feature, item.Issue.Page, item.Issue.Issue)
+			} else {
+				fmt.Fprintf(&sb, "- **%s** — %s\n", item.Feature, item.Issue.Issue)
 			}
-			fmt.Fprintf(&sb, "### %s\n\n", priorityHeading(p))
-			for _, item := range bucket {
-				if item.Issue.Page != "" {
-					fmt.Fprintf(&sb, "- **%s** — %s — %s\n", item.Feature, item.Issue.Page, item.Issue.Issue)
-				} else {
-					fmt.Fprintf(&sb, "- **%s** — %s\n", item.Feature, item.Issue.Issue)
-				}
-				if item.Issue.PriorityReason != "" {
-					fmt.Fprintf(&sb, "  _why: %s_\n", item.Issue.PriorityReason)
-				}
-				sb.WriteString("\n")
+			if item.Issue.PriorityReason != "" {
+				fmt.Fprintf(&sb, "  _why: %s_\n", item.Issue.PriorityReason)
 			}
+			sb.WriteString("\n")
 		}
 	}
-
-	return os.WriteFile(filepath.Join(dir, "gaps.md"), []byte(sb.String()), 0o644)
+	return sb.String()
 }
 
 // WriteScreenshots writes screenshots.md to dir. Call ONLY when the screenshot
