@@ -312,7 +312,7 @@ func TestWriteGaps_StaleDocumentation_GroupsByPriority(t *testing.T) {
 	if idxLarge < 0 || idxMedium < 0 || idxSmall < 0 {
 		t.Fatalf("missing one of Large/Medium/Small headings:\n%s", content)
 	}
-	if !(idxLarge < idxMedium && idxMedium < idxSmall) {
+	if idxLarge >= idxMedium || idxMedium >= idxSmall {
 		t.Errorf("priority headings out of order: large=%d medium=%d small=%d", idxLarge, idxMedium, idxSmall)
 	}
 

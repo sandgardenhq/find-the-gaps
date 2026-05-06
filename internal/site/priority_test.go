@@ -51,7 +51,7 @@ func TestExpandedFeaturePageGroupsDriftByPriority(t *testing.T) {
 	if largePos < 0 || mediumPos < 0 || smallPos < 0 {
 		t.Fatalf("missing priority sub-headings:\n%s", s)
 	}
-	if !(largePos < mediumPos && mediumPos < smallPos) {
+	if largePos >= mediumPos || mediumPos >= smallPos {
 		t.Errorf("priority order broken: large=%d medium=%d small=%d\n%s", largePos, mediumPos, smallPos, s)
 	}
 	for _, want := range []string{"large-issue", "medium-issue", "small-issue", "readme"} {
