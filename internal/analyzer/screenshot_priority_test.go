@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -69,5 +70,38 @@ func TestBuildDetectionPromptWithVerdictsContainsRubric(t *testing.T) {
 	}
 	if !strings.Contains(out, "priority_reason") {
 		t.Error("missing priority_reason mention")
+	}
+}
+
+// TestSuppressedByImagePriorityRoundTrip pins that suppressed_by_image entries
+// returned from the detection LLM carry their priority + priority_reason all
+// the way through to ScreenshotResult.PossiblyCovered. Sister to Task 5's
+// gap-priority round-trip; covers the parallel struct.
+func TestSuppressedByImagePriorityRoundTrip(t *testing.T) {
+	resp := `{
+		"gaps": [],
+		"suppressed_by_image": [{
+			"quoted_passage": "p",
+			"should_show": "s",
+			"suggested_alt": "a",
+			"insertion_hint": "h",
+			"priority": "large",
+			"priority_reason": "covered passage on quickstart"
+		}]
+	}`
+	client := &fakeLLMClient{responses: []string{resp}}
+	page := DocPage{URL: "https://x/p", Path: "p.md", Content: "# H"}
+	_, suppressed, _, err := detectionPass(context.Background(), client, page, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suppressed) != 1 {
+		t.Fatalf("got %d suppressed, want 1", len(suppressed))
+	}
+	if suppressed[0].Priority != PriorityLarge {
+		t.Errorf("Priority = %q, want large", suppressed[0].Priority)
+	}
+	if suppressed[0].PriorityReason != "covered passage on quickstart" {
+		t.Errorf("PriorityReason = %q", suppressed[0].PriorityReason)
 	}
 }
