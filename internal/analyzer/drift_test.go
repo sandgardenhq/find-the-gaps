@@ -912,6 +912,51 @@ func TestJudgeFeatureDrift_NoObservations_SkipsLLM(t *testing.T) {
 	assert.Equal(t, 0, client.completeCalls, "Judge must not call the LLM with zero observations")
 }
 
+// validatingStubClient mirrors BifrostClient's CompleteJSON: it runs the canned
+// response through schema.ValidateResponse so tests cover the strip-and-clean
+// path that production callers rely on.
+type validatingStubClient struct {
+	driftStubClient
+}
+
+func (s *validatingStubClient) CompleteJSON(ctx context.Context, prompt string, schema analyzer.JSONSchema) (json.RawMessage, error) {
+	raw, err := s.driftStubClient.CompleteJSON(ctx, prompt, schema)
+	if err != nil {
+		return nil, err
+	}
+	cleaned, err := schema.ValidateResponse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("validatingStubClient: %w", err)
+	}
+	return cleaned, nil
+}
+
+// Reproduces the production failure: the judge LLM hallucinates an
+// `issue_dup_of` key that is not declared in drift_judge_issues' schema.
+// Anthropic's tool input_schema is advisory, so additionalProperties:false
+// alone doesn't stop the model. ValidateResponse must strip the extra key
+// rather than fail the run.
+func TestJudgeFeatureDrift_StripsExtraFieldsFromJudgeResponse(t *testing.T) {
+	client := &validatingStubClient{
+		driftStubClient: driftStubClient{
+			completeFunc: func(_ context.Context, _ string) (string, error) {
+				return `{"issues":[{"page":"https://docs/x","issue":"stale signature","priority":"medium","priority_reason":"test stub","issue_dup_of":2}]}`, nil
+			},
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, obs)
+	require.NoError(t, err, "extra fields must be stripped, not fail the call")
+	require.Len(t, issues, 1)
+	assert.Equal(t, "https://docs/x", issues[0].Page)
+	assert.Equal(t, "stale signature", issues[0].Issue)
+	assert.Equal(t, analyzer.PriorityMedium, issues[0].Priority)
+}
+
 func TestJudgeFeatureDrift_ProducesIssues(t *testing.T) {
 	// driftStubClient.CompleteJSON dispatches to Complete; set a completeFunc
 	// that returns canned JSON.

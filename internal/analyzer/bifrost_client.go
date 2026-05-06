@@ -444,10 +444,11 @@ func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages
 		return nil, fmt.Errorf("bifrost CompleteJSON: nil content; schema=%q", schema.Name)
 	}
 	raw := json.RawMessage(*msg.Content.ContentStr)
-	if err := schema.ValidateResponse(raw); err != nil {
+	cleaned, err := schema.ValidateResponse(raw)
+	if err != nil {
 		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
 	}
-	return raw, nil
+	return cleaned, nil
 }
 
 // completeJSONAnthropicMessages forces the model to emit structured output by
@@ -514,10 +515,11 @@ func (c *BifrostClient) completeJSONAnthropicMessages(ctx context.Context, messa
 		return nil, fmt.Errorf("bifrost CompleteJSON: expected tool %q, got %q", respondToolName, got)
 	}
 	raw := json.RawMessage(tc.Function.Arguments)
-	if err := schema.ValidateResponse(raw); err != nil {
+	cleaned, err := schema.ValidateResponse(raw)
+	if err != nil {
 		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
 	}
-	return raw, nil
+	return cleaned, nil
 }
 
 // Complete sends a user prompt and returns the first completion text.
