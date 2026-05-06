@@ -60,15 +60,17 @@ func seedDriftLiveCache(cached map[string]analyzer.CachedDriftEntry, featureMap 
 }
 
 // isDriftCacheHit reports whether cached has an entry for name whose Files
-// and Pages match the given slices exactly. Both inputs and the cached
-// entry's slices must be sorted ascending; this is element-wise comparison.
-// A nil cached map always returns false.
-func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, files, pages []string) bool {
+// and FilteredPages match the given slices exactly. Both inputs and the
+// cached entry's slices must be sorted ascending; this is element-wise
+// comparison. A nil cached map always returns false. The page key is the
+// post-filterDriftPages, pre-classify list — see DetectDrift for the same
+// equality check on the analyzer side.
+func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, files, filteredPages []string) bool {
 	c, ok := cached[name]
 	if !ok {
 		return false
 	}
-	return stringSliceEqual(c.Files, files) && stringSliceEqual(c.Pages, pages)
+	return stringSliceEqual(c.Files, files) && stringSliceEqual(c.FilteredPages, filteredPages)
 }
 
 // newDriftCachePersister returns the analyzer.DriftFeatureDoneFunc used during
@@ -80,13 +82,18 @@ func newDriftCachePersister(
 	driftCachePath string,
 	hits, fresh *int,
 ) analyzer.DriftFeatureDoneFunc {
-	return func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
-		if isDriftCacheHit(cached, name, files, pages) {
+	return func(name string, files, filteredPages, pages []string, issues []analyzer.DriftIssue) error {
+		if isDriftCacheHit(cached, name, files, filteredPages) {
 			*hits++
 			return nil
 		}
 		*fresh++
-		liveCache[name] = analyzer.CachedDriftEntry{Files: files, Pages: pages, Issues: issues}
+		liveCache[name] = analyzer.CachedDriftEntry{
+			Files:         files,
+			FilteredPages: filteredPages,
+			Pages:         pages,
+			Issues:        issues,
+		}
 		return saveDriftCache(driftCachePath, liveCache)
 	}
 }

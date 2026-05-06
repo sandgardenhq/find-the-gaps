@@ -49,8 +49,14 @@ type CachedDriftEntry struct {
 // DriftFeatureDoneFunc fires after DetectDrift decides a feature's drift
 // result, whether the result came from a cache hit or a fresh investigate+judge.
 // Implementations typically persist the result so a future run can resume.
-// Files and Pages are sorted ascending. Return non-nil to abort detection.
-type DriftFeatureDoneFunc func(feature string, files, pages []string, issues []DriftIssue) error
+//
+// Files, filteredPages, and pages are sorted ascending. filteredPages is the
+// post-filterDriftPages, pre-classify list used as the page side of the
+// cache key. pages is the post-classify list that the investigator+judge
+// actually saw. On a cache hit, pages is the previously persisted value.
+//
+// Return non-nil to abort detection.
+type DriftFeatureDoneFunc func(feature string, files, filteredPages, pages []string, issues []DriftIssue) error
 
 // budgetForFeature returns the investigator round budget for a single
 // feature's drift check. Each read_file and read_page tool call costs one
@@ -130,18 +136,14 @@ func DetectDrift(
 		if len(pages) == 0 {
 			continue
 		}
-		pages = classifyDriftPages(ctx, classifier, pages, pageReader)
-		if len(pages) == 0 {
-			continue
-		}
 
 		sortedFiles := sortedCopy(entry.Files)
-		sortedPages := sortedCopy(pages)
+		sortedFiltered := sortedCopy(pages)
 
 		if cached != nil {
 			if c, ok := cached[entry.Feature.Name]; ok &&
 				equalStringSlice(c.Files, sortedFiles) &&
-				equalStringSlice(c.Pages, sortedPages) &&
+				equalStringSlice(c.FilteredPages, sortedFiltered) &&
 				!cacheNeedsRecompute(c) {
 				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
 				issues := c.Issues
@@ -154,13 +156,20 @@ func DetectDrift(
 					}
 				}
 				if onFeatureDone != nil {
-					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, c.Pages, issues); err != nil {
 						return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 					}
 				}
 				continue
 			}
 		}
+
+		// Cache miss: classify, then investigate+judge.
+		pages = classifyDriftPages(ctx, classifier, pages, pageReader)
+		if len(pages) == 0 {
+			continue
+		}
+		sortedPages := sortedCopy(pages)
 
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
@@ -180,7 +189,7 @@ func DetectDrift(
 			}
 		}
 		if onFeatureDone != nil {
-			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, sortedPages, issues); err != nil {
 				return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 			}
 		}
