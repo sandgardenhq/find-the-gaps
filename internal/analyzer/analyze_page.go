@@ -50,22 +50,21 @@ Populate the response with:
 - "is_docs": a boolean classifying whether this page is product DOCUMENTATION.
 
 Rule for is_docs:
-A page is DOCS if a user trying to USE this product would consult it for current technical information about features, APIs, configuration, or behavior.
+A page is DOCS if a user trying to USE this product would consult it for current technical information about features, APIs, configuration, or behavior. Marketing pages and blog posts are NEVER docs, even when they contain code snippets, release announcements, or technical claims — docs is the canonical reference surface, not promotional or editorial content.
 
 Examples of docs (is_docs=true):
 - API references, tutorials, quickstarts, configuration references
-- Changelogs and release notes
-- "Announcing v3"-style new-feature blog posts
-- Marketing landing pages that contain code snippets or technical claims about how the product works
+- Changelogs and release notes (when published as a dedicated changelog/release-notes page, not as a blog post)
 
 Examples of NOT docs (is_docs=false):
-- Engineering retrospectives ("how we built X", "scaling our database")
+- Marketing pages (landing pages, product/feature pages, "why choose us", pricing, comparison pages) — even if they include code snippets or technical claims
+- Blog posts of any kind, including release/launch announcements, feature-announcement posts, deep-dives, engineering retrospectives ("how we built X", "scaling our database"), and generic company posts (hiring, fundraising, holidays)
 - Customer case studies / customer logos
 - Team, about, careers, legal pages
-- Pricing pages without technical content
-- Generic company blog posts (hiring announcements, fundraising news, holiday messages)
 
-Set is_docs=false ONLY when you are confident the page is one of the not-docs categories above. Default to docs when unsure.`, pageURL, content)
+Treat any URL under a /blog/ path (or equivalent: /news/, /posts/, /updates/) as a blog post. Treat the site's home page and top-level product pages as marketing.
+
+Set is_docs=false when the page is one of the not-docs categories above. Default to docs when unsure about a technical-looking page that is NOT clearly a marketing page or blog post.`, pageURL, content)
 
 	raw, err := client.CompleteJSON(ctx, prompt, analyzePageSchema)
 	if err != nil {
