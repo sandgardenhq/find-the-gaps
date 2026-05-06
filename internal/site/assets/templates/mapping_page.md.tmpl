@@ -5,9 +5,15 @@
 ## Features
 
 {{ range .Features -}}
-<div class="hx:my-6 hx:p-6 hx:rounded-lg hx:border hx:border-gray-200 hx:bg-white hx:dark:border-neutral-800 hx:dark:bg-neutral-900 hx:shadow-sm">
+<div class="ftg-feature-card {{ if .Documented }}ftg-feature-card--documented{{ else }}ftg-feature-card--undocumented{{ end }}">
 
 ### {{ .Name }}
+
+<div class="ftg-badges">
+{{- if .Layer }}<span class="ftg-badge ftg-badge--layer">{{ .Layer }}</span>{{ end -}}
+{{- if .UserFacing }}<span class="ftg-badge ftg-badge--user-facing">user-facing</span>{{ else }}<span class="ftg-badge ftg-badge--internal">internal</span>{{ end -}}
+{{- if .Documented }}<span class="ftg-badge ftg-badge--documented">documented</span>{{ else }}<span class="ftg-badge ftg-badge--undocumented">undocumented</span>{{ end -}}
+</div>
 
 {{ if .Description }}> {{ .Description }}
 
