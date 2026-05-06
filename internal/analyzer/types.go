@@ -123,3 +123,12 @@ type ScreenshotGap struct {
 	SuggestedAlt  string `json:"suggested_alt"`
 	InsertionHint string `json:"insertion_hint"`
 }
+
+// Priority is the user-impact rating for a finding.
+type Priority string
+
+const (
+	PriorityLarge  Priority = "large"
+	PriorityMedium Priority = "medium"
+	PrioritySmall  Priority = "small"
+)
