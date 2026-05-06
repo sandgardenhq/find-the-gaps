@@ -504,12 +504,17 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			gapsLine := "  " + projectDir + "/gaps.md"
+			if counts := driftPriorityCounts(driftFindings); counts != "" {
+				gapsLine += " (" + counts + ")"
+			}
 			if driftSkipped {
 				gapsLine += " (cached, drift unchanged)"
 			}
 			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
 			if !experimentalCheckScreenshots {
 				screenshotsLine += " (skipped)"
+			} else if counts := screenshotsPriorityCounts(screenshotResult); counts != "" {
+				screenshotsLine += " (" + counts + ")"
 			}
 			siteLine := "  " + projectDir + "/site/"
 			if noSite {
