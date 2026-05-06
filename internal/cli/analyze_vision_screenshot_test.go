@@ -156,7 +156,7 @@ func TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues(t *testing.T) {
 			if n == 1 {
 				// Batch 1: 5 images. img-3 (the dashboard-vs-Settings-page
 				// mismatch) is the only image_issue.
-				respond(`{"image_issues":[{"index":"img-3","src":"https://docs.example.com/img/profile.png","reason":"Image shows a dashboard but the prose describes the Settings page.","suggested_action":"replace"}],"verdicts":[{"index":"img-1","matches":true},{"index":"img-2","matches":true},{"index":"img-3","matches":false},{"index":"img-4","matches":true},{"index":"img-5","matches":true}]}`)
+				respond(`{"image_issues":[{"index":"img-3","src":"https://docs.example.com/img/profile.png","reason":"Image shows a dashboard but the prose describes the Settings page.","suggested_action":"replace","priority":"medium","priority_reason":"test stub"}],"verdicts":[{"index":"img-1","matches":true},{"index":"img-2","matches":true},{"index":"img-3","matches":false},{"index":"img-4","matches":true},{"index":"img-5","matches":true}]}`)
 				return
 			}
 			// Batch 2: 1 image, matches=true, no issues.

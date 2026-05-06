@@ -812,11 +812,27 @@ var screenshotGapsSchema = JSONSchema{
 // numbered globally across all batches sent for the page so verdicts and
 // issues from different batches can be merged without collision.
 type ImageIssue struct {
-	PageURL         string `json:"page_url"`
-	Index           string `json:"index"`
-	Src             string `json:"src"`
-	Reason          string `json:"reason"`
-	SuggestedAction string `json:"suggested_action"`
+	PageURL         string   `json:"page_url"`
+	Index           string   `json:"index"`
+	Src             string   `json:"src"`
+	Reason          string   `json:"reason"`
+	SuggestedAction string   `json:"suggested_action"`
+	Priority        Priority `json:"priority"`
+	PriorityReason  string   `json:"priority_reason"`
+}
+
+// validateImageIssue fails closed when the relevance pass returns an issue
+// without a valid priority enum or with an empty priority_reason.
+func validateImageIssue(ii ImageIssue) error {
+	switch ii.Priority {
+	case PriorityLarge, PriorityMedium, PrioritySmall:
+	default:
+		return fmt.Errorf("invalid priority %q", ii.Priority)
+	}
+	if strings.TrimSpace(ii.PriorityReason) == "" {
+		return fmt.Errorf("empty priority_reason")
+	}
+	return nil
 }
 
 // ImageVerdict is the per-image relevance verdict from the vision pass.
@@ -851,9 +867,11 @@ var relevancePassSchema = JSONSchema{
               "index":            {"type": "string"},
               "src":              {"type": "string"},
               "reason":           {"type": "string"},
-              "suggested_action": {"type": "string"}
+              "suggested_action": {"type": "string"},
+              "priority":         {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason":  {"type": "string"}
             },
-            "required": ["index", "src", "reason", "suggested_action"],
+            "required": ["index", "src", "reason", "suggested_action", "priority", "priority_reason"],
             "additionalProperties": false
           }
         },
@@ -927,10 +945,16 @@ ONLY when matches=false, ALSO emit a corresponding entry in "image_issues":
 - "src": the image's src attribute (copy verbatim from the list above).
 - "reason": one short sentence naming what the image actually shows AND what the prose describes (the mismatch).
 - "suggested_action": one of "replace", "recapture", or "remove" — pick the action that best resolves the mismatch.
+- "priority": one of "large", "medium", "small" (see rubric below).
+- "priority_reason": one sentence explaining the rating.
 
 Do not flag stylistic mismatches (cropping, theme, resolution). Only flag a substantive mismatch: the image depicts a different feature, a different page, a different state, or otherwise does not show what the prose claims.
 
-If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content)
+page_role: %s
+
+%s
+
+If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content, pageRole(page.URL), priorityRubric)
 }
 
 // relevancePass walks the page's images in batches of <=5 (Groq cap), issues
@@ -975,8 +999,15 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 			resp.ImageIssues[i].PageURL = page.URL
 			resp.ImageIssues[i].Reason = unescapeLiteralWhitespace(resp.ImageIssues[i].Reason)
 			resp.ImageIssues[i].SuggestedAction = unescapeLiteralWhitespace(resp.ImageIssues[i].SuggestedAction)
+			resp.ImageIssues[i].PriorityReason = unescapeLiteralWhitespace(resp.ImageIssues[i].PriorityReason)
 		}
-		issues = append(issues, resp.ImageIssues...)
+		for _, ii := range resp.ImageIssues {
+			if err := validateImageIssue(ii); err != nil {
+				log.Warnf("relevancePass: dropping %s issue with bad priority: %v", page.URL, err)
+				continue
+			}
+			issues = append(issues, ii)
+		}
 		verdicts = append(verdicts, resp.Verdicts...)
 	}
 	return issues, verdicts, nil

@@ -70,7 +70,7 @@ func TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats(t *testi
 	// reason about coverage globally.
 	batch1Resp := json.RawMessage(`{
 	  "image_issues": [
-	    {"index":"img-2","src":"img-1.png","reason":"shows dashboard, prose describes settings","suggested_action":"replace"}
+	    {"index":"img-2","src":"img-1.png","reason":"shows dashboard, prose describes settings","suggested_action":"replace","priority":"medium","priority_reason":"test stub"}
 	  ],
 	  "verdicts": [
 	    {"index":"img-1","matches":true},

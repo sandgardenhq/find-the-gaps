@@ -55,7 +55,7 @@ func (f *fakeJSONClient) Capabilities() ModelCapabilities { return f.caps }
 func TestRelevancePass_ParsesImageIssuesAndVerdicts(t *testing.T) {
 	resp := json.RawMessage(`{
 	  "image_issues": [
-	    {"index":"img-2","src":"b.png","reason":"shows dashboard, prose describes settings","suggested_action":"replace"}
+	    {"index":"img-2","src":"b.png","reason":"shows dashboard, prose describes settings","suggested_action":"replace","priority":"medium","priority_reason":"test stub"}
 	  ],
 	  "verdicts": [
 	    {"index":"img-1","matches":true},
@@ -111,7 +111,7 @@ func TestRelevancePass_ParsesImageIssuesAndVerdicts(t *testing.T) {
 func TestRelevancePass_NormalizesLiteralEscapeSequences(t *testing.T) {
 	resp := json.RawMessage(`{
 	  "image_issues": [
-	    {"index":"img-1","src":"a.png","reason":"line one.\\nline two.","suggested_action":"step 1.\\nstep 2."}
+	    {"index":"img-1","src":"a.png","reason":"line one.\\nline two.","suggested_action":"step 1.\\nstep 2.","priority":"medium","priority_reason":"test stub"}
 	  ],
 	  "verdicts": [
 	    {"index":"img-1","matches":false}
@@ -203,7 +203,7 @@ func (f *flakyJSONClient) Capabilities() ModelCapabilities { return f.caps }
 func TestRelevancePass_FailOpenOnBatchError(t *testing.T) {
 	resp := json.RawMessage(`{
 	  "image_issues": [
-	    {"index":"img-6","src":"f.png","reason":"mismatch","suggested_action":"replace"}
+	    {"index":"img-6","src":"f.png","reason":"mismatch","suggested_action":"replace","priority":"medium","priority_reason":"test stub"}
 	  ],
 	  "verdicts": [
 	    {"index":"img-6","matches":false}
