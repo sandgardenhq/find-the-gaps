@@ -100,14 +100,14 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	}
 }
 
-// TestWriteGaps_UndocumentedCode verifies that a feature with code but no
-// documentation page appears in the Undocumented Code section.
-func TestWriteGaps_UndocumentedCode(t *testing.T) {
+// TestWriteGaps_UndocumentedFeatures verifies that a user-facing feature
+// with code but no documentation page appears in the Undocumented Features
+// section as an `.ftg-undoc` problem callout.
+func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
-	// "auth" exists in code but is absent from docs
 	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
 	}
@@ -116,16 +116,70 @@ func TestWriteGaps_UndocumentedCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "auth") {
-		t.Error("gaps.md must list 'auth' in Undocumented Code")
+	for _, want := range []string{
+		"## Undocumented Features",
+		`<div class="ftg-undoc">`,
+		`<span class="ftg-undoc-name">auth</span>`,
+		"no documentation page",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in gaps.md:\n%s", want, content)
+		}
 	}
-	if !strings.Contains(content, "no documentation page") {
-		t.Error("gaps.md must describe the undocumented code gap")
+	// "Undocumented Code" was renamed; the section heading must not appear.
+	if strings.Contains(content, "## Undocumented Code") {
+		t.Error("gaps.md must not contain the old `## Undocumented Code` heading")
+	}
+}
+
+// TestWriteGaps_OnlyUserFacingUndocumented pins the policy that
+// non-user-facing undocumented features no longer appear in gaps.md.
+func TestWriteGaps_OnlyUserFacingUndocumented(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "internal-thing", Layer: "infra", UserFacing: false}, Files: []string{"x.go"}},
+		{Feature: analyzer.CodeFeature{Name: "user-thing", Layer: "ui", UserFacing: true}, Files: []string{"y.go"}},
+	}
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	content := string(data)
+	if strings.Contains(content, "internal-thing") {
+		t.Errorf("non-user-facing features must not appear in gaps.md; got:\n%s", content)
+	}
+	if !strings.Contains(content, "user-thing") {
+		t.Errorf("user-facing undocumented features must appear; got:\n%s", content)
+	}
+	if strings.Contains(content, "Not user-facing") {
+		t.Errorf("the `Not user-facing` sub-heading must be removed; got:\n%s", content)
+	}
+}
+
+// TestWriteGaps_UnmappedFeaturesRemoved pins removal of the
+// "## Unmapped Features" section. Documented-but-unmapped features in
+// allDocFeatures are no longer reported.
+func TestWriteGaps_UnmappedFeaturesRemoved(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "real", UserFacing: true}, Files: []string{"r.go"}},
+	}
+	allDocFeatures := []string{"hallucinated"}
+	if err := reporter.WriteGaps(dir, mapping, allDocFeatures, []analyzer.DriftFinding{}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	content := string(data)
+	if strings.Contains(content, "## Unmapped Features") {
+		t.Errorf("the `## Unmapped Features` section must be removed; got:\n%s", content)
+	}
+	if strings.Contains(content, "hallucinated") {
+		t.Errorf("documented-but-unmapped features must no longer be reported; got:\n%s", content)
 	}
 }
 
 // TestWriteGaps_FeatureNoFiles_NotUndocumented verifies that a feature the LLM
-// could not map to any file is not listed as undocumented code.
+// could not map to any file is not listed as undocumented.
 func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
@@ -137,7 +191,40 @@ func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	content := string(data)
 	if strings.Contains(content, "no documentation page") {
-		t.Error("features with no mapped files must not appear in Undocumented Code")
+		t.Error("features with no mapped files must not appear as undocumented")
+	}
+}
+
+// TestWriteGaps_StaleDocCardAndPriorityHeader pins the new shape for
+// stale-doc findings: each entry renders as an `.ftg-stale` card, each
+// priority sub-heading is wrapped in `.ftg-priority--{large,medium,small}`.
+func TestWriteGaps_StaleDocCardAndPriorityHeader(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "search", UserFacing: true}, Files: []string{"s.go"}},
+	}
+	drift := []analyzer.DriftFinding{
+		{Feature: "search", Issues: []analyzer.DriftIssue{
+			{Page: "https://docs.example.com/search", Issue: "old signature", Priority: analyzer.PriorityLarge, PriorityReason: "user-impact"},
+		}},
+	}
+	if err := reporter.WriteGaps(dir, mapping, []string{"search"}, drift); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	content := string(data)
+	for _, want := range []string{
+		`<div class="ftg-priority ftg-priority--large">`,
+		"### Large",
+		`<div class="ftg-stale ftg-stale--large">`,
+		`<span class="ftg-stale-feature">search</span>`,
+		`href="https://docs.example.com/search"`,
+		`<span class="ftg-stale-issue">old signature</span>`,
+		`<span class="ftg-stale-why">why: user-impact</span>`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in gaps.md:\n%s", want, content)
+		}
 	}
 }
 

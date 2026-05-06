@@ -1,0 +1,431 @@
+/* Find the Gaps custom site styles.
+ *
+ * Loaded by Hextra after the precompiled Tailwind bundle. We use plain CSS
+ * classes (`.ftg-*`) instead of Tailwind utilities so we don't need to
+ * regenerate the theme's hugo_stats.json + recompile Tailwind every time
+ * we touch a template. */
+
+:root {
+  --ftg-good: #16a34a;
+  --ftg-good-bg: #dcfce7;
+  --ftg-good-border: #86efac;
+
+  --ftg-bad: #dc2626;
+  --ftg-bad-bg: #fee2e2;
+  --ftg-bad-border: #fca5a5;
+
+  --ftg-warn: #d97706;
+  --ftg-warn-bg: #fef3c7;
+  --ftg-warn-border: #fcd34d;
+
+  --ftg-neutral: #475569;
+  --ftg-neutral-bg: #f1f5f9;
+  --ftg-neutral-border: #cbd5e1;
+
+  --ftg-card-bg: #ffffff;
+  --ftg-card-border: #e2e8f0;
+  --ftg-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+
+  --ftg-muted: #64748b;
+}
+
+.dark {
+  --ftg-good: #4ade80;
+  --ftg-good-bg: rgba(22, 163, 74, 0.15);
+  --ftg-good-border: rgba(74, 222, 128, 0.4);
+
+  --ftg-bad: #f87171;
+  --ftg-bad-bg: rgba(220, 38, 38, 0.15);
+  --ftg-bad-border: rgba(248, 113, 113, 0.4);
+
+  --ftg-warn: #fbbf24;
+  --ftg-warn-bg: rgba(217, 119, 6, 0.15);
+  --ftg-warn-border: rgba(251, 191, 36, 0.4);
+
+  --ftg-neutral: #94a3b8;
+  --ftg-neutral-bg: rgba(148, 163, 184, 0.1);
+  --ftg-neutral-border: rgba(148, 163, 184, 0.3);
+
+  --ftg-card-bg: rgb(23, 23, 23);
+  --ftg-card-border: rgba(148, 163, 184, 0.2);
+  --ftg-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+
+  --ftg-muted: #94a3b8;
+}
+
+/* ---------- At-a-Glance stat cards (home page) ---------- */
+
+.ftg-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+
+@media (min-width: 768px) {
+  .ftg-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.ftg-stat-card {
+  display: block;
+  padding: 1.25rem 1.25rem 1rem;
+  border: 1px solid var(--ftg-card-border);
+  border-left-width: 4px;
+  border-radius: 0.5rem;
+  background: var(--ftg-card-bg);
+  box-shadow: var(--ftg-card-shadow);
+  text-decoration: none !important;
+  color: inherit !important;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.ftg-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(15, 23, 42, 0.06);
+}
+
+.ftg-stat-num {
+  display: block;
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ftg-stat-label {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--ftg-muted);
+  letter-spacing: 0.01em;
+}
+
+.ftg-stat-card--neutral {
+  border-left-color: var(--ftg-neutral-border);
+}
+.ftg-stat-card--neutral .ftg-stat-num {
+  color: var(--ftg-neutral);
+}
+
+.ftg-stat-card--good {
+  border-left-color: var(--ftg-good);
+  background: linear-gradient(180deg, var(--ftg-good-bg) 0%, var(--ftg-card-bg) 60%);
+}
+.ftg-stat-card--good .ftg-stat-num {
+  color: var(--ftg-good);
+}
+
+.ftg-stat-card--bad {
+  border-left-color: var(--ftg-bad);
+  background: linear-gradient(180deg, var(--ftg-bad-bg) 0%, var(--ftg-card-bg) 60%);
+}
+.ftg-stat-card--bad .ftg-stat-num {
+  color: var(--ftg-bad);
+}
+
+/* ---------- "Generated at" footer ---------- */
+
+.ftg-generated {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--ftg-card-border);
+  font-size: 0.875rem;
+  color: var(--ftg-muted);
+  font-style: italic;
+}
+
+/* ---------- Mapping page feature cards ---------- */
+
+.ftg-feature-card {
+  margin: 1.75rem 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+  border: 1px solid var(--ftg-card-border);
+  border-left-width: 4px;
+  border-left-color: var(--ftg-neutral-border);
+  border-radius: 0.5rem;
+  background: var(--ftg-card-bg);
+  box-shadow: var(--ftg-card-shadow);
+}
+
+.ftg-feature-card--documented {
+  border-left-color: var(--ftg-good);
+}
+
+.ftg-feature-card--undocumented {
+  border-left-color: var(--ftg-bad);
+}
+
+.ftg-feature-card h3:first-child {
+  margin-top: 0.25rem;
+}
+
+.ftg-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.ftg-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--ftg-neutral-border);
+  border-radius: 9999px;
+  background: var(--ftg-neutral-bg);
+  color: var(--ftg-neutral);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ftg-badge--layer {
+  border-color: var(--ftg-neutral-border);
+  background: var(--ftg-neutral-bg);
+  color: var(--ftg-neutral);
+}
+
+.ftg-badge--user-facing {
+  border-color: var(--ftg-warn-border);
+  background: var(--ftg-warn-bg);
+  color: var(--ftg-warn);
+}
+
+.ftg-badge--internal {
+  border-color: var(--ftg-neutral-border);
+  background: var(--ftg-neutral-bg);
+  color: var(--ftg-muted);
+}
+
+.ftg-badge--documented {
+  border-color: var(--ftg-good-border);
+  background: var(--ftg-good-bg);
+  color: var(--ftg-good);
+}
+
+.ftg-badge--undocumented {
+  border-color: var(--ftg-bad-border);
+  background: var(--ftg-bad-bg);
+  color: var(--ftg-bad);
+}
+
+/* ---------- Gaps: undocumented-feature problem callouts ---------- */
+
+.ftg-undoc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.ftg-undoc {
+  position: relative;
+  padding: 0.875rem 1rem 0.875rem 2.5rem;
+  border: 1px solid var(--ftg-bad-border);
+  border-left: 4px solid var(--ftg-bad);
+  border-radius: 0.5rem;
+  background: var(--ftg-bad-bg);
+  color: inherit;
+  box-shadow: var(--ftg-card-shadow);
+}
+
+.ftg-undoc::before {
+  content: "!";
+  position: absolute;
+  top: 50%;
+  left: 0.875rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background: var(--ftg-bad);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.ftg-undoc-name {
+  font-weight: 600;
+}
+
+.ftg-undoc-msg {
+  margin-left: 0.25rem;
+  color: var(--ftg-muted);
+}
+
+/* ---------- Priority headers (Large / Medium / Small) ---------- */
+
+.ftg-priority {
+  margin-top: 1.5rem;
+}
+
+.ftg-priority h3,
+.ftg-priority h4 {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid;
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ftg-priority--large h3,
+.ftg-priority--large h4 {
+  color: var(--ftg-bad);
+  border-color: var(--ftg-bad-border);
+  background: var(--ftg-bad-bg);
+}
+
+.ftg-priority--medium h3,
+.ftg-priority--medium h4 {
+  color: var(--ftg-warn);
+  border-color: var(--ftg-warn-border);
+  background: var(--ftg-warn-bg);
+}
+
+.ftg-priority--small h3,
+.ftg-priority--small h4 {
+  color: var(--ftg-neutral);
+  border-color: var(--ftg-neutral-border);
+  background: var(--ftg-neutral-bg);
+}
+
+/* ---------- Stale-documentation cards ---------- */
+
+.ftg-stale-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0 1.5rem;
+}
+
+.ftg-stale {
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--ftg-card-border);
+  border-radius: 0.5rem;
+  background: var(--ftg-card-bg);
+  box-shadow: var(--ftg-card-shadow);
+}
+
+.ftg-stale--large {
+  border-left: 4px solid var(--ftg-bad);
+}
+
+.ftg-stale--medium {
+  border-left: 4px solid var(--ftg-warn);
+}
+
+.ftg-stale--small {
+  border-left: 4px solid var(--ftg-neutral-border);
+}
+
+.ftg-stale-feature {
+  font-weight: 600;
+}
+
+.ftg-stale-page {
+  display: block;
+  margin: 0.25rem 0;
+  font-size: 0.875rem;
+  color: var(--ftg-muted);
+  word-break: break-all;
+}
+
+.ftg-stale-issue {
+  display: block;
+  margin: 0.5rem 0 0;
+}
+
+.ftg-stale-why {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--ftg-muted);
+  font-style: italic;
+}
+
+/* ---------- Screenshot-finding cards ---------- */
+
+.ftg-shot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.ftg-shot {
+  border: 1px solid var(--ftg-card-border);
+  border-radius: 0.5rem;
+  background: var(--ftg-card-bg);
+  box-shadow: var(--ftg-card-shadow);
+  overflow: hidden;
+}
+
+.ftg-shot--large {
+  border-left: 4px solid var(--ftg-bad);
+}
+
+.ftg-shot--medium {
+  border-left: 4px solid var(--ftg-warn);
+}
+
+.ftg-shot--small {
+  border-left: 4px solid var(--ftg-neutral-border);
+}
+
+.ftg-shot-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: var(--ftg-neutral-bg);
+  border-bottom: 1px solid var(--ftg-card-border);
+  font-size: 0.875rem;
+}
+
+.ftg-shot-head a {
+  color: inherit;
+  word-break: break-all;
+}
+
+.ftg-shot-body {
+  padding: 1rem 1rem 1.25rem;
+}
+
+.ftg-shot-section {
+  margin: 0.875rem 0 0;
+}
+
+.ftg-shot-section:first-child {
+  margin-top: 0;
+}
+
+.ftg-shot-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ftg-muted);
+  margin-bottom: 0.25rem;
+}
+
+.ftg-shot-passage pre,
+.ftg-shot-passage code {
+  font-size: 0.875rem;
+}
+
+.ftg-shot-image img {
+  max-width: 100%;
+  border: 1px solid var(--ftg-card-border);
+  border-radius: 0.375rem;
+}

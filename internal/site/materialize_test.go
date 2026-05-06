@@ -603,14 +603,13 @@ func TestMaterializeExpandedScreenshotPageCalloutAndFence(t *testing.T) {
 	}
 	s := string(body)
 	for _, want := range []string{
+		`<div class="ftg-shot ftg-shot--small">`,
 		"```markdown",
 		"Click **Save** to continue.",
 		"The page reloads.",
-		`{{< callout type="info" >}}`,
-		"**Screenshot should show:** save button",
-		"**Alt text:** `save button`",
-		"**Insertion hint:** after the paragraph",
-		"{{< /callout >}}",
+		`<span class="ftg-shot-label">Should show</span>save button`,
+		`<span class="ftg-shot-label">Alt text</span><code>save button</code>`,
+		`<span class="ftg-shot-label">Insert</span>after the paragraph`,
 	} {
 		if !contains(s, want) {
 			t.Errorf("missing %q in expanded screenshot page:\n%s", want, s)

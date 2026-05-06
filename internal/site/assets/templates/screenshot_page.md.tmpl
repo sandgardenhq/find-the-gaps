@@ -4,24 +4,35 @@ title = {{ .Title | printf "%q" }}
 
 [{{ .PageURL }}]({{ .PageURL }})
 
-{{ range .Buckets }}
+{{ range .Buckets }}{{ $class := .Class }}
+<div class="ftg-priority ftg-priority--{{ $class }}">
+
 ## {{ .Heading }}
 
+</div>
+
+<div class="ftg-shot-list">
+
 {{ range .Gaps -}}
+<div class="ftg-shot ftg-shot--{{ $class }}">
+<div class="ftg-shot-body">
+
+<div class="ftg-shot-section ftg-shot-passage"><span class="ftg-shot-label">Passage</span>
+
 ```markdown
 {{ .Quoted }}
 ```
 
-{{ `{{< callout type="info" >}}` }}
-**Screenshot should show:** {{ .ShouldShow }}
-
-**Alt text:** `{{ .Alt }}`
-
-**Insertion hint:** {{ .Insert }}
-{{ if .PriorityReason }}
-**Why:** {{ .PriorityReason }}
+</div>
+<div class="ftg-shot-section"><span class="ftg-shot-label">Should show</span>{{ .ShouldShow }}</div>
+<div class="ftg-shot-section"><span class="ftg-shot-label">Alt text</span><code>{{ .Alt }}</code></div>
+<div class="ftg-shot-section"><span class="ftg-shot-label">Insert</span>{{ .Insert }}</div>
+{{ if .PriorityReason }}<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>{{ .PriorityReason }}</div>
 {{ end }}
-{{ `{{< /callout >}}` }}
+</div>
+</div>
 
 {{ end -}}
+</div>
+
 {{ end -}}

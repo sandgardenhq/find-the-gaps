@@ -124,8 +124,11 @@ type driftIssue struct {
 // driftBucket holds one priority's worth of drift findings on a feature page.
 // The expanded-mode feature template iterates buckets in the canonical
 // Large -> Medium -> Small order so the most important findings appear first.
+// Class carries the lowercased priority so templates can stamp the matching
+// `.ftg-priority--{large,medium,small}` modifier on the heading wrapper.
 type driftBucket struct {
 	Heading string // "Large" / "Medium" / "Small"
+	Class   string // "large" / "medium" / "small"
 	Issues  []driftIssue
 }
 
@@ -141,6 +144,11 @@ func bucketDrift(issues []driftIssue) []driftBucket {
 		analyzer.PriorityMedium: "Medium",
 		analyzer.PrioritySmall:  "Small",
 	}
+	classes := map[analyzer.Priority]string{
+		analyzer.PriorityLarge:  "large",
+		analyzer.PriorityMedium: "medium",
+		analyzer.PrioritySmall:  "small",
+	}
 	var out []driftBucket
 	for _, p := range order {
 		var bucket []driftIssue
@@ -150,7 +158,7 @@ func bucketDrift(issues []driftIssue) []driftBucket {
 			}
 		}
 		if len(bucket) > 0 {
-			out = append(out, driftBucket{Heading: headings[p], Issues: bucket})
+			out = append(out, driftBucket{Heading: headings[p], Class: classes[p], Issues: bucket})
 		}
 	}
 	return out
@@ -180,7 +188,7 @@ func renderFeature(d featureData) (string, error) {
 		if buckets := bucketDrift(d.Drift); len(buckets) > 0 {
 			d.DriftBuckets = buckets
 		} else {
-			d.DriftBuckets = []driftBucket{{Heading: "All", Issues: d.Drift}}
+			d.DriftBuckets = []driftBucket{{Heading: "All", Class: "small", Issues: d.Drift}}
 		}
 	}
 	var buf bytes.Buffer
@@ -247,8 +255,10 @@ type screenshotGap struct {
 }
 
 // screenshotBucket holds one priority's worth of gaps on a screenshot page.
+// Class carries the lowercased priority for `.ftg-priority--*` styling.
 type screenshotBucket struct {
 	Heading string
+	Class   string
 	Gaps    []screenshotGap
 }
 
@@ -262,6 +272,11 @@ func bucketScreenshotGaps(gaps []screenshotGap) []screenshotBucket {
 		analyzer.PriorityMedium: "Medium",
 		analyzer.PrioritySmall:  "Small",
 	}
+	classes := map[analyzer.Priority]string{
+		analyzer.PriorityLarge:  "large",
+		analyzer.PriorityMedium: "medium",
+		analyzer.PrioritySmall:  "small",
+	}
 	var out []screenshotBucket
 	for _, p := range order {
 		var bucket []screenshotGap
@@ -271,7 +286,7 @@ func bucketScreenshotGaps(gaps []screenshotGap) []screenshotBucket {
 			}
 		}
 		if len(bucket) > 0 {
-			out = append(out, screenshotBucket{Heading: headings[p], Gaps: bucket})
+			out = append(out, screenshotBucket{Heading: headings[p], Class: classes[p], Gaps: bucket})
 		}
 	}
 	return out
@@ -293,7 +308,7 @@ func renderScreenshotPage(d screenshotPageData) (string, error) {
 		if buckets := bucketScreenshotGaps(d.Gaps); len(buckets) > 0 {
 			d.Buckets = buckets
 		} else {
-			d.Buckets = []screenshotBucket{{Heading: "All", Gaps: d.Gaps}}
+			d.Buckets = []screenshotBucket{{Heading: "All", Class: "small", Gaps: d.Gaps}}
 		}
 	}
 	var buf bytes.Buffer

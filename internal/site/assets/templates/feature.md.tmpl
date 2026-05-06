@@ -32,7 +32,21 @@ tags = ["layer:{{ .Layer }}", "status:{{ $status }}", "user-facing:{{ $uf }}"]
 
 {{ if .DriftBuckets }}
 ## Drift findings
-{{ range .DriftBuckets }}
+{{ range .DriftBuckets }}{{ $class := .Class }}
+<div class="ftg-priority ftg-priority--{{ $class }}">
+
 ### {{ .Heading }}
-{{ range .Issues }}- {{ if .Page }}[{{ .Page }}]({{ .Page }}) — {{ end }}{{ .Issue }}{{ if .PriorityReason }} _({{ .PriorityReason }})_{{ end }}
-{{ end }}{{ end }}{{ end }}
+
+</div>
+
+<div class="ftg-stale-list">
+
+{{ range .Issues }}<div class="ftg-stale ftg-stale--{{ $class }}">
+<span class="ftg-stale-issue">{{ if .Page }}<a class="ftg-stale-page" href="{{ .Page }}">{{ .Page }}</a> — {{ end }}{{ .Issue }}</span>
+{{ if .PriorityReason }}<span class="ftg-stale-why">why: {{ .PriorityReason }}</span>{{ end }}
+</div>
+
+{{ end }}
+</div>
+
+{{ end }}{{ end }}

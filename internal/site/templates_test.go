@@ -73,6 +73,12 @@ func TestRenderHugoConfigExpandedHasTaxonomies(t *testing.T) {
 	}
 }
 
+// TestRenderHomeIncludesCounts pins the at-a-glance stat cards. Each metric
+// renders as an `<a class="ftg-stat-card ...">` with a big number and a
+// label. Mirror mode points the Features card at /mapping/, and the
+// undocumented/drift/screenshots cards point at their respective pages.
+// Counts of 0 on "bad" metrics carry the --good modifier; counts > 0 carry
+// --bad; the Features card is always --neutral.
 func TestRenderHomeIncludesCounts(t *testing.T) {
 	in := homeData{
 		ProjectName:           "demo",
@@ -92,16 +98,18 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 	for _, want := range []string{
 		"A small CLI demo.",
 		"2026-04-24",
-		// Counts are rendered as links so a maintainer can click straight
-		// from the at-a-glance numbers to the section they care about.
-		// Mirror mode points the feature count at /mapping/; both gap-
-		// related counts share /gaps/; missing screenshots points at
-		// /screenshots/. The dedicated "## Sections" block no longer
-		// exists (these links replace it).
-		"[**17 features**](/mapping/)",
-		"[**4 undocumented (user-facing)**](/gaps/)",
-		"[**2 drift findings**](/gaps/)",
-		"[**3 missing screenshots**](/screenshots/)",
+		`<div class="ftg-stats">`,
+		`class="ftg-stat-card ftg-stat-card--neutral" href="/mapping/"`,
+		`<span class="ftg-stat-num">17</span>`,
+		`<span class="ftg-stat-label">Features</span>`,
+		`ftg-stat-card--bad" href="/gaps/"`,
+		`<span class="ftg-stat-num">4</span>`,
+		`<span class="ftg-stat-label">Undocumented user-facing</span>`,
+		`<span class="ftg-stat-num">2</span>`,
+		`<span class="ftg-stat-label">Drift findings</span>`,
+		`href="/screenshots/"`,
+		`<span class="ftg-stat-num">3</span>`,
+		`<span class="ftg-stat-label">Missing screenshots</span>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -112,29 +120,60 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 	}
 }
 
-// TestRenderHomeGeneratedAtPrecedesSummary pins the home page layout: the
-// "_Generated ..._" timestamp must sit directly under the page header (the
-// frontmatter title rendered as H1) and before the summary paragraph. Until
-// this fix the timestamp appeared at the bottom of the intro region, after
-// the summary, where it read as an aside instead of a subheading.
-func TestRenderHomeGeneratedAtPrecedesSummary(t *testing.T) {
+// TestRenderHomeZeroCountsAreGood pins the color logic: a zero count on a
+// "bad" metric (undocumented, drift, missing screenshots) carries the
+// --good modifier so a clean run renders green.
+func TestRenderHomeZeroCountsAreGood(t *testing.T) {
 	in := homeData{
-		ProjectName: "demo",
-		GeneratedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
-		Summary:     "A small CLI demo.",
-		Mode:        ModeMirror,
+		ProjectName:           "demo",
+		GeneratedAt:           time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		FeatureCount:          5,
+		UndocumentedUserCount: 0,
+		DriftCount:            0,
+		ScreenshotGapCount:    0,
+		ScreenshotsRan:        true,
+		Mode:                  ModeMirror,
 	}
 	got, err := renderHome(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gen := strings.Index(got, "_Generated ")
-	sum := strings.Index(got, "A small CLI demo.")
-	if gen < 0 || sum < 0 {
-		t.Fatalf("expected both timestamp and summary in output; got:\n%s", got)
+	// Every zero-count card should be --good; none should be --bad.
+	if strings.Contains(got, "ftg-stat-card--bad") {
+		t.Errorf("zero counts must not render --bad; got:\n%s", got)
 	}
-	if gen > sum {
-		t.Errorf("timestamp must precede summary; got:\n%s", got)
+	// At least three --good cards: undocumented + drift + screenshots.
+	if c := strings.Count(got, "ftg-stat-card--good"); c < 3 {
+		t.Errorf("expected ≥3 --good cards for zero counts, got %d in:\n%s", c, got)
+	}
+}
+
+// TestRenderHomeGeneratedAtAtBottom pins the home page layout: the
+// "Generated ..." timestamp must sit at the bottom of the page (after the
+// summary and the at-a-glance section), not at the top.
+func TestRenderHomeGeneratedAtAtBottom(t *testing.T) {
+	in := homeData{
+		ProjectName:  "demo",
+		GeneratedAt:  time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Summary:      "A small CLI demo.",
+		FeatureCount: 3,
+		Mode:         ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := strings.Index(got, "Generated 2026-04-24")
+	stats := strings.Index(got, `class="ftg-stats"`)
+	sum := strings.Index(got, "A small CLI demo.")
+	if gen < 0 || sum < 0 || stats < 0 {
+		t.Fatalf("expected timestamp, stats block, and summary in output; got:\n%s", got)
+	}
+	if gen < sum {
+		t.Errorf("timestamp must follow summary; got:\n%s", got)
+	}
+	if gen < stats {
+		t.Errorf("timestamp must follow at-a-glance stats block; got:\n%s", got)
 	}
 }
 
@@ -165,12 +204,12 @@ func TestRenderHomeExpandedLinksToFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// In expanded mode the feature-count bullet links to /features/
-	// (mirror mode points the same bullet at /mapping/).
-	if !strings.Contains(got, "[**5 features**](/features/)") {
-		t.Errorf("expanded home should link feature count to /features/, got:\n%s", got)
+	// In expanded mode the Features stat card links to /features/
+	// (mirror mode points the same card at /mapping/).
+	if !strings.Contains(got, `class="ftg-stat-card ftg-stat-card--neutral" href="/features/"`) {
+		t.Errorf("expanded home should link Features card to /features/, got:\n%s", got)
 	}
-	if strings.Contains(got, "(/mapping/)") {
+	if strings.Contains(got, `href="/mapping/"`) {
 		t.Error("expanded home should not link to /mapping/")
 	}
 }
@@ -231,19 +270,22 @@ func TestRenderMappingPageWrapsEachFeatureInCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Each feature gets its own opening `<div class="...">` with card
-	// styling. Two features → two opening divs and two closing divs.
-	openCount := strings.Count(got, `<div class="hx:`)
+	// Each feature gets its own opening `<div class="ftg-feature-card ...">`
+	// with card styling. Two features → two opening cards.
+	openCount := strings.Count(got, `<div class="ftg-feature-card`)
 	if openCount < 2 {
-		t.Errorf("expected at least 2 card-wrapper <div> opens (one per feature), got %d in:\n%s", openCount, got)
+		t.Errorf("expected at least 2 .ftg-feature-card wrapper opens (one per feature), got %d in:\n%s", openCount, got)
 	}
-	closeCount := strings.Count(got, "</div>")
-	if closeCount < 2 {
-		t.Errorf("expected at least 2 closing </div> tags (one per feature), got %d in:\n%s", closeCount, got)
+	// Each card carries one Documented or Undocumented modifier, and a
+	// .ftg-badges row inside.
+	if c := strings.Count(got, `ftg-feature-card--documented`); c < 1 {
+		t.Errorf("expected at least one ftg-feature-card--documented modifier, got %d in:\n%s", c, got)
 	}
-	// Sanity: opens equal closes so the markup is balanced.
-	if openCount != closeCount {
-		t.Errorf("card wrapper opens (%d) and closes (%d) must match in:\n%s", openCount, closeCount, got)
+	if c := strings.Count(got, `ftg-feature-card--undocumented`); c < 1 {
+		t.Errorf("expected at least one ftg-feature-card--undocumented modifier, got %d in:\n%s", c, got)
+	}
+	if c := strings.Count(got, `<div class="ftg-badges">`); c < 2 {
+		t.Errorf("expected per-feature ftg-badges row (one per feature), got %d in:\n%s", c, got)
 	}
 }
 
@@ -465,14 +507,15 @@ func TestRenderScreenshotPage(t *testing.T) {
 	for _, want := range []string{
 		`title = "Quickstart"`,
 		"https://example.com/docs/start",
+		`<div class="ftg-priority ftg-priority--small">`,
+		`<div class="ftg-shot-list">`,
+		`<div class="ftg-shot ftg-shot--small">`,
 		"```markdown",
 		"open the dashboard",
 		"click **Save**",
-		`{{< callout type="info" >}}`,
-		"**Screenshot should show:** the dashboard view",
-		"**Alt text:** `dashboard`",
-		"**Insertion hint:** after first paragraph",
-		"{{< /callout >}}",
+		`<span class="ftg-shot-label">Should show</span>the dashboard view`,
+		`<span class="ftg-shot-label">Alt text</span><code>dashboard</code>`,
+		`<span class="ftg-shot-label">Insert</span>after first paragraph`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
