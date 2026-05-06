@@ -980,7 +980,10 @@ func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
 		"auth": {
 			Files:  []string{"auth.go"},
 			Pages:  []string{"https://docs.example.com/auth"},
-			Issues: []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "stale signature"}},
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/auth", Issue: "stale signature",
+				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
+			}},
 		},
 	}
 
@@ -1111,7 +1114,10 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 		"cached": {
 			Files:  []string{"c.go"},
 			Pages:  []string{"https://docs.example.com/c"},
-			Issues: []analyzer.DriftIssue{{Page: "https://docs.example.com/c", Issue: "Cached drift."}},
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/c", Issue: "Cached drift.",
+				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
+			}},
 		},
 	}
 

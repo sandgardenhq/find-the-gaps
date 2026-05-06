@@ -133,7 +133,8 @@ func DetectDrift(
 		if cached != nil {
 			if c, ok := cached[entry.Feature.Name]; ok &&
 				equalStringSlice(c.Files, sortedFiles) &&
-				equalStringSlice(c.Pages, sortedPages) {
+				equalStringSlice(c.Pages, sortedPages) &&
+				!cacheNeedsRecompute(c) {
 				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
 				issues := c.Issues
 				if len(issues) > 0 {
@@ -425,6 +426,22 @@ func uniqueObservationPages(observations []driftObservation) []string {
 		out = append(out, o.Page)
 	}
 	return out
+}
+
+// cacheNeedsRecompute reports whether a cached drift entry must be discarded
+// because at least one of its issues lacks a valid priority. Older caches
+// written before the priority feature shipped fall through this path; on a
+// rerun we recompute the issues so they pick up priorities.
+func cacheNeedsRecompute(entry CachedDriftEntry) bool {
+	for _, iss := range entry.Issues {
+		switch iss.Priority {
+		case PriorityLarge, PriorityMedium, PrioritySmall:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // pageRoleSummary returns a human-readable list of "<url> -> <role>" lines
