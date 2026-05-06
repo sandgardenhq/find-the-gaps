@@ -303,11 +303,11 @@ func TestAnalyze_pageAnalysisRunsConcurrently(t *testing.T) {
 
 	const numPages = 8
 	pageURLs := make([]string, numPages)
-	for i := 0; i < numPages; i++ {
+	for i := range numPages {
 		u := fmt.Sprintf("https://docs.example.com/page-%02d", i)
 		pageURLs[i] = u
 		filename := spider.URLToFilename(u)
-		require.NoError(t, os.WriteFile(filepath.Join(docsDir, filename), []byte(fmt.Sprintf("# Page %d\n\nContent for page %d.\n", i, i)), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(docsDir, filename), fmt.Appendf(nil, "# Page %d\n\nContent for page %d.\n", i, i), 0o644))
 		require.NoError(t, idx.Record(u, filename))
 	}
 
