@@ -2,12 +2,21 @@ package reporter
 
 import (
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
+
+// esc shortens html.EscapeString. LLM-derived strings (drift issues, alt text,
+// page URLs, etc.) are interpolated into raw HTML cards in gaps.md and
+// screenshots.md; without escaping, a `<`, `>`, `&`, or `"` from the model
+// would either leak as a stray tag or break an attribute. The markdown path
+// goldmark uses for non-HTML content escapes these automatically — we mirror
+// that here for the raw-HTML path.
+func esc(s string) string { return html.EscapeString(s) }
 
 // WriteMapping writes mapping.md to dir.
 //
@@ -109,7 +118,7 @@ func WriteGaps(
 	} else {
 		sb.WriteString(`<div class="ftg-undoc-list">` + "\n\n")
 		for _, entry := range undoc {
-			fmt.Fprintf(&sb, `<div class="ftg-undoc"><span class="ftg-undoc-name">%s</span><span class="ftg-undoc-msg"> — has code implementation but no documentation page</span></div>`+"\n\n", entry.Feature.Name)
+			fmt.Fprintf(&sb, `<div class="ftg-undoc"><span class="ftg-undoc-name">%s</span><span class="ftg-undoc-msg"> — has code implementation but no documentation page</span></div>`+"\n\n", esc(entry.Feature.Name))
 		}
 		sb.WriteString("</div>\n")
 	}
@@ -134,13 +143,13 @@ func WriteGaps(
 			fmt.Fprintf(&sb, `<div class="ftg-stale-list">`+"\n\n")
 			for _, item := range bucket {
 				fmt.Fprintf(&sb, `<div class="ftg-stale ftg-stale--%s">`+"\n", priorityClass(p))
-				fmt.Fprintf(&sb, `<span class="ftg-stale-feature">%s</span>`+"\n", item.Feature)
+				fmt.Fprintf(&sb, `<span class="ftg-stale-feature">%s</span>`+"\n", esc(item.Feature))
 				if item.Issue.Page != "" {
-					fmt.Fprintf(&sb, `<a class="ftg-stale-page" href="%s">%s</a>`+"\n", item.Issue.Page, item.Issue.Page)
+					fmt.Fprintf(&sb, `<a class="ftg-stale-page" href="%s">%s</a>`+"\n", esc(item.Issue.Page), esc(item.Issue.Page))
 				}
-				fmt.Fprintf(&sb, `<span class="ftg-stale-issue">%s</span>`+"\n", item.Issue.Issue)
+				fmt.Fprintf(&sb, `<span class="ftg-stale-issue">%s</span>`+"\n", esc(item.Issue.Issue))
 				if item.Issue.PriorityReason != "" {
-					fmt.Fprintf(&sb, `<span class="ftg-stale-why">why: %s</span>`+"\n", item.Issue.PriorityReason)
+					fmt.Fprintf(&sb, `<span class="ftg-stale-why">why: %s</span>`+"\n", esc(item.Issue.PriorityReason))
 				}
 				sb.WriteString("</div>\n\n")
 			}
@@ -249,31 +258,31 @@ func writeGapBuckets(sb *strings.Builder, gaps []analyzer.ScreenshotGap, render 
 
 func renderMissingGap(sb *strings.Builder, g analyzer.ScreenshotGap, prio string) {
 	fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", prio)
-	fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", g.PageURL, g.PageURL)
+	fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(g.PageURL), esc(g.PageURL))
 	sb.WriteString(`<div class="ftg-shot-body">` + "\n\n")
 	sb.WriteString(`<div class="ftg-shot-section ftg-shot-passage"><span class="ftg-shot-label">Passage</span>` + "\n\n")
 	fmt.Fprintf(sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
 	sb.WriteString("</div>\n")
-	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Should show</span>%s</div>`+"\n", g.ShouldShow)
-	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Alt text</span><code>%s</code></div>`+"\n", g.SuggestedAlt)
-	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Insert</span>%s</div>`+"\n", g.InsertionHint)
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Should show</span>%s</div>`+"\n", esc(g.ShouldShow))
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Alt text</span><code>%s</code></div>`+"\n", esc(g.SuggestedAlt))
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Insert</span>%s</div>`+"\n", esc(g.InsertionHint))
 	if g.PriorityReason != "" {
-		fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", g.PriorityReason)
+		fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", esc(g.PriorityReason))
 	}
 	sb.WriteString("</div>\n</div>\n\n")
 }
 
 func renderPossiblyCoveredGap(sb *strings.Builder, g analyzer.ScreenshotGap, prio string) {
 	fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", prio)
-	fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", g.PageURL, g.PageURL)
+	fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(g.PageURL), esc(g.PageURL))
 	sb.WriteString(`<div class="ftg-shot-body">` + "\n\n")
 	sb.WriteString(`<div class="ftg-shot-section ftg-shot-passage"><span class="ftg-shot-label">Passage</span>` + "\n\n")
 	fmt.Fprintf(sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
 	sb.WriteString("</div>\n")
-	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Would have suggested</span>%s</div>`+"\n", g.ShouldShow)
-	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Insert (if uncovered)</span>%s</div>`+"\n", g.InsertionHint)
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Would have suggested</span>%s</div>`+"\n", esc(g.ShouldShow))
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Insert (if uncovered)</span>%s</div>`+"\n", esc(g.InsertionHint))
 	if g.PriorityReason != "" {
-		fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", g.PriorityReason)
+		fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", esc(g.PriorityReason))
 	}
 	sb.WriteString("</div>\n</div>\n\n")
 }
@@ -303,15 +312,15 @@ func writeImageIssueBuckets(sb *strings.Builder, issues []analyzer.ImageIssue) {
 			fmt.Fprintf(sb, "#### %s\n\n", page)
 			for _, ii := range byPage[page] {
 				fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", priorityClass(p))
-				fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", ii.PageURL, ii.PageURL)
+				fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(ii.PageURL), esc(ii.PageURL))
 				sb.WriteString(`<div class="ftg-shot-body">` + "\n\n")
 				sb.WriteString(`<div class="ftg-shot-section ftg-shot-image"><span class="ftg-shot-label">Image</span>` + "\n\n")
 				fmt.Fprintf(sb, "![%s](%s)\n\n", ii.Index, ii.Src)
 				sb.WriteString("</div>\n")
-				fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Issue</span>%s</div>`+"\n", ii.Reason)
-				fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Suggested action</span>%s</div>`+"\n", ii.SuggestedAction)
+				fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Issue</span>%s</div>`+"\n", esc(ii.Reason))
+				fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Suggested action</span>%s</div>`+"\n", esc(ii.SuggestedAction))
 				if ii.PriorityReason != "" {
-					fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", ii.PriorityReason)
+					fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", esc(ii.PriorityReason))
 				}
 				sb.WriteString("</div>\n</div>\n\n")
 			}

@@ -228,6 +228,129 @@ func TestWriteGaps_StaleDocCardAndPriorityHeader(t *testing.T) {
 	}
 }
 
+// TestWriteGaps_EscapesHTMLSpecialChars pins that LLM-derived text fields
+// (Issue, PriorityReason, Page, feature name) are HTML-escaped before being
+// interpolated into the raw-HTML cards. Without escaping, an Issue containing
+// `<` or `&` (common in code-like content and URLs) would corrupt the
+// rendered page or get reinterpreted as markup.
+func TestWriteGaps_EscapesHTMLSpecialChars(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "search & index", UserFacing: true}, Files: []string{"s.go"}},
+	}
+	drift := []analyzer.DriftFinding{
+		{Feature: "search & index", Issues: []analyzer.DriftIssue{
+			{
+				Page:           "https://docs.example.com/search?a=1&b=<2>",
+				Issue:          "signature changed from Foo() to Foo[T any]() <breaking>",
+				Priority:       analyzer.PriorityLarge,
+				PriorityReason: "user-impact: callers must update <T>",
+			},
+		}},
+	}
+	if err := reporter.WriteGaps(dir, mapping, []string{}, drift); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	for _, want := range []string{
+		// Feature name in undoc list and stale card escapes &.
+		"search &amp; index",
+		// Issue text escapes < and >.
+		"signature changed from Foo() to Foo[T any]() &lt;breaking&gt;",
+		// Priority reason escapes <T>.
+		"user-impact: callers must update &lt;T&gt;",
+		// Page URL escapes & inside the href and the visible link text.
+		`href="https://docs.example.com/search?a=1&amp;b=&lt;2&gt;"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in gaps.md:\n%s", want, content)
+		}
+	}
+	// Spans/anchors must not contain raw `<breaking>` or `<T>` (would render
+	// as a stray tag). Code-fenced content and markdown text are escaped by
+	// goldmark at render time, but raw-HTML interpolation is not, so the
+	// reporter must escape before writing.
+	for _, bad := range []string{
+		`<span class="ftg-stale-issue">signature changed from Foo() to Foo[T any]() <breaking>`,
+		`<span class="ftg-stale-why">why: user-impact: callers must update <T>`,
+		`href="https://docs.example.com/search?a=1&b=<2>"`,
+	} {
+		if strings.Contains(content, bad) {
+			t.Errorf("unescaped raw HTML interpolation leaked: %q in gaps.md:\n%s", bad, content)
+		}
+	}
+}
+
+// TestWriteScreenshots_EscapesHTMLSpecialChars pins the same escaping
+// behavior for missing-screenshot, possibly-covered, and image-issue cards.
+func TestWriteScreenshots_EscapesHTMLSpecialChars(t *testing.T) {
+	dir := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		MissingGaps: []analyzer.ScreenshotGap{{
+			PageURL:        "https://x.example/p?a=1&b=2",
+			QuotedPassage:  "open the dashboard",
+			ShouldShow:     "the <Save> button",
+			SuggestedAlt:   "Save & Apply",
+			InsertionHint:  "after <h1>",
+			Priority:       analyzer.PriorityMedium,
+			PriorityReason: "user-impact <flow>",
+		}},
+		ImageIssues: []analyzer.ImageIssue{{
+			PageURL:         "https://x.example/p?c=1&d=2",
+			Index:           "img1",
+			Src:             "img.png",
+			Reason:          "alt text mentions <Save>",
+			SuggestedAction: "rewrite alt to remove <Save>",
+			Priority:        analyzer.PriorityLarge,
+			PriorityReason:  "AA violation <wcag>",
+		}},
+		// `## Image Issues` is gated on at least one page where vision ran.
+		AuditStats: []analyzer.ScreenshotPageStats{{PageURL: "https://x.example/p?c=1&d=2", VisionEnabled: true}},
+	}
+	if err := reporter.WriteScreenshots(dir, res); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	for _, want := range []string{
+		"the &lt;Save&gt; button",
+		"Save &amp; Apply",
+		"after &lt;h1&gt;",
+		"user-impact &lt;flow&gt;",
+		"alt text mentions &lt;Save&gt;",
+		"rewrite alt to remove &lt;Save&gt;",
+		"AA violation &lt;wcag&gt;",
+		`href="https://x.example/p?a=1&amp;b=2"`,
+		`href="https://x.example/p?c=1&amp;d=2"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in screenshots.md:\n%s", want, content)
+		}
+	}
+	// Raw-HTML interpolation sites must not pass `<...>` content through.
+	for _, bad := range []string{
+		`<span class="ftg-shot-label">Should show</span>the <Save>`,
+		`<code>Save & Apply</code>`,
+		`<span class="ftg-shot-label">Insert</span>after <h1>`,
+		`<span class="ftg-shot-label">Issue</span>alt text mentions <Save>`,
+		`href="https://x.example/p?a=1&b=2"`,
+		`href="https://x.example/p?c=1&d=2"`,
+	} {
+		if strings.Contains(content, bad) {
+			t.Errorf("unescaped raw HTML interpolation leaked: %q in screenshots.md:\n%s", bad, content)
+		}
+	}
+}
+
 // TestWriteMapping_RichFields_Documented asserts that description blockquote,
 // Layer, User-facing, and Documentation status fields appear in mapping.md when
 // a matching PageAnalysis covers the feature.
@@ -597,7 +720,9 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	assert.Contains(t, s, "Run the command and see the output.")
 	assert.Contains(t, s, "Terminal showing the analyze summary")
 	assert.Contains(t, s, "Terminal output of find-the-gaps analyze")
-	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
+	// Apostrophes in LLM-derived fields are HTML-escaped (`&#39;`) when
+	// emitted into raw-HTML cards.
+	assert.Contains(t, s, "after the paragraph ending &#39;...see the output.&#39;")
 }
 
 func TestWriteScreenshots_Empty_WritesNoneFound(t *testing.T) {

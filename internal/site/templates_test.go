@@ -368,6 +368,85 @@ func TestRenderFeatureFrontmatterIsValidTOML(t *testing.T) {
 	}
 }
 
+// TestRenderFeature_EscapesDriftFields pins that LLM-derived drift fields
+// (Issue, PriorityReason, Page) are HTML-escaped before being interpolated
+// into the raw-HTML drift cards. text/template does not auto-escape, so a
+// `<` or `&` in the model output would otherwise corrupt the rendered page.
+func TestRenderFeature_EscapesDriftFields(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:       "X",
+		Documented: true,
+		UserFacing: true,
+		Layer:      "ui",
+		Drift: []driftIssue{{
+			Page:           "https://example.com/p?a=1&b=<2>",
+			Issue:          "signature changed from Foo() to Foo[T any]() <breaking>",
+			PriorityReason: "callers must update <T>",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"signature changed from Foo() to Foo[T any]() &lt;breaking&gt;",
+		"why: callers must update &lt;T&gt;",
+		`href="https://example.com/p?a=1&amp;b=&lt;2&gt;"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{
+		"<breaking>",
+		"<T>",
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("unescaped %q leaked into feature page:\n%s", bad, got)
+		}
+	}
+}
+
+// TestRenderScreenshotPage_EscapesGapFields pins escaping for ShouldShow,
+// Alt, Insert, and PriorityReason interpolations on the per-page screenshot
+// template. The Quoted passage is rendered inside a markdown code fence so
+// goldmark escapes it; the other fields go straight into raw HTML and must
+// be escaped at template time.
+func TestRenderScreenshotPage_EscapesGapFields(t *testing.T) {
+	got, err := renderScreenshotPage(screenshotPageData{
+		PageURL: "https://example.com/p",
+		Title:   "P",
+		Gaps: []screenshotGap{{
+			Quoted:         "open dashboard",
+			ShouldShow:     "the <Save> button",
+			Alt:            "Save & Apply",
+			Insert:         "after <h1>",
+			PriorityReason: "user-impact <flow>",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"the &lt;Save&gt; button",
+		"<code>Save &amp; Apply</code>",
+		"after &lt;h1&gt;",
+		"user-impact &lt;flow&gt;",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{
+		"<Save>",
+		"<h1>",
+		"<flow>",
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("unescaped %q leaked into screenshot page:\n%s", bad, got)
+		}
+	}
+}
+
 func TestRenderFeatureUndocumentedCallout(t *testing.T) {
 	got, err := renderFeature(featureData{
 		Name:       "X",

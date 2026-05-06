@@ -24,10 +24,10 @@ title = {{ .Title | printf "%q" }}
 ```
 
 </div>
-<div class="ftg-shot-section"><span class="ftg-shot-label">Should show</span>{{ .ShouldShow }}</div>
-<div class="ftg-shot-section"><span class="ftg-shot-label">Alt text</span><code>{{ .Alt }}</code></div>
-<div class="ftg-shot-section"><span class="ftg-shot-label">Insert</span>{{ .Insert }}</div>
-{{ if .PriorityReason }}<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>{{ .PriorityReason }}</div>
+<div class="ftg-shot-section"><span class="ftg-shot-label">Should show</span>{{ .ShouldShow | html }}</div>
+<div class="ftg-shot-section"><span class="ftg-shot-label">Alt text</span><code>{{ .Alt | html }}</code></div>
+<div class="ftg-shot-section"><span class="ftg-shot-label">Insert</span>{{ .Insert | html }}</div>
+{{ if .PriorityReason }}<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>{{ .PriorityReason | html }}</div>
 {{ end }}
 </div>
 </div>
