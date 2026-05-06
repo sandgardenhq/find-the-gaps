@@ -31,20 +31,68 @@ func makeFinding(name string) []analyzer.DriftFinding {
 
 func TestGapsWriter_coalescesBursts(t *testing.T) {
 	dir := t.TempDir()
+	path := filepath.Join(dir, "gaps.md")
 	prefix := "# Gaps Found\n\nstatic body\n"
-	w := reporter.NewGapsWriter(dir, prefix, 50*time.Millisecond)
+	debounce := 50 * time.Millisecond
+	w := reporter.NewGapsWriter(dir, prefix, debounce)
 
 	for i := range 5 {
 		w.Push(makeFinding(fmt.Sprintf("f%d", i)))
 	}
+
+	// Wait past debounce so the writer goroutine fires its single coalesced
+	// flush. Without coalescing this would be five separate writes (and five
+	// distinct mtimes); with coalescing it is exactly one.
+	time.Sleep(3 * debounce)
+	mtimeAfterBurst := mustModTime(t, path)
+
 	require.NoError(t, w.Close())
 
-	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	content := string(data)
 	assert.Contains(t, content, "f4")
 	assert.Contains(t, content, "static body")
 	assert.Contains(t, content, "## Stale Documentation")
+	// Close's final flush is a no-op when nothing is dirty, so mtime must
+	// match the single burst-coalesced write captured above.
+	assert.Equal(t, mtimeAfterBurst, mustModTime(t, path),
+		"Close should not have triggered an additional write — burst was already coalesced")
+}
+
+// TestGapsWriter_rearmsTimerOnSubsequentPush exercises the Stop()+drain path
+// in arm(): a Push lands while the timer is already armed but not yet fired.
+// Without correct rearm, the second Push's bytes would either fail to flush
+// or double-fire the timer.
+func TestGapsWriter_rearmsTimerOnSubsequentPush(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gaps.md")
+	prefix := "# Gaps Found\n\nstatic body\n"
+	debounce := 80 * time.Millisecond
+	w := reporter.NewGapsWriter(dir, prefix, debounce)
+	t.Cleanup(func() { _ = w.Close() })
+
+	w.Push(makeFinding("first"))
+	time.Sleep(debounce / 2) // timer is armed but not yet fired
+	w.Push(makeFinding("second"))
+
+	// Wait past the second debounce window. The timer was rearmed by the
+	// second Push; we expect exactly one flush carrying "second".
+	time.Sleep(3 * debounce)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "second")
+	assert.NotContains(t, content, "first",
+		"second Push must overwrite first — last-write-wins via timer rearm")
+}
+
+func mustModTime(t *testing.T, path string) time.Time {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	return info.ModTime()
 }
 
 func TestGapsWriter_finalFlushOnClose(t *testing.T) {
