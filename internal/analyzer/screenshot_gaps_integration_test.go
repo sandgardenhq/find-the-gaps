@@ -70,7 +70,7 @@ func TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats(t *testi
 	// reason about coverage globally.
 	batch1Resp := json.RawMessage(`{
 	  "image_issues": [
-	    {"index":"img-2","src":"img-1.png","reason":"shows dashboard, prose describes settings","suggested_action":"replace"}
+	    {"index":"img-2","src":"img-1.png","reason":"shows dashboard, prose describes settings","suggested_action":"replace","priority":"medium","priority_reason":"test stub"}
 	  ],
 	  "verdicts": [
 	    {"index":"img-1","matches":true},
@@ -88,10 +88,10 @@ func TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats(t *testi
 	}`)
 	detectionResp := json.RawMessage(`{
 	  "gaps": [
-	    {"quoted_passage":"Click Save.","should_show":"the Save modal","suggested_alt":"Save modal","insertion_hint":"after the Save paragraph"}
+	    {"quoted_passage":"Click Save.","should_show":"the Save modal","suggested_alt":"Save modal","insertion_hint":"after the Save paragraph","priority":"medium","priority_reason":"test stub"}
 	  ],
 	  "suppressed_by_image": [
-	    {"quoted_passage":"View the dashboard.","should_show":"dashboard","suggested_alt":"Dashboard","insertion_hint":"after the dashboard paragraph"}
+	    {"quoted_passage":"View the dashboard.","should_show":"dashboard","suggested_alt":"Dashboard","insertion_hint":"after the dashboard paragraph","priority":"small","priority_reason":"test stub"}
 	  ]
 	}`)
 	client := &scriptedClient{
@@ -172,7 +172,7 @@ func TestDetectScreenshotGaps_BudgetSkippedPageMarkedSkipped(t *testing.T) {
 	// taken correctly, CompleteJSON is never invoked.
 	client := &scriptedClient{
 		caps:          ModelCapabilities{},
-		detectionResp: json.RawMessage(`{"gaps":[{"quoted_passage":"X","should_show":"Y","suggested_alt":"Z","insertion_hint":"W"}]}`),
+		detectionResp: json.RawMessage(`{"gaps":[{"quoted_passage":"X","should_show":"Y","suggested_alt":"Z","insertion_hint":"W","priority":"medium","priority_reason":"test stub"}]}`),
 	}
 
 	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
@@ -188,7 +188,7 @@ func TestDetectScreenshotGaps_BudgetSkippedPageMarkedSkipped(t *testing.T) {
 func TestDetectScreenshotGaps_NonVisionBranchUnchanged(t *testing.T) {
 	client := &fakeLLMClient{
 		responses: []string{
-			`{"gaps":[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block"}]}`,
+			`{"gaps":[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block","priority":"medium","priority_reason":"test stub"}]}`,
 		},
 	}
 	pages := []DocPage{

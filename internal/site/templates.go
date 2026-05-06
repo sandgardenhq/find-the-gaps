@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"text/template"
 	"time"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
 // hugoConfigData drives renderHugoConfig.
@@ -113,26 +115,74 @@ func renderHome(d homeData) (string, error) {
 
 // driftIssue describes a single drift finding linking a doc page to an issue.
 type driftIssue struct {
-	Page  string
-	Issue string
+	Page           string
+	Issue          string
+	Priority       analyzer.Priority
+	PriorityReason string
+}
+
+// driftBucket holds one priority's worth of drift findings on a feature page.
+// The expanded-mode feature template iterates buckets in the canonical
+// Large -> Medium -> Small order so the most important findings appear first.
+type driftBucket struct {
+	Heading string // "Large" / "Medium" / "Small"
+	Issues  []driftIssue
+}
+
+// bucketDrift returns drift findings grouped by priority in canonical order,
+// omitting empty buckets and preserving the input order within each bucket.
+func bucketDrift(issues []driftIssue) []driftBucket {
+	if len(issues) == 0 {
+		return nil
+	}
+	order := []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall}
+	headings := map[analyzer.Priority]string{
+		analyzer.PriorityLarge:  "Large",
+		analyzer.PriorityMedium: "Medium",
+		analyzer.PrioritySmall:  "Small",
+	}
+	var out []driftBucket
+	for _, p := range order {
+		var bucket []driftIssue
+		for _, i := range issues {
+			if i.Priority == p {
+				bucket = append(bucket, i)
+			}
+		}
+		if len(bucket) > 0 {
+			out = append(out, driftBucket{Heading: headings[p], Issues: bucket})
+		}
+	}
+	return out
 }
 
 // featureData drives renderFeature. Unlike the home/config templates, this
 // template branches purely on per-feature attributes (Documented, UserFacing,
 // presence of Files/Symbols/etc.) so there is no Mode-derived view layer.
 type featureData struct {
-	Name        string
-	Description string
-	Layer       string
-	UserFacing  bool
-	Documented  bool
-	Files       []string
-	Symbols     []string
-	DocURLs     []string
-	Drift       []driftIssue
+	Name         string
+	Description  string
+	Layer        string
+	UserFacing   bool
+	Documented   bool
+	Files        []string
+	Symbols      []string
+	DocURLs      []string
+	Drift        []driftIssue
+	DriftBuckets []driftBucket
 }
 
 func renderFeature(d featureData) (string, error) {
+	// Callers that only populate Drift get auto-bucketed so the
+	// priority-aware template still renders every issue. Real callers
+	// (materializeExpanded) populate DriftBuckets directly.
+	if len(d.DriftBuckets) == 0 && len(d.Drift) > 0 {
+		if buckets := bucketDrift(d.Drift); len(buckets) > 0 {
+			d.DriftBuckets = buckets
+		} else {
+			d.DriftBuckets = []driftBucket{{Heading: "All", Issues: d.Drift}}
+		}
+	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "feature.md.tmpl", d); err != nil {
 		return "", fmt.Errorf("render feature: %w", err)
@@ -188,19 +238,64 @@ func renderMappingPage(d mappingPageData) (string, error) {
 }
 
 type screenshotGap struct {
-	Quoted     string
-	ShouldShow string
-	Alt        string
-	Insert     string
+	Quoted         string
+	ShouldShow     string
+	Alt            string
+	Insert         string
+	Priority       analyzer.Priority
+	PriorityReason string
+}
+
+// screenshotBucket holds one priority's worth of gaps on a screenshot page.
+type screenshotBucket struct {
+	Heading string
+	Gaps    []screenshotGap
+}
+
+func bucketScreenshotGaps(gaps []screenshotGap) []screenshotBucket {
+	if len(gaps) == 0 {
+		return nil
+	}
+	order := []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall}
+	headings := map[analyzer.Priority]string{
+		analyzer.PriorityLarge:  "Large",
+		analyzer.PriorityMedium: "Medium",
+		analyzer.PrioritySmall:  "Small",
+	}
+	var out []screenshotBucket
+	for _, p := range order {
+		var bucket []screenshotGap
+		for _, g := range gaps {
+			if g.Priority == p {
+				bucket = append(bucket, g)
+			}
+		}
+		if len(bucket) > 0 {
+			out = append(out, screenshotBucket{Heading: headings[p], Gaps: bucket})
+		}
+	}
+	return out
 }
 
 type screenshotPageData struct {
 	PageURL string
 	Title   string
 	Gaps    []screenshotGap
+	Buckets []screenshotBucket
 }
 
 func renderScreenshotPage(d screenshotPageData) (string, error) {
+	// Callers that only populate Gaps get auto-bucketed into a single
+	// catch-all bucket so the priority-aware template still renders
+	// every gap. Real callers (materializeExpanded) populate Buckets
+	// directly via bucketScreenshotGaps.
+	if len(d.Buckets) == 0 && len(d.Gaps) > 0 {
+		if buckets := bucketScreenshotGaps(d.Gaps); len(buckets) > 0 {
+			d.Buckets = buckets
+		} else {
+			d.Buckets = []screenshotBucket{{Heading: "All", Gaps: d.Gaps}}
+		}
+	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "screenshot_page.md.tmpl", d); err != nil {
 		return "", fmt.Errorf("render screenshot_page: %w", err)

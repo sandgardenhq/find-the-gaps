@@ -104,8 +104,10 @@ type ToolCall struct {
 
 // DriftIssue is one specific inaccuracy found between a feature's code and its documentation.
 type DriftIssue struct {
-	Page  string `json:"page"`  // URL of the doc page ("" if cross-page)
-	Issue string `json:"issue"` // inaccuracy described in documentation language
+	Page           string   `json:"page"`  // URL of the doc page ("" if cross-page)
+	Issue          string   `json:"issue"` // inaccuracy described in documentation language
+	Priority       Priority `json:"priority"`
+	PriorityReason string   `json:"priority_reason"`
 }
 
 // DriftFinding groups all drift issues found for one feature.
@@ -116,10 +118,21 @@ type DriftFinding struct {
 
 // ScreenshotGap is one place in a docs page where a screenshot should exist but does not.
 type ScreenshotGap struct {
-	PageURL       string `json:"page_url"`
-	PagePath      string `json:"page_path"`
-	QuotedPassage string `json:"quoted_passage"`
-	ShouldShow    string `json:"should_show"`
-	SuggestedAlt  string `json:"suggested_alt"`
-	InsertionHint string `json:"insertion_hint"`
+	PageURL        string   `json:"page_url"`
+	PagePath       string   `json:"page_path"`
+	QuotedPassage  string   `json:"quoted_passage"`
+	ShouldShow     string   `json:"should_show"`
+	SuggestedAlt   string   `json:"suggested_alt"`
+	InsertionHint  string   `json:"insertion_hint"`
+	Priority       Priority `json:"priority"`
+	PriorityReason string   `json:"priority_reason"`
 }
+
+// Priority is the user-impact rating for a finding.
+type Priority string
+
+const (
+	PriorityLarge  Priority = "large"
+	PriorityMedium Priority = "medium"
+	PrioritySmall  Priority = "small"
+)

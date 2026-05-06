@@ -4,6 +4,9 @@ title = {{ .Title | printf "%q" }}
 
 [{{ .PageURL }}]({{ .PageURL }})
 
+{{ range .Buckets }}
+## {{ .Heading }}
+
 {{ range .Gaps -}}
 ```markdown
 {{ .Quoted }}
@@ -15,6 +18,10 @@ title = {{ .Title | printf "%q" }}
 **Alt text:** `{{ .Alt }}`
 
 **Insertion hint:** {{ .Insert }}
+{{ if .PriorityReason }}
+**Why:** {{ .PriorityReason }}
+{{ end }}
 {{ `{{< /callout >}}` }}
 
+{{ end -}}
 {{ end -}}

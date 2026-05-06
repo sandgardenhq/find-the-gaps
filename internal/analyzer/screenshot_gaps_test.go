@@ -208,7 +208,7 @@ func TestDetectScreenshotGaps_NoPages(t *testing.T) {
 func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 	client := &fakeLLMClient{
 		responses: []string{
-			`{"gaps":[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block"}]}`,
+			`{"gaps":[{"quoted_passage":"Run the command.","should_show":"Terminal showing output.","suggested_alt":"Terminal","insertion_hint":"after the command block","priority":"medium","priority_reason":"test stub"}]}`,
 		},
 	}
 	pages := []DocPage{
@@ -232,7 +232,7 @@ func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 func TestDetectScreenshotGaps_NormalizesLiteralEscapeSequences(t *testing.T) {
 	client := &fakeLLMClient{
 		responses: []string{
-			`{"gaps":[{"quoted_passage":"2. Click Add API Key.\\n \\n3. Enter a Name.","should_show":"x","suggested_alt":"x","insertion_hint":"x"}]}`,
+			`{"gaps":[{"quoted_passage":"2. Click Add API Key.\\n \\n3. Enter a Name.","should_show":"x","suggested_alt":"x","insertion_hint":"x","priority":"medium","priority_reason":"test stub"}]}`,
 		},
 	}
 	pages := []DocPage{
@@ -886,13 +886,17 @@ func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
 				"quoted_passage": "Click Save to continue.",
 				"should_show": "save dialog",
 				"suggested_alt": "save dialog",
-				"insertion_hint": "after the click-save paragraph"
+				"insertion_hint": "after the click-save paragraph",
+				"priority": "medium",
+				"priority_reason": "test stub"
 			}],
 			"suppressed_by_image": [{
 				"quoted_passage": "Watch the demo gif of the upload flow.\\nIt shows the steps.",
 				"should_show": "upload flow",
 				"suggested_alt": "upload demo",
-				"insertion_hint": "after the demo-gif paragraph"
+				"insertion_hint": "after the demo-gif paragraph",
+				"priority": "small",
+				"priority_reason": "test stub"
 			}]
 		}`},
 	}
@@ -975,7 +979,9 @@ This is a guided multi-step OAuth flow with several intermediate states the read
 				"quoted_passage": "guided multi-step OAuth flow",
 				"should_show": "OAuth steps",
 				"suggested_alt": "OAuth flow",
-				"insertion_hint": "after the OAuth paragraph"
+				"insertion_hint": "after the OAuth paragraph",
+				"priority": "medium",
+				"priority_reason": "test stub"
 			}]
 		}`),
 	}

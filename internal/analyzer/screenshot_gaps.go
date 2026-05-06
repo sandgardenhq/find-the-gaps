@@ -569,8 +569,14 @@ Populate "gaps" with one object per gap. Each object must have:
 - "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption, under 100 characters.
 - "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
+- "priority": one of "large", "medium", "small" (see rubric below).
+- "priority_reason": one sentence explaining the rating.
 
-When in doubt, do not flag.`, pageURL, coverageSummary, content)
+page_role: %s
+
+%s
+
+When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageURL), priorityRubric)
 }
 
 // buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
@@ -679,10 +685,16 @@ Populate "gaps" with one object per gap (a passage that should have a screenshot
 - "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption, under 100 characters.
 - "insertion_hint": where to paste the image, referencing existing prose. Example: "after the paragraph ending '…click Save.'" Do not use line numbers.
+- "priority": one of "large", "medium", "small" (see rubric below).
+- "priority_reason": one sentence explaining the rating.
 
-Populate "suppressed_by_image" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a "verdict: matches" image already covers it. Same four fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
+Populate "suppressed_by_image" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a "verdict: matches" image already covers it. Same six fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
 
-When in doubt, do not flag.`, pageURL, coverageSummary, content)
+page_role: %s
+
+%s
+
+When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageURL), priorityRubric)
 }
 
 // fitContentToBudget returns content sized so that the assembled
@@ -713,10 +725,29 @@ func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef,
 // screenshotResponseItem is one raw item in the LLM's response for a
 // screenshot-gap detection call.
 type screenshotResponseItem struct {
-	QuotedPassage string `json:"quoted_passage"`
-	ShouldShow    string `json:"should_show"`
-	SuggestedAlt  string `json:"suggested_alt"`
-	InsertionHint string `json:"insertion_hint"`
+	QuotedPassage  string   `json:"quoted_passage"`
+	ShouldShow     string   `json:"should_show"`
+	SuggestedAlt   string   `json:"suggested_alt"`
+	InsertionHint  string   `json:"insertion_hint"`
+	Priority       Priority `json:"priority"`
+	PriorityReason string   `json:"priority_reason"`
+}
+
+// validateScreenshotGap fails closed when the LLM returns a gap or
+// suppressed-by-image item without a valid priority enum or with an empty
+// priority_reason. Mirrors validateDriftIssues — the structured-output schema
+// already enforces this, but provider drift makes a belt-and-suspenders
+// check worthwhile.
+func validateScreenshotGap(g ScreenshotGap) error {
+	switch g.Priority {
+	case PriorityLarge, PriorityMedium, PrioritySmall:
+	default:
+		return fmt.Errorf("invalid priority %q", g.Priority)
+	}
+	if strings.TrimSpace(g.PriorityReason) == "" {
+		return fmt.Errorf("empty priority_reason")
+	}
+	return nil
 }
 
 // screenshotGapsResponse wraps the gap array because provider tool-call
@@ -742,12 +773,14 @@ var screenshotGapsSchema = JSONSchema{
           "items": {
             "type": "object",
             "properties": {
-              "quoted_passage": {"type": "string"},
-              "should_show":    {"type": "string"},
-              "suggested_alt":  {"type": "string"},
-              "insertion_hint": {"type": "string"}
+              "quoted_passage":  {"type": "string"},
+              "should_show":     {"type": "string"},
+              "suggested_alt":   {"type": "string"},
+              "insertion_hint":  {"type": "string"},
+              "priority":        {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason": {"type": "string"}
             },
-            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint"],
+            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint", "priority", "priority_reason"],
             "additionalProperties": false
           }
         },
@@ -756,12 +789,14 @@ var screenshotGapsSchema = JSONSchema{
           "items": {
             "type": "object",
             "properties": {
-              "quoted_passage": {"type": "string"},
-              "should_show":    {"type": "string"},
-              "suggested_alt":  {"type": "string"},
-              "insertion_hint": {"type": "string"}
+              "quoted_passage":  {"type": "string"},
+              "should_show":     {"type": "string"},
+              "suggested_alt":   {"type": "string"},
+              "insertion_hint":  {"type": "string"},
+              "priority":        {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason": {"type": "string"}
             },
-            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint"],
+            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint", "priority", "priority_reason"],
             "additionalProperties": false
           }
         }
@@ -777,11 +812,27 @@ var screenshotGapsSchema = JSONSchema{
 // numbered globally across all batches sent for the page so verdicts and
 // issues from different batches can be merged without collision.
 type ImageIssue struct {
-	PageURL         string `json:"page_url"`
-	Index           string `json:"index"`
-	Src             string `json:"src"`
-	Reason          string `json:"reason"`
-	SuggestedAction string `json:"suggested_action"`
+	PageURL         string   `json:"page_url"`
+	Index           string   `json:"index"`
+	Src             string   `json:"src"`
+	Reason          string   `json:"reason"`
+	SuggestedAction string   `json:"suggested_action"`
+	Priority        Priority `json:"priority"`
+	PriorityReason  string   `json:"priority_reason"`
+}
+
+// validateImageIssue fails closed when the relevance pass returns an issue
+// without a valid priority enum or with an empty priority_reason.
+func validateImageIssue(ii ImageIssue) error {
+	switch ii.Priority {
+	case PriorityLarge, PriorityMedium, PrioritySmall:
+	default:
+		return fmt.Errorf("invalid priority %q", ii.Priority)
+	}
+	if strings.TrimSpace(ii.PriorityReason) == "" {
+		return fmt.Errorf("empty priority_reason")
+	}
+	return nil
 }
 
 // ImageVerdict is the per-image relevance verdict from the vision pass.
@@ -816,9 +867,11 @@ var relevancePassSchema = JSONSchema{
               "index":            {"type": "string"},
               "src":              {"type": "string"},
               "reason":           {"type": "string"},
-              "suggested_action": {"type": "string"}
+              "suggested_action": {"type": "string"},
+              "priority":         {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason":  {"type": "string"}
             },
-            "required": ["index", "src", "reason", "suggested_action"],
+            "required": ["index", "src", "reason", "suggested_action", "priority", "priority_reason"],
             "additionalProperties": false
           }
         },
@@ -892,10 +945,16 @@ ONLY when matches=false, ALSO emit a corresponding entry in "image_issues":
 - "src": the image's src attribute (copy verbatim from the list above).
 - "reason": one short sentence naming what the image actually shows AND what the prose describes (the mismatch).
 - "suggested_action": one of "replace", "recapture", or "remove" — pick the action that best resolves the mismatch.
+- "priority": one of "large", "medium", "small" (see rubric below).
+- "priority_reason": one sentence explaining the rating.
 
 Do not flag stylistic mismatches (cropping, theme, resolution). Only flag a substantive mismatch: the image depicts a different feature, a different page, a different state, or otherwise does not show what the prose claims.
 
-If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content)
+page_role: %s
+
+%s
+
+If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content, pageRole(page.URL), priorityRubric)
 }
 
 // relevancePass walks the page's images in batches of <=5 (Groq cap), issues
@@ -940,8 +999,15 @@ func relevancePass(ctx context.Context, client LLMClient, page DocPage, refs []i
 			resp.ImageIssues[i].PageURL = page.URL
 			resp.ImageIssues[i].Reason = unescapeLiteralWhitespace(resp.ImageIssues[i].Reason)
 			resp.ImageIssues[i].SuggestedAction = unescapeLiteralWhitespace(resp.ImageIssues[i].SuggestedAction)
+			resp.ImageIssues[i].PriorityReason = unescapeLiteralWhitespace(resp.ImageIssues[i].PriorityReason)
 		}
-		issues = append(issues, resp.ImageIssues...)
+		for _, ii := range resp.ImageIssues {
+			if err := validateImageIssue(ii); err != nil {
+				log.Warnf("relevancePass: dropping %s issue with bad priority: %v", page.URL, err)
+				continue
+			}
+			issues = append(issues, ii)
+		}
 		verdicts = append(verdicts, resp.Verdicts...)
 	}
 	return issues, verdicts, nil
@@ -1028,25 +1094,39 @@ func detectionPass(
 	}
 	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
 	for _, it := range resp.Gaps {
-		gaps = append(gaps, ScreenshotGap{
-			PageURL:       page.URL,
-			PagePath:      page.Path,
-			QuotedPassage: unescapeLiteralWhitespace(it.QuotedPassage),
-			ShouldShow:    unescapeLiteralWhitespace(it.ShouldShow),
-			SuggestedAlt:  unescapeLiteralWhitespace(it.SuggestedAlt),
-			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
-		})
+		g := ScreenshotGap{
+			PageURL:        page.URL,
+			PagePath:       page.Path,
+			QuotedPassage:  unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:     unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:   unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint:  unescapeLiteralWhitespace(it.InsertionHint),
+			Priority:       it.Priority,
+			PriorityReason: unescapeLiteralWhitespace(it.PriorityReason),
+		}
+		if err := validateScreenshotGap(g); err != nil {
+			log.Warnf("screenshot-gaps: dropping %s gap with bad priority: %v", page.URL, err)
+			continue
+		}
+		gaps = append(gaps, g)
 	}
 	suppressed = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
 	for _, it := range resp.SuppressedByImage {
-		suppressed = append(suppressed, ScreenshotGap{
-			PageURL:       page.URL,
-			PagePath:      page.Path,
-			QuotedPassage: unescapeLiteralWhitespace(it.QuotedPassage),
-			ShouldShow:    unescapeLiteralWhitespace(it.ShouldShow),
-			SuggestedAlt:  unescapeLiteralWhitespace(it.SuggestedAlt),
-			InsertionHint: unescapeLiteralWhitespace(it.InsertionHint),
-		})
+		g := ScreenshotGap{
+			PageURL:        page.URL,
+			PagePath:       page.Path,
+			QuotedPassage:  unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:     unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:   unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint:  unescapeLiteralWhitespace(it.InsertionHint),
+			Priority:       it.Priority,
+			PriorityReason: unescapeLiteralWhitespace(it.PriorityReason),
+		}
+		if err := validateScreenshotGap(g); err != nil {
+			log.Warnf("screenshot-gaps: dropping %s suppressed item with bad priority: %v", page.URL, err)
+			continue
+		}
+		suppressed = append(suppressed, g)
 	}
 	return gaps, suppressed, false, nil
 }

@@ -470,6 +470,9 @@ func newAnalyzeCmd() *cobra.Command {
 				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
 				}
+				if err := reporter.WriteScreenshotsJSON(projectDir, screenshotResult); err != nil {
+					return fmt.Errorf("write screenshots.json: %w", err)
+				}
 			}
 
 			// Build the Hugo site unless --no-site.
@@ -501,12 +504,17 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			gapsLine := "  " + projectDir + "/gaps.md"
+			if counts := driftPriorityCounts(driftFindings); counts != "" {
+				gapsLine += " (" + counts + ")"
+			}
 			if driftSkipped {
 				gapsLine += " (cached, drift unchanged)"
 			}
 			screenshotsLine := fmt.Sprintf("  %s/screenshots.md", projectDir)
 			if !experimentalCheckScreenshots {
 				screenshotsLine += " (skipped)"
+			} else if counts := screenshotsPriorityCounts(screenshotResult); counts != "" {
+				screenshotsLine += " (" + counts + ")"
 			}
 			siteLine := "  " + projectDir + "/site/"
 			if noSite {

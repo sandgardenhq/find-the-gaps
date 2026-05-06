@@ -133,7 +133,8 @@ func DetectDrift(
 		if cached != nil {
 			if c, ok := cached[entry.Feature.Name]; ok &&
 				equalStringSlice(c.Files, sortedFiles) &&
-				equalStringSlice(c.Pages, sortedPages) {
+				equalStringSlice(c.Pages, sortedPages) &&
+				!cacheNeedsRecompute(c) {
 				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
 				issues := c.Issues
 				if len(issues) > 0 {
@@ -366,8 +367,8 @@ calling note_observation at all.`,
 }
 
 // judgeSchema is the structured-output contract for judgeFeatureDrift. The
-// judge returns an "issues" array of {page, issue} objects (the DriftIssue
-// shape); an empty array means "every observation was a false alarm".
+// judge returns an "issues" array of DriftIssue-shaped objects; an empty array
+// means "every observation was a false alarm".
 var judgeSchema = JSONSchema{
 	Name: "drift_judge_issues",
 	Doc: json.RawMessage(`{
@@ -378,10 +379,12 @@ var judgeSchema = JSONSchema{
           "items": {
             "type": "object",
             "properties": {
-              "page":  {"type": "string"},
-              "issue": {"type": "string"}
+              "page":            {"type": "string"},
+              "issue":           {"type": "string"},
+              "priority":        {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason": {"type": "string"}
             },
-            "required": ["page", "issue"],
+            "required": ["page", "issue", "priority", "priority_reason"],
             "additionalProperties": false
           }
         }
@@ -389,6 +392,71 @@ var judgeSchema = JSONSchema{
       "required": ["issues"],
       "additionalProperties": false
     }`),
+}
+
+// validateDriftIssues fails closed when the LLM returns an issue without a
+// valid priority enum value or with an empty priority_reason. The four
+// values strings.TrimSpace removes match the same strings the JSON Schema
+// enum constraint allows; this is belt-and-suspenders against providers that
+// silently let the schema slip.
+func validateDriftIssues(issues []DriftIssue) error {
+	for i, iss := range issues {
+		switch iss.Priority {
+		case PriorityLarge, PriorityMedium, PrioritySmall:
+		default:
+			return fmt.Errorf("issue %d: invalid priority %q", i, iss.Priority)
+		}
+		if strings.TrimSpace(iss.PriorityReason) == "" {
+			return fmt.Errorf("issue %d: empty priority_reason", i)
+		}
+	}
+	return nil
+}
+
+// uniqueObservationPages returns the set of non-empty page URLs that appear
+// across observations, preserving first-seen order.
+func uniqueObservationPages(observations []driftObservation) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, o := range observations {
+		if o.Page == "" || seen[o.Page] {
+			continue
+		}
+		seen[o.Page] = true
+		out = append(out, o.Page)
+	}
+	return out
+}
+
+// cacheNeedsRecompute reports whether a cached drift entry must be discarded
+// because at least one of its issues lacks a valid priority. Older caches
+// written before the priority feature shipped fall through this path; on a
+// rerun we recompute the issues so they pick up priorities.
+func cacheNeedsRecompute(entry CachedDriftEntry) bool {
+	for _, iss := range entry.Issues {
+		switch iss.Priority {
+		case PriorityLarge, PriorityMedium, PrioritySmall:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// pageRoleSummary returns a human-readable list of "<url> -> <role>" lines
+// for the pages observed during drift investigation. Fed into the judge
+// prompt so the priority rubric can weight prominent pages higher.
+func pageRoleSummary(pages []string) string {
+	if len(pages) == 0 {
+		return "Page role hints: (no specific pages)"
+	}
+	var b strings.Builder
+	b.WriteString("Page role hints:\n")
+	for _, p := range pages {
+		fmt.Fprintf(&b, "- %s -> %s\n", p, pageRole(p))
+	}
+	return b.String()
 }
 
 // judgeResponse mirrors judgeSchema for unmarshaling.
@@ -415,13 +483,15 @@ func judgeFeatureDrift(
 			i+1, o.Page, o.DocQuote, o.CodeQuote, o.Concern)
 	}
 
-	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, merging duplicates, and emitting actionable documentation feedback as DriftIssues.
+	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, merging duplicates, and emitting actionable documentation feedback as DriftIssues with a user-impact priority rating.
 	prompt := fmt.Sprintf(`You are reviewing candidate documentation drift observations for one software feature.
 
 Feature: %s
 Description: %s
 
 Candidate drift observations from investigation:
+%s
+
 %s
 
 For each observation, decide: real drift, false alarm, or duplicate of another.
@@ -431,8 +501,12 @@ Drop false alarms entirely.
 Each emitted issue must be actionable documentation feedback — describe what
 is wrong or missing in the docs, not what the code does. One or two sentences.
 
+%s
+
 If every observation is a false alarm, emit an empty "issues" array.`,
-		feature.Name, feature.Description, b.String())
+		feature.Name, feature.Description, b.String(),
+		pageRoleSummary(uniqueObservationPages(observations)),
+		priorityRubric)
 
 	raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
 	if err != nil {
@@ -441,6 +515,9 @@ If every observation is a false alarm, emit an empty "issues" array.`,
 	var resp judgeResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("judgeFeatureDrift %q: invalid JSON response: %w", feature.Name, err)
+	}
+	if err := validateDriftIssues(resp.Issues); err != nil {
+		return nil, fmt.Errorf("judgeFeatureDrift %q: %w", feature.Name, err)
 	}
 	return resp.Issues, nil
 }

@@ -67,6 +67,8 @@ Before any scenario runs:
 - [ ] Report contains a finding classified as drift / stale example.
 - [ ] The finding identifies the function, cites the old signature from docs, and cites the new signature from code.
 - [ ] No unrelated findings appear from this single change (spec: only drift-related findings, nothing spurious).
+- [ ] Each drift finding in `gaps.md` and `drift.json` carries a `priority` (one of `large`, `medium`, `small`) and a non-empty `priority_reason`.
+- [ ] Findings in `gaps.md`'s Stale Documentation section appear under `### Large → ### Medium → ### Small` sub-headings in that order; empty buckets are omitted.
 
 **If Blocked**: If no drift finding is produced, document the exact input and ask the developer — this is a core capability.
 
@@ -107,6 +109,8 @@ Before any scenario runs:
 - [ ] Second run writes `screenshots.md`.
 - [ ] `screenshots.md` contains at least one gap for the known UI passage with all four fields populated.
 - [ ] Second run's stdout lists `screenshots.md` without the `(skipped)` annotation.
+- [ ] Second run also writes `screenshots.json` carrying `missing_gaps`, `image_issues`, and `possibly_covered`, each with `priority` + `priority_reason`.
+- [ ] Each missing-screenshot, image-issue, and possibly-covered entry in `screenshots.md` appears under `### Large → ### Medium → ### Small` sub-headings in that order; empty buckets are omitted.
 
 **If Blocked**: If `screenshots.md` renders on the default run, the gating is broken. Stop and ask.
 
@@ -306,6 +310,26 @@ Before any scenario runs:
 - [ ] **(d)** Audit log line for the page shows `possibly_covered >= 1`.
 
 **If Blocked**: If sub-case (a) produces an empty `## Image Issues` section against a docs site you know has prose/image mismatches, capture the audit log + the relevant docs page URL and ask before retuning the relevance prompt. If sub-case (c) produces only one batch on a page with more than five images, the batching helper is wrong — stop and ask. If the vision-off run in sub-case (b) drifts from today's screenshot output, the vision branch is leaking into the non-vision path; stop and ask. If sub-case (d) produces a missing-screenshot finding for a passage whose section already has a 400px+ animated GIF (or 30KB+ SVG), the suppression layer's signal is not reaching the detection prompt — capture the audit log and the rendered screenshots.md, then stop and ask.
+
+---
+
+### Scenario 14: Priority Calibration Smoke Test
+
+**Context**: Same fixture and docs site as Scenario 9. Verifies that the LLM-judged `priority` field on every prioritized finding is plausibly calibrated against a real codebase, not collapsed onto a single bucket.
+
+**Steps**:
+1. Run `find-the-gaps analyze --repo <path> --docs-url <url> --experimental-check-screenshots`.
+2. Inspect `<projectDir>/drift.json` and `<projectDir>/screenshots.json`.
+3. Inspect the analyze command's stdout `reports:` block (lines like `gaps.md (12 issues: 3L · 5M · 4S)`).
+
+**Success Criteria**:
+- [ ] Every drift issue in `drift.json` has a `priority` of `large`, `medium`, or `small` and a non-empty `priority_reason`.
+- [ ] Every entry under `missing_gaps`, `image_issues`, and `possibly_covered` in `screenshots.json` has the same.
+- [ ] No priority bucket holds more than 80% of the prioritized findings (sanity check that the rubric isn't collapsing everything onto one level).
+- [ ] At least one finding across the run has `priority: "large"` (the rubric is not pinning everything to medium/small).
+- [ ] The stdout `reports:` block shows the per-priority count summary on the `gaps.md` and `screenshots.md` lines.
+
+**If Blocked**: If >80% of findings land in a single bucket, capture the rendered files and the rubric prompt and ask the developer before retuning. If a finding is missing `priority_reason`, the schema validator failed open — stop and ask.
 
 ---
 
