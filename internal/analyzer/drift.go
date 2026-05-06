@@ -508,7 +508,7 @@ func judgeFeatureDrift(
 			i+1, o.Page, o.DocQuote, o.CodeQuote, o.Concern)
 	}
 
-	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, merging duplicates, and emitting actionable documentation feedback as DriftIssues with a user-impact priority rating.
+	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, collapsing observations that describe the same docs problem into one issue, and emitting actionable documentation feedback as DriftIssues with a user-impact priority rating.
 	prompt := fmt.Sprintf(`You are reviewing candidate documentation drift observations for one software feature.
 
 Feature: %s
@@ -519,14 +519,18 @@ Candidate drift observations from investigation:
 
 %s
 
-For each observation, decide: real drift, false alarm, or duplicate of another.
-Emit one DriftIssue per real drift. Merge duplicates into a single issue.
-Drop false alarms entirely.
+For each observation, decide whether it represents real documentation drift or
+a false alarm. Drop false alarms entirely. If multiple observations describe
+the same documentation problem, emit a single DriftIssue covering them all —
+do not emit one issue per observation.
 
 Each emitted issue must be actionable documentation feedback — describe what
 is wrong or missing in the docs, not what the code does. One or two sentences.
 
 %s
+
+Output only the fields defined in the schema (page, issue, priority,
+priority_reason). Do not add any other fields.
 
 If every observation is a false alarm, emit an empty "issues" array.`,
 		feature.Name, feature.Description, b.String(),
