@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -204,17 +203,14 @@ func newAnalyzeCmd() *cobra.Command {
 				jobs = append(jobs, pageJob{url: url, filePath: filePath})
 			}
 
-			var (
-				analysesMu sync.Mutex
-				pageNum    atomic.Int32
-			)
+			var analysesMu sync.Mutex
+			cacheHitCount := len(analyses)
 			err = parallel.Run(ctx, jobs, workers, func(ctx context.Context, j pageJob) error {
 				content, readErr := os.ReadFile(j.filePath)
 				if readErr != nil {
 					return nil
 				}
-				n := pageNum.Add(1)
-				log.Infof("  [%d] %s", n, j.url)
+				log.Infof("  %s", j.url)
 				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, j.url, string(content))
 				if analyzeErr != nil {
 					log.Warnf("skipping %s: %v", j.url, analyzeErr)
@@ -231,7 +227,7 @@ func newAnalyzeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("analyze pages: %w", err)
 			}
-			freshCount := int(pageNum.Load())
+			freshCount := len(analyses) - cacheHitCount
 
 			if len(analyses) == 0 {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "scanned %d files, fetched %d pages, 0 pages analyzed\n",
