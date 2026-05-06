@@ -30,12 +30,20 @@ const (
 
 // CachedDriftEntry is one feature's persisted drift result, used by
 // DetectDrift to short-circuit the investigator+judge when inputs are
-// unchanged. Files and Pages must be sorted ascending; the lookup compares
-// them as sorted sets against the current run's inputs.
+// unchanged. Files and FilteredPages must be sorted ascending; the lookup
+// compares them as sorted sets against the current run's inputs.
+//
+// FilteredPages is the post-filterDriftPages, pre-classifyDriftPages list
+// and is the cache key for the page side of the lookup. Pages is the
+// post-classification list passed to the investigator+judge; it is retained
+// for forward compatibility and debugging but the cache no longer keys on it.
+// Old caches written before FilteredPages existed load with FilteredPages
+// == nil and miss the cache once, then repopulate.
 type CachedDriftEntry struct {
-	Files  []string
-	Pages  []string
-	Issues []DriftIssue
+	Files         []string
+	FilteredPages []string
+	Pages         []string
+	Issues        []DriftIssue
 }
 
 // DriftFeatureDoneFunc fires after DetectDrift decides a feature's drift

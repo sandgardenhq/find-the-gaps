@@ -178,6 +178,48 @@ func TestIsDriftCacheHit(t *testing.T) {
 	}
 }
 
+func TestDriftCacheRoundTripFilteredPages(t *testing.T) {
+	// FilteredPages is the post-filterDriftPages, pre-classify list used as the
+	// per-feature cache key. It must round-trip through save/load alongside Files,
+	// Pages, and Issues.
+	path := filepath.Join(t.TempDir(), "drift.json")
+	in := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth", "https://docs.example.com/auth/api"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			Issues:        []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "Stale signature."}},
+		},
+	}
+	require.NoError(t, saveDriftCache(path, in))
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	require.Contains(t, got, "auth")
+	assert.Equal(t, in["auth"].FilteredPages, got["auth"].FilteredPages)
+	assert.Equal(t, in["auth"].Pages, got["auth"].Pages)
+}
+
+func TestLoadDriftCache_OldFileWithoutFilteredPages(t *testing.T) {
+	// A drift.json written before FilteredPages existed loads with FilteredPages
+	// == nil so the cache-key check at drift.go misses (nil != non-empty
+	// sortedFiltered) and the entry recomputes once. Entries with the field
+	// missing must NOT be normalized to an empty slice — that would conflate
+	// "old entry, recompute" with "no filtered pages, valid cache".
+	path := filepath.Join(t.TempDir(), "drift.json")
+	raw := `{"features":["auth"],"entries":[{"feature":"auth","files":["auth.go"],"pages":["https://x/auth"],"issues":[]}]}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o644))
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	entry, hasEntry := got["auth"]
+	require.True(t, hasEntry)
+	assert.Nil(t, entry.FilteredPages, "old entries without filteredPages must load as nil so the cache misses on next run")
+	// Other fields still populated normally.
+	assert.Equal(t, []string{"auth.go"}, entry.Files)
+	assert.Equal(t, []string{"https://x/auth"}, entry.Pages)
+}
+
 func TestLoadDriftCache_NilSlicesNormalized(t *testing.T) {
 	// A drift.json on disk with JSON null for files/pages/issues must round-trip
 	// to empty slices, not nil — otherwise equality checks against the current

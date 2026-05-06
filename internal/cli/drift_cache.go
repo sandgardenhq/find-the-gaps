@@ -23,10 +23,11 @@ type driftCacheFile struct {
 }
 
 type driftCacheEntry struct {
-	Feature string                `json:"feature"`
-	Files   []string              `json:"files"`
-	Pages   []string              `json:"pages"`
-	Issues  []analyzer.DriftIssue `json:"issues"`
+	Feature       string                `json:"feature"`
+	Files         []string              `json:"files"`
+	FilteredPages []string              `json:"filteredPages,omitempty"`
+	Pages         []string              `json:"pages"`
+	Issues        []analyzer.DriftIssue `json:"issues"`
 }
 
 // driftComplete is the completion sentinel written by saveDriftCacheComplete.
@@ -118,10 +119,14 @@ func loadDriftCache(path string) (map[string]analyzer.CachedDriftEntry, bool) {
 		if issues == nil {
 			issues = []analyzer.DriftIssue{}
 		}
+		// FilteredPages intentionally NOT nil-normalized: old caches without
+		// the field must stay nil so the cache-key check misses on the next
+		// run and the entry recomputes once with FilteredPages populated.
 		out[e.Feature] = analyzer.CachedDriftEntry{
-			Files:  files,
-			Pages:  pages,
-			Issues: issues,
+			Files:         files,
+			FilteredPages: e.FilteredPages,
+			Pages:         pages,
+			Issues:        issues,
 		}
 	}
 	return out, true
@@ -167,10 +172,11 @@ func saveDriftCacheComplete(path string, current map[string]analyzer.CachedDrift
 			issues = []analyzer.DriftIssue{}
 		}
 		entries = append(entries, driftCacheEntry{
-			Feature: name,
-			Files:   c.Files,
-			Pages:   c.Pages,
-			Issues:  issues,
+			Feature:       name,
+			Files:         c.Files,
+			FilteredPages: c.FilteredPages,
+			Pages:         c.Pages,
+			Issues:        issues,
 		})
 	}
 	f := driftCacheFile{Features: names, Entries: entries, Complete: complete}
@@ -268,7 +274,13 @@ func driftCacheEntriesToMap(entries []driftCacheEntry) map[string]analyzer.Cache
 		if pages == nil {
 			pages = []string{}
 		}
-		m[e.Feature] = analyzer.CachedDriftEntry{Files: files, Pages: pages, Issues: issues}
+		// FilteredPages intentionally NOT nil-normalized: see loadDriftCache.
+		m[e.Feature] = analyzer.CachedDriftEntry{
+			Files:         files,
+			FilteredPages: e.FilteredPages,
+			Pages:         pages,
+			Issues:        issues,
+		}
 	}
 	return m
 }
