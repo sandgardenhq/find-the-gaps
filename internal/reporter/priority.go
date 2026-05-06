@@ -37,6 +37,30 @@ func filterDriftByPriority(items []driftItem, p analyzer.Priority) []driftItem {
 	return out
 }
 
+// filterGapsByPriority returns the screenshot gaps whose priority matches p,
+// preserving input order.
+func filterGapsByPriority(gaps []analyzer.ScreenshotGap, p analyzer.Priority) []analyzer.ScreenshotGap {
+	var out []analyzer.ScreenshotGap
+	for _, g := range gaps {
+		if g.Priority == p {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// filterImageIssuesByPriority returns the image issues whose priority matches
+// p, preserving input order.
+func filterImageIssuesByPriority(issues []analyzer.ImageIssue, p analyzer.Priority) []analyzer.ImageIssue {
+	var out []analyzer.ImageIssue
+	for _, ii := range issues {
+		if ii.Priority == p {
+			out = append(out, ii)
+		}
+	}
+	return out
+}
+
 // priorityHeading returns the user-facing capitalized form for use in
 // Markdown sub-headings.
 func priorityHeading(p analyzer.Priority) string {

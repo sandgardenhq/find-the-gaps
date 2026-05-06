@@ -184,51 +184,13 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 	if len(res.MissingGaps) == 0 {
 		sb.WriteString("_None found._\n")
 	} else {
-		// Preserve first-occurrence page order.
-		seen := map[string]bool{}
-		var order []string
-		byPage := map[string][]analyzer.ScreenshotGap{}
-		for _, g := range res.MissingGaps {
-			if !seen[g.PageURL] {
-				seen[g.PageURL] = true
-				order = append(order, g.PageURL)
-			}
-			byPage[g.PageURL] = append(byPage[g.PageURL], g)
-		}
-		for _, page := range order {
-			fmt.Fprintf(&sb, "### %s {#%s}\n\n", page, urlAnchor(page))
-			for _, g := range byPage[page] {
-				fmt.Fprintf(&sb, "- **Passage:**\n\n")
-				fmt.Fprintf(&sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
-				fmt.Fprintf(&sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
-				fmt.Fprintf(&sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
-				fmt.Fprintf(&sb, "  - **Insert:** %s\n\n", g.InsertionHint)
-			}
-		}
+		writeGapBuckets(&sb, res.MissingGaps, renderMissingGap, true /*emitAnchor*/)
 	}
 
 	if len(res.PossiblyCovered) > 0 {
 		sb.WriteString("\n## Possibly Covered\n\n")
 		sb.WriteString("Suppressed because an unanalyzable but plausibly screenshot-shaped image is already on the page. Quick visual check is enough to confirm or override.\n\n")
-		seen := map[string]bool{}
-		var order []string
-		byPage := map[string][]analyzer.ScreenshotGap{}
-		for _, g := range res.PossiblyCovered {
-			if !seen[g.PageURL] {
-				seen[g.PageURL] = true
-				order = append(order, g.PageURL)
-			}
-			byPage[g.PageURL] = append(byPage[g.PageURL], g)
-		}
-		for _, page := range order {
-			fmt.Fprintf(&sb, "### %s\n\n", page)
-			for _, g := range byPage[page] {
-				fmt.Fprintf(&sb, "- **Passage:**\n\n")
-				fmt.Fprintf(&sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
-				fmt.Fprintf(&sb, "  - **Would have suggested:** %s\n", g.ShouldShow)
-				fmt.Fprintf(&sb, "  - **Insert (if uncovered):** %s\n\n", g.InsertionHint)
-			}
-		}
+		writeGapBuckets(&sb, res.PossiblyCovered, renderPossiblyCoveredGap, false /*emitAnchor*/)
 	}
 
 	visionRan := false
@@ -243,30 +205,109 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 		if len(res.ImageIssues) == 0 {
 			sb.WriteString("_No image issues detected._\n")
 		} else {
-			// Group issues by page, preserving first-occurrence order so
-			// readers can scan one page's issues together.
-			seen := map[string]bool{}
-			var order []string
-			byPage := map[string][]analyzer.ImageIssue{}
-			for _, ii := range res.ImageIssues {
-				if !seen[ii.PageURL] {
-					seen[ii.PageURL] = true
-					order = append(order, ii.PageURL)
-				}
-				byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
-			}
-			for _, page := range order {
-				for _, ii := range byPage[page] {
-					fmt.Fprintf(&sb, "- **Page:** %s\n", ii.PageURL)
-					fmt.Fprintf(&sb, "  **Image:** ![%s](%s)\n", ii.Index, ii.Src)
-					fmt.Fprintf(&sb, "  **Issue:** %s\n", ii.Reason)
-					fmt.Fprintf(&sb, "  **Suggested action:** %s\n\n", ii.SuggestedAction)
-				}
-			}
+			writeImageIssueBuckets(&sb, res.ImageIssues)
 		}
 	}
 
 	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+}
+
+// gapRenderer renders one ScreenshotGap into the builder. Used to differentiate
+// missing-screenshot rendering (Insert hint) from possibly-covered rendering
+// (Insert if uncovered hint) without duplicating bucket plumbing.
+type gapRenderer func(*strings.Builder, analyzer.ScreenshotGap)
+
+// writeGapBuckets emits "### Large/Medium/Small" sub-headings, omitting empty
+// buckets, then within each bucket emits "#### <pageURL>" page headings (in
+// stable input order) followed by the rendered gap items via render. Anchors
+// are emitted only on the missing-screenshots side because the existing inline
+// permalinks/TOC integration only reads anchors from that section.
+func writeGapBuckets(sb *strings.Builder, gaps []analyzer.ScreenshotGap, render gapRenderer, emitAnchor bool) {
+	for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
+		bucket := filterGapsByPriority(gaps, p)
+		if len(bucket) == 0 {
+			continue
+		}
+		fmt.Fprintf(sb, "### %s\n\n", priorityHeading(p))
+		// Page grouping inside the bucket, first-occurrence order.
+		seen := map[string]bool{}
+		var order []string
+		byPage := map[string][]analyzer.ScreenshotGap{}
+		for _, g := range bucket {
+			if !seen[g.PageURL] {
+				seen[g.PageURL] = true
+				order = append(order, g.PageURL)
+			}
+			byPage[g.PageURL] = append(byPage[g.PageURL], g)
+		}
+		for _, page := range order {
+			if emitAnchor {
+				fmt.Fprintf(sb, "#### %s {#%s}\n\n", page, urlAnchor(page))
+			} else {
+				fmt.Fprintf(sb, "#### %s\n\n", page)
+			}
+			for _, g := range byPage[page] {
+				render(sb, g)
+			}
+		}
+	}
+}
+
+func renderMissingGap(sb *strings.Builder, g analyzer.ScreenshotGap) {
+	fmt.Fprintf(sb, "- **Passage:**\n\n")
+	fmt.Fprintf(sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
+	fmt.Fprintf(sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
+	fmt.Fprintf(sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
+	fmt.Fprintf(sb, "  - **Insert:** %s\n", g.InsertionHint)
+	if g.PriorityReason != "" {
+		fmt.Fprintf(sb, "  - **Why:** %s\n", g.PriorityReason)
+	}
+	sb.WriteString("\n")
+}
+
+func renderPossiblyCoveredGap(sb *strings.Builder, g analyzer.ScreenshotGap) {
+	fmt.Fprintf(sb, "- **Passage:**\n\n")
+	fmt.Fprintf(sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
+	fmt.Fprintf(sb, "  - **Would have suggested:** %s\n", g.ShouldShow)
+	fmt.Fprintf(sb, "  - **Insert (if uncovered):** %s\n", g.InsertionHint)
+	if g.PriorityReason != "" {
+		fmt.Fprintf(sb, "  - **Why:** %s\n", g.PriorityReason)
+	}
+	sb.WriteString("\n")
+}
+
+// writeImageIssueBuckets emits Large/Medium/Small sub-headings for image
+// issues, then within each bucket groups by page (first-occurrence order).
+func writeImageIssueBuckets(sb *strings.Builder, issues []analyzer.ImageIssue) {
+	for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
+		bucket := filterImageIssuesByPriority(issues, p)
+		if len(bucket) == 0 {
+			continue
+		}
+		fmt.Fprintf(sb, "### %s\n\n", priorityHeading(p))
+		seen := map[string]bool{}
+		var order []string
+		byPage := map[string][]analyzer.ImageIssue{}
+		for _, ii := range bucket {
+			if !seen[ii.PageURL] {
+				seen[ii.PageURL] = true
+				order = append(order, ii.PageURL)
+			}
+			byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
+		}
+		for _, page := range order {
+			fmt.Fprintf(sb, "#### %s\n\n", page)
+			for _, ii := range byPage[page] {
+				fmt.Fprintf(sb, "- **Image:** ![%s](%s)\n", ii.Index, ii.Src)
+				fmt.Fprintf(sb, "  **Issue:** %s\n", ii.Reason)
+				fmt.Fprintf(sb, "  **Suggested action:** %s\n", ii.SuggestedAction)
+				if ii.PriorityReason != "" {
+					fmt.Fprintf(sb, "  **Why:** %s\n", ii.PriorityReason)
+				}
+				sb.WriteString("\n")
+			}
+		}
+	}
 }
 
 // urlAnchor produces a deterministic, lowercase, kebab-case anchor id from a

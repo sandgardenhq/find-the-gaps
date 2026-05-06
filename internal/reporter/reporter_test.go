@@ -467,28 +467,34 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	dir := t.TempDir()
 	gaps := []analyzer.ScreenshotGap{
 		{
-			PageURL:       "https://example.com/quickstart",
-			PagePath:      "/cache/quickstart.md",
-			QuotedPassage: "Run the command and see the output.",
-			ShouldShow:    "Terminal showing the analyze summary with findings count.",
-			SuggestedAlt:  "Terminal output of find-the-gaps analyze",
-			InsertionHint: "after the paragraph ending '...see the output.'",
+			PageURL:        "https://example.com/quickstart",
+			PagePath:       "/cache/quickstart.md",
+			QuotedPassage:  "Run the command and see the output.",
+			ShouldShow:     "Terminal showing the analyze summary with findings count.",
+			SuggestedAlt:   "Terminal output of find-the-gaps analyze",
+			InsertionHint:  "after the paragraph ending '...see the output.'",
+			Priority:       analyzer.PriorityMedium,
+			PriorityReason: "test stub",
 		},
 		{
-			PageURL:       "https://example.com/quickstart",
-			PagePath:      "/cache/quickstart.md",
-			QuotedPassage: "The dashboard shows open PRs.",
-			ShouldShow:    "Dashboard with two open PRs visible.",
-			SuggestedAlt:  "Dashboard with open PRs",
-			InsertionHint: "after the heading '## Dashboard'",
+			PageURL:        "https://example.com/quickstart",
+			PagePath:       "/cache/quickstart.md",
+			QuotedPassage:  "The dashboard shows open PRs.",
+			ShouldShow:     "Dashboard with two open PRs visible.",
+			SuggestedAlt:   "Dashboard with open PRs",
+			InsertionHint:  "after the heading '## Dashboard'",
+			Priority:       analyzer.PriorityMedium,
+			PriorityReason: "test stub",
 		},
 		{
-			PageURL:       "https://example.com/setup",
-			PagePath:      "/cache/setup.md",
-			QuotedPassage: "Configure the CLI.",
-			ShouldShow:    "The config file open in an editor.",
-			SuggestedAlt:  "Configuration file",
-			InsertionHint: "after the code block",
+			PageURL:        "https://example.com/setup",
+			PagePath:       "/cache/setup.md",
+			QuotedPassage:  "Configure the CLI.",
+			ShouldShow:     "The config file open in an editor.",
+			SuggestedAlt:   "Configuration file",
+			InsertionHint:  "after the code block",
+			Priority:       analyzer.PriorityMedium,
+			PriorityReason: "test stub",
 		},
 	}
 	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
@@ -497,8 +503,9 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	s := string(body)
 	// Root heading is promoted to # (the doc is now its own root).
 	assert.Contains(t, s, "# Missing Screenshots")
-	// Page grouping, first-occurrence order.
-	assert.Regexp(t, `### https://example.com/quickstart[\s\S]*### https://example.com/setup`, s)
+	// Page grouping inside the priority bucket, first-occurrence order. With
+	// priority grouping, page headings live under "#### " rather than "### ".
+	assert.Regexp(t, `#### https://example.com/quickstart[\s\S]*#### https://example.com/setup`, s)
 	// Each gap's four fields render.
 	assert.Contains(t, s, "Run the command and see the output.")
 	assert.Contains(t, s, "Terminal showing the analyze summary")
@@ -523,16 +530,17 @@ func TestWriteScreenshots_Empty_WritesNoneFound(t *testing.T) {
 func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 	dir := t.TempDir()
 	gaps := []analyzer.ScreenshotGap{
-		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage."},
-		{PageURL: "https://example.com/first", QuotedPassage: "first-page passage."},
-		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage 2."},
+		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage.", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+		{PageURL: "https://example.com/first", QuotedPassage: "first-page passage.", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+		{PageURL: "https://example.com/second", QuotedPassage: "second-page passage 2.", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
 	}
 	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
 	s := string(body)
-	// /second appears first because it shows up first in the input.
-	assert.Regexp(t, `### https://example.com/second[\s\S]*### https://example.com/first`, s)
+	// /second appears first because it shows up first in the input. Page
+	// headings live under "#### " inside the priority bucket.
+	assert.Regexp(t, `#### https://example.com/second[\s\S]*#### https://example.com/first`, s)
 }
 
 // TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks pins the
@@ -550,11 +558,13 @@ func TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks(t *testing.T) {
 	dir := t.TempDir()
 	const passage = "2. Click Add API Key.\n \n3. Enter a Name.\n \n4. Create the key, then run `curl -H \"Authorization: Bearer <token>\"`."
 	gaps := []analyzer.ScreenshotGap{{
-		PageURL:       "https://example.com/auth",
-		QuotedPassage: passage,
-		ShouldShow:    "API Keys settings page",
-		SuggestedAlt:  "API Keys settings",
-		InsertionHint: "after the Bearer token paragraph",
+		PageURL:        "https://example.com/auth",
+		QuotedPassage:  passage,
+		ShouldShow:     "API Keys settings page",
+		SuggestedAlt:   "API Keys settings",
+		InsertionHint:  "after the Bearer token paragraph",
+		Priority:       analyzer.PriorityMedium,
+		PriorityReason: "r",
 	}}
 	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
@@ -580,16 +590,18 @@ func TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks(t *testing.T) {
 func TestWriteScreenshots_PerPageHeadingHasExplicitAnchor(t *testing.T) {
 	dir := t.TempDir()
 	gaps := []analyzer.ScreenshotGap{
-		{PageURL: "https://example.com/docs/start", QuotedPassage: "p"},
-		{PageURL: "https://example.com/docs/admin", QuotedPassage: "p"},
+		{PageURL: "https://example.com/docs/start", QuotedPassage: "p", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+		{PageURL: "https://example.com/docs/admin", QuotedPassage: "p", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
 	}
 	require.NoError(t, reporter.WriteScreenshots(dir, analyzer.ScreenshotResult{MissingGaps: gaps}))
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
 	s := string(body)
 
-	assert.Contains(t, s, "### https://example.com/docs/start {#https-example-com-docs-start}")
-	assert.Contains(t, s, "### https://example.com/docs/admin {#https-example-com-docs-admin}")
+	// Page headings now live at #### under the priority bucket. Anchor IDs
+	// remain stable so existing TOC + permalink wiring keeps working.
+	assert.Contains(t, s, "#### https://example.com/docs/start {#https-example-com-docs-start}")
+	assert.Contains(t, s, "#### https://example.com/docs/admin {#https-example-com-docs-admin}")
 }
 
 func TestWriteScreenshots_RendersImageIssuesSection(t *testing.T) {
@@ -602,6 +614,8 @@ func TestWriteScreenshots_RendersImageIssuesSection(t *testing.T) {
 			Src:             "b.png",
 			Reason:          "shows dashboard but prose describes settings",
 			SuggestedAction: "replace",
+			Priority:        analyzer.PriorityMedium,
+			PriorityReason:  "r",
 		}},
 	}
 	require.NoError(t, reporter.WriteScreenshots(tmp, res))
@@ -646,11 +660,13 @@ func TestWriteScreenshotsRendersPossiblyCovered(t *testing.T) {
 	res := analyzer.ScreenshotResult{
 		MissingGaps: []analyzer.ScreenshotGap{},
 		PossiblyCovered: []analyzer.ScreenshotGap{{
-			PageURL:       "https://x.com/p",
-			QuotedPassage: "Watch the upload demo.",
-			ShouldShow:    "upload flow",
-			SuggestedAlt:  "upload demo",
-			InsertionHint: "after the demo paragraph",
+			PageURL:        "https://x.com/p",
+			QuotedPassage:  "Watch the upload demo.",
+			ShouldShow:     "upload flow",
+			SuggestedAlt:   "upload demo",
+			InsertionHint:  "after the demo paragraph",
+			Priority:       analyzer.PriorityMedium,
+			PriorityReason: "r",
 		}},
 		AuditStats: []analyzer.ScreenshotPageStats{{PageURL: "https://x.com/p", VisionEnabled: true}},
 	}
@@ -681,7 +697,7 @@ func TestWriteScreenshotsRendersPossiblyCovered(t *testing.T) {
 func TestWriteScreenshotsOmitsPossiblyCoveredWhenEmpty(t *testing.T) {
 	dir := t.TempDir()
 	res := analyzer.ScreenshotResult{
-		MissingGaps: []analyzer.ScreenshotGap{{PageURL: "https://x.com/p", QuotedPassage: "ok"}},
+		MissingGaps: []analyzer.ScreenshotGap{{PageURL: "https://x.com/p", QuotedPassage: "ok", Priority: analyzer.PriorityMedium, PriorityReason: "r"}},
 		AuditStats:  []analyzer.ScreenshotPageStats{{PageURL: "https://x.com/p"}},
 	}
 	if err := reporter.WriteScreenshots(dir, res); err != nil {
@@ -691,6 +707,75 @@ func TestWriteScreenshotsOmitsPossiblyCoveredWhenEmpty(t *testing.T) {
 	if strings.Contains(string(body), "Possibly Covered") {
 		t.Error("Possibly Covered must not render when the slice is empty")
 	}
+}
+
+// TestWriteScreenshots_GroupsByPriority pins that all three sections (missing,
+// possibly-covered, image-issues) render their findings under
+// ### Large / ### Medium / ### Small sub-headings, in that order, with empty
+// buckets omitted and stable input order preserved within a bucket.
+func TestWriteScreenshots_GroupsByPriority(t *testing.T) {
+	dir := t.TempDir()
+	res := analyzer.ScreenshotResult{
+		MissingGaps: []analyzer.ScreenshotGap{
+			{PageURL: "https://x/a", QuotedPassage: "missing-small", Priority: analyzer.PrioritySmall, PriorityReason: "deep page"},
+			{PageURL: "https://x/b", QuotedPassage: "missing-large", Priority: analyzer.PriorityLarge, PriorityReason: "quickstart"},
+		},
+		PossiblyCovered: []analyzer.ScreenshotGap{
+			{PageURL: "https://x/c", QuotedPassage: "covered-medium", Priority: analyzer.PriorityMedium, PriorityReason: "ref"},
+		},
+		ImageIssues: []analyzer.ImageIssue{
+			{PageURL: "https://x/d", Index: "img-1", Src: "x.png", Reason: "issue-large", SuggestedAction: "replace",
+				Priority: analyzer.PriorityLarge, PriorityReason: "readme"},
+		},
+		AuditStats: []analyzer.ScreenshotPageStats{
+			{PageURL: "https://x/d", VisionEnabled: true},
+		},
+	}
+	require.NoError(t, reporter.WriteScreenshots(dir, res))
+	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
+	require.NoError(t, err)
+	s := string(body)
+
+	// Missing Screenshots: large bucket appears before small (ordering).
+	missingHeader := strings.Index(s, "# Missing Screenshots")
+	largePos := strings.Index(s[missingHeader:], "### Large")
+	smallPos := strings.Index(s[missingHeader:], "### Small")
+	if largePos < 0 || smallPos < 0 {
+		t.Fatalf("missing-screenshots priority headings not found:\n%s", s)
+	}
+	if largePos > smallPos {
+		t.Errorf("Large must appear before Small in missing-screenshots:\n%s", s)
+	}
+	// missing-large appears, missing-small appears.
+	assert.Contains(t, s, "missing-large")
+	assert.Contains(t, s, "missing-small")
+	// medium bucket has nothing in missing-screenshots; ensure no `### Medium`
+	// appears between # Missing Screenshots and the next ## section.
+	endMissing := strings.Index(s, "## Possibly Covered")
+	missingBlock := s[missingHeader:endMissing]
+	if strings.Contains(missingBlock, "### Medium") {
+		t.Errorf("empty Medium bucket must be omitted from missing-screenshots:\n%s", missingBlock)
+	}
+
+	// Possibly Covered: medium bucket appears.
+	possiblyHeader := strings.Index(s, "## Possibly Covered")
+	imageIssuesHeader := strings.Index(s, "## Image Issues")
+	possiblyBlock := s[possiblyHeader:imageIssuesHeader]
+	if !strings.Contains(possiblyBlock, "### Medium") {
+		t.Errorf("Possibly Covered missing Medium bucket:\n%s", possiblyBlock)
+	}
+
+	// Image Issues: large bucket appears.
+	imageBlock := s[imageIssuesHeader:]
+	if !strings.Contains(imageBlock, "### Large") {
+		t.Errorf("Image Issues missing Large bucket:\n%s", imageBlock)
+	}
+	if !strings.Contains(imageBlock, "issue-large") {
+		t.Errorf("image-issue body not rendered:\n%s", imageBlock)
+	}
+
+	// Each section emits a why line (priority_reason).
+	assert.Contains(t, s, "quickstart")
 }
 
 func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
