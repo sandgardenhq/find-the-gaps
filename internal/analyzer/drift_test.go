@@ -48,10 +48,16 @@ func driftDone() analyzer.ChatMessage {
 
 // judgeJSON builds a completeFunc that returns one DriftIssue with the given
 // page and issue text wrapped in the judge's JSON envelope. Test helper for
-// scripting a judge stub on the Large tier.
+// scripting a judge stub on the Large tier. Priority defaults to "medium" and
+// priority_reason to "test stub" so the judge validator accepts the response.
 func judgeJSON(page, issue string) func(context.Context, string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
-		"issues": []map[string]string{{"page": page, "issue": issue}},
+		"issues": []map[string]string{{
+			"page":            page,
+			"issue":           issue,
+			"priority":        "medium",
+			"priority_reason": "test stub",
+		}},
 	})
 	return func(_ context.Context, _ string) (string, error) {
 		return string(body), nil
@@ -565,12 +571,18 @@ func TestDetectDrift_OnFinding_CalledPerFeatureWithFindings(t *testing.T) {
 		completeFunc: func(_ context.Context, prompt string) (string, error) {
 			if strings.Contains(prompt, "auth") && !strings.Contains(prompt, "search") {
 				body, _ := json.Marshal(map[string]any{
-					"issues": []map[string]string{{"page": "", "issue": "issue for auth"}},
+					"issues": []map[string]string{{
+						"page": "", "issue": "issue for auth",
+						"priority": "medium", "priority_reason": "test stub",
+					}},
 				})
 				return string(body), nil
 			}
 			body, _ := json.Marshal(map[string]any{
-				"issues": []map[string]string{{"page": "", "issue": "issue for search"}},
+				"issues": []map[string]string{{
+					"page": "", "issue": "issue for search",
+					"priority": "medium", "priority_reason": "test stub",
+				}},
 			})
 			return string(body), nil
 		},
@@ -662,11 +674,17 @@ func TestDetectDrift_MaxRoundsExceeded_PartialFindingsReturnedAndContinues(t *te
 		completeFunc: func(_ context.Context, prompt string) (string, error) {
 			if strings.Contains(prompt, "auth") && !strings.Contains(prompt, "search") {
 				return string(mustJSON(map[string]any{
-					"issues": []map[string]string{{"page": "", "issue": "partial auth issue"}},
+					"issues": []map[string]string{{
+						"page": "", "issue": "partial auth issue",
+						"priority": "medium", "priority_reason": "test stub",
+					}},
 				})), nil
 			}
 			return string(mustJSON(map[string]any{
-				"issues": []map[string]string{{"page": "", "issue": "issue for search"}},
+				"issues": []map[string]string{{
+					"page": "", "issue": "issue for search",
+					"priority": "medium", "priority_reason": "test stub",
+				}},
 			})), nil
 		},
 	}
@@ -719,7 +737,7 @@ func TestDetectDrift_UsesSmallTypicalLarge(t *testing.T) {
 	}
 	large := &driftStubClient{
 		completeFunc: func(_ context.Context, _ string) (string, error) {
-			return `{"issues":[{"page":"https://docs/x","issue":"docs are stale"}]}`, nil
+			return `{"issues":[{"page":"https://docs/x","issue":"docs are stale","priority":"medium","priority_reason":"test stub"}]}`, nil
 		},
 	}
 	tiering := &fakeTiering{small: small, typical: typical, large: large}
@@ -903,7 +921,7 @@ func TestJudgeFeatureDrift_ProducesIssues(t *testing.T) {
 			if !strings.Contains(prompt, "auth") || !strings.Contains(prompt, "doc says X") {
 				return "", fmt.Errorf("prompt missing expected fields: %s", prompt)
 			}
-			return `{"issues":[{"page":"https://docs/x","issue":"docs claim X but code does Y"}]}`, nil
+			return `{"issues":[{"page":"https://docs/x","issue":"docs claim X but code does Y","priority":"medium","priority_reason":"test stub"}]}`, nil
 		},
 	}
 	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}

@@ -104,8 +104,10 @@ type ToolCall struct {
 
 // DriftIssue is one specific inaccuracy found between a feature's code and its documentation.
 type DriftIssue struct {
-	Page  string `json:"page"`  // URL of the doc page ("" if cross-page)
-	Issue string `json:"issue"` // inaccuracy described in documentation language
+	Page           string   `json:"page"`  // URL of the doc page ("" if cross-page)
+	Issue          string   `json:"issue"` // inaccuracy described in documentation language
+	Priority       Priority `json:"priority"`
+	PriorityReason string   `json:"priority_reason"`
 }
 
 // DriftFinding groups all drift issues found for one feature.
