@@ -34,7 +34,7 @@ func TestGapsWriter_coalescesBursts(t *testing.T) {
 	prefix := "# Gaps Found\n\nstatic body\n"
 	w := reporter.NewGapsWriter(dir, prefix, 50*time.Millisecond)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		w.Push(makeFinding(fmt.Sprintf("f%d", i)))
 	}
 	require.NoError(t, w.Close())
@@ -68,9 +68,7 @@ func TestGapsWriter_atomicReplace(t *testing.T) {
 
 	stop := make(chan struct{})
 	var observerWG sync.WaitGroup
-	observerWG.Add(1)
-	go func() {
-		defer observerWG.Done()
+	observerWG.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -95,9 +93,9 @@ func TestGapsWriter_atomicReplace(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		w.Push(makeFinding(fmt.Sprintf("f%d", i)))
 		time.Sleep(time.Millisecond)
 	}
@@ -113,12 +111,10 @@ func TestGapsWriter_concurrentPushUnderRace(t *testing.T) {
 
 	const N = 32
 	var wg sync.WaitGroup
-	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func(n int) {
-			defer wg.Done()
-			w.Push(makeFinding(fmt.Sprintf("f%02d", n)))
-		}(i)
+	for i := range N {
+		wg.Go(func() {
+			w.Push(makeFinding(fmt.Sprintf("f%02d", i)))
+		})
 	}
 	wg.Wait()
 	require.NoError(t, w.Close())
@@ -128,7 +124,7 @@ func TestGapsWriter_concurrentPushUnderRace(t *testing.T) {
 	content := string(data)
 
 	matched := false
-	for i := 0; i < N; i++ {
+	for i := range N {
 		if strings.Contains(content, fmt.Sprintf("f%02d", i)) {
 			matched = true
 			break
