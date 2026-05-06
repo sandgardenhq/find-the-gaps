@@ -470,6 +470,9 @@ func newAnalyzeCmd() *cobra.Command {
 				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
 				}
+				if err := reporter.WriteScreenshotsJSON(projectDir, screenshotResult); err != nil {
+					return fmt.Errorf("write screenshots.json: %w", err)
+				}
 			}
 
 			// Build the Hugo site unless --no-site.
