@@ -6,7 +6,7 @@
 
 Today, every `find-the-gaps analyze` run executes the drift-detection pass even when nothing has changed since the last successful run. Two costs follow from this:
 
-1. The drift loop iterates every documented feature and calls `classifyDriftPages` (a Small-tier LLM call) before consulting `drift.json`. Even on a full per-feature cache hit, those classify calls fire.
+1. The drift loop iterates every documented feature and calls `classifyDriftPages` (a Small-tier LLM call) before consulting `drift.json`. Even on a full per-feature cache hit, those classify calls fire. *(Resolved for mixed/partial caches in `.plans/2026-05-06-drift-classify-cache.md` — the per-feature cache now also short-circuits the classifier. The completion sentinel still covers the all-hits-no-changes fast path.)*
 2. `gaps.md` is rewritten on every run regardless of whether its contents changed. The user has manually verified `gaps.md` and doesn't want a no-op re-run to touch it.
 
 The user's request: when the prior run produced a complete drift result and `gaps.md` exists on disk, skip the drift pass entirely and leave `gaps.md` alone.
