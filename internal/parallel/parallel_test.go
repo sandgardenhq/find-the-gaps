@@ -57,6 +57,9 @@ func TestRun_firstErrorCancelsRest(t *testing.T) {
 	var ran int32
 	sentinel := errors.New("boom")
 	err := parallel.Run(context.Background(), items, 4, func(ctx context.Context, n int) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		atomic.AddInt32(&ran, 1)
 		if n == 0 {
 			return sentinel
@@ -69,17 +72,29 @@ func TestRun_firstErrorCancelsRest(t *testing.T) {
 		}
 	})
 	require.ErrorIs(t, err, sentinel)
-	assert.Less(t, atomic.LoadInt32(&ran), int32(50))
+	assert.Less(t, atomic.LoadInt32(&ran), int32(20))
 }
 
 func TestRun_zeroWorkersDefaultsToOne(t *testing.T) {
 	var ran int32
-	err := parallel.Run(context.Background(), []int{1, 2}, 0, func(_ context.Context, _ int) error {
+	var inFlight int32
+	var peak int32
+	err := parallel.Run(context.Background(), []int{1, 2, 3}, 0, func(_ context.Context, _ int) error {
+		cur := atomic.AddInt32(&inFlight, 1)
+		for {
+			p := atomic.LoadInt32(&peak)
+			if cur <= p || atomic.CompareAndSwapInt32(&peak, p, cur) {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+		atomic.AddInt32(&inFlight, -1)
 		atomic.AddInt32(&ran, 1)
 		return nil
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int32(2), ran)
+	assert.Equal(t, int32(3), ran)
+	assert.Equal(t, int32(1), peak)
 }
 
 func TestRun_emptySliceIsNoop(t *testing.T) {

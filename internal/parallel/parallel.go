@@ -24,9 +24,6 @@ func Run[T any](ctx context.Context, items []T, workers int, fn func(context.Con
 	g.SetLimit(workers)
 	for _, item := range items {
 		g.Go(func() error {
-			if gctx.Err() != nil {
-				return gctx.Err()
-			}
 			return fn(gctx, item)
 		})
 	}
