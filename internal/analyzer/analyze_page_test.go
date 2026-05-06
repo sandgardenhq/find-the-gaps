@@ -152,3 +152,35 @@ func TestAnalyzePage_PromptIncludesClassificationRule(t *testing.T) {
 		t.Error("prompt must include the inclusive-by-default guardrail")
 	}
 }
+
+func TestAnalyzePage_PromptExcludesMarketingAndBlogPosts(t *testing.T) {
+	// Tightened rule: marketing pages and blog posts are NOT docs,
+	// regardless of technical content (code snippets, release
+	// announcements, etc.). Earlier revisions of the prompt classified
+	// "Announcing v3"-style blog posts and code-snippet-bearing
+	// marketing pages as docs; that is no longer the policy.
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(`{"summary":"x","features":[],"is_docs":true}`),
+	}}
+	_, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://example.com", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.receivedPrompts) == 0 {
+		t.Fatal("expected a prompt")
+	}
+	p := c.receivedPrompts[0]
+	if strings.Contains(p, "Announcing v3") {
+		t.Error("prompt must not classify release-announcement blog posts as docs")
+	}
+	if strings.Contains(p, "Marketing landing pages that contain code snippets") {
+		t.Error("prompt must not classify marketing pages with code snippets as docs")
+	}
+	if !strings.Contains(p, "Marketing pages") {
+		t.Error("prompt must list marketing pages as not-docs")
+	}
+	if !strings.Contains(p, "Blog posts") {
+		t.Error("prompt must list blog posts as not-docs")
+	}
+}
