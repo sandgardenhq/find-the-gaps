@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -578,4 +580,30 @@ func TestDriftFindingsFromCache_FeatureNotInCache_Skipped(t *testing.T) {
 	out := driftFindingsFromCache(cache, fm)
 	require.Len(t, out, 1)
 	assert.Equal(t, "auth", out[0].Feature)
+}
+
+// TestDriftCachePersister_concurrentCallersDoNotLoseUpdates exercises the
+// Task-7 scenario: parallel workers call the persister at once. Without an
+// internal mutex, concurrent map writes to liveCache trip the race detector
+// and/or the final on-disk file misses entries.
+func TestDriftCachePersister_concurrentCallersDoNotLoseUpdates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "drift.json")
+	live := map[string]analyzer.CachedDriftEntry{}
+	cached := map[string]analyzer.CachedDriftEntry{}
+	var hits, fresh int
+	persist := newDriftCachePersister(cached, live, path, &hits, &fresh)
+
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Go(func() {
+			name := fmt.Sprintf("f%02d", i)
+			_ = persist(name, []string{"a.go"}, []string{"p"}, []string{"p"}, nil)
+		})
+	}
+	wg.Wait()
+
+	file, ok := loadDriftCacheFile(path)
+	require.True(t, ok)
+	assert.Len(t, file.Entries, 32)
 }
