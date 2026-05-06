@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
@@ -182,8 +185,11 @@ func newAnalyzeCmd() *cobra.Command {
 			// Analyze each page; skip cached results.
 			log.Infof("analyzing %d pages...", len(pages))
 			var analyses []analyzer.PageAnalysis
-			freshCount := 0
-			pageNum := 0
+			type pageJob struct {
+				url      string
+				filePath string
+			}
+			jobs := make([]pageJob, 0, len(pages))
 			for url, filePath := range pages {
 				if summary, features, isDocs, ok := idx.Analysis(url); ok {
 					log.Debug("page cache hit", "url", url)
@@ -195,23 +201,37 @@ func newAnalyzeCmd() *cobra.Command {
 					})
 					continue
 				}
-				content, readErr := os.ReadFile(filePath)
+				jobs = append(jobs, pageJob{url: url, filePath: filePath})
+			}
+
+			var (
+				analysesMu sync.Mutex
+				pageNum    atomic.Int32
+			)
+			err = parallel.Run(ctx, jobs, workers, func(ctx context.Context, j pageJob) error {
+				content, readErr := os.ReadFile(j.filePath)
 				if readErr != nil {
-					continue
+					return nil
 				}
-				pageNum++
-				log.Infof("  [%d] %s", pageNum, url)
-				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, url, string(content))
+				n := pageNum.Add(1)
+				log.Infof("  [%d] %s", n, j.url)
+				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, j.url, string(content))
 				if analyzeErr != nil {
-					log.Warnf("skipping %s: %v", url, analyzeErr)
-					continue
+					log.Warnf("skipping %s: %v", j.url, analyzeErr)
+					return nil
 				}
-				if recErr := idx.RecordAnalysis(url, pa.Summary, pa.Features, pa.IsDocs); recErr != nil {
+				if recErr := idx.RecordAnalysis(j.url, pa.Summary, pa.Features, pa.IsDocs); recErr != nil {
 					return fmt.Errorf("record analysis: %w", recErr)
 				}
+				analysesMu.Lock()
 				analyses = append(analyses, pa)
-				freshCount++
+				analysesMu.Unlock()
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("analyze pages: %w", err)
 			}
+			freshCount := int(pageNum.Load())
 
 			if len(analyses) == 0 {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "scanned %d files, fetched %d pages, 0 pages analyzed\n",
