@@ -253,8 +253,10 @@ func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
 		{
 			Feature: "auth",
 			Issues: []analyzer.DriftIssue{
-				{Page: "https://docs.example.com/auth", Issue: "The email field requirement is not documented."},
-				{Page: "", Issue: "The error response format differs from what is described."},
+				{Page: "https://docs.example.com/auth", Issue: "The email field requirement is not documented.",
+					Priority: analyzer.PriorityLarge, PriorityReason: "quickstart impact"},
+				{Page: "", Issue: "The error response format differs from what is described.",
+					Priority: analyzer.PriorityMedium, PriorityReason: "reference page"},
 			},
 		},
 	}
@@ -270,14 +272,82 @@ func TestWriteGaps_StaleDocumentation_RendersFindings(t *testing.T) {
 	if !strings.Contains(content, "## Stale Documentation") {
 		t.Errorf("gaps.md must contain '## Stale Documentation' section, got:\n%s", content)
 	}
-	if !strings.Contains(content, "### auth") {
-		t.Errorf("gaps.md must contain '### auth' under Stale Documentation, got:\n%s", content)
-	}
 	if !strings.Contains(content, "email field requirement") {
 		t.Errorf("gaps.md must contain the drift issue text, got:\n%s", content)
 	}
 	if !strings.Contains(content, "https://docs.example.com/auth") {
 		t.Errorf("gaps.md must cite the page URL for issues with a page, got:\n%s", content)
+	}
+	if !strings.Contains(content, "auth") {
+		t.Errorf("gaps.md must mention the feature name, got:\n%s", content)
+	}
+}
+
+// TestWriteGaps_StaleDocumentation_GroupsByPriority pins the priority-grouped
+// rendering: Large first, then Medium, then Small. Empty buckets omitted.
+// Stable original order preserved within each bucket.
+func TestWriteGaps_StaleDocumentation_GroupsByPriority(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{}
+	drift := []analyzer.DriftFinding{
+		{Feature: "alpha", Issues: []analyzer.DriftIssue{
+			{Page: "p1", Issue: "small-issue-A", Priority: analyzer.PrioritySmall, PriorityReason: "deep"},
+			{Page: "p2", Issue: "large-issue-A", Priority: analyzer.PriorityLarge, PriorityReason: "readme"},
+		}},
+		{Feature: "beta", Issues: []analyzer.DriftIssue{
+			{Page: "p3", Issue: "medium-issue-B", Priority: analyzer.PriorityMedium, PriorityReason: "reference"},
+			{Page: "p4", Issue: "large-issue-B", Priority: analyzer.PriorityLarge, PriorityReason: "quickstart"},
+		}},
+	}
+	if err := reporter.WriteGaps(dir, mapping, []string{}, drift); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	content := string(b)
+
+	// Headings appear in Large -> Medium -> Small order.
+	idxLarge := strings.Index(content, "### Large")
+	idxMedium := strings.Index(content, "### Medium")
+	idxSmall := strings.Index(content, "### Small")
+	if idxLarge < 0 || idxMedium < 0 || idxSmall < 0 {
+		t.Fatalf("missing one of Large/Medium/Small headings:\n%s", content)
+	}
+	if !(idxLarge < idxMedium && idxMedium < idxSmall) {
+		t.Errorf("priority headings out of order: large=%d medium=%d small=%d", idxLarge, idxMedium, idxSmall)
+	}
+
+	// Within Large: large-issue-A appears before large-issue-B (input order).
+	largeBlock := content[idxLarge:idxMedium]
+	if strings.Index(largeBlock, "large-issue-A") > strings.Index(largeBlock, "large-issue-B") {
+		t.Errorf("Large bucket order broken:\n%s", largeBlock)
+	}
+
+	// priority_reason renders.
+	if !strings.Contains(content, "readme") {
+		t.Errorf("priority_reason missing from output:\n%s", content)
+	}
+}
+
+func TestWriteGaps_StaleDocumentation_OmitsEmptyBuckets(t *testing.T) {
+	dir := t.TempDir()
+	drift := []analyzer.DriftFinding{
+		{Feature: "x", Issues: []analyzer.DriftIssue{
+			{Page: "p", Issue: "med-only", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+		}},
+	}
+	if err := reporter.WriteGaps(dir, analyzer.FeatureMap{}, []string{}, drift); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	content := string(b)
+	if strings.Contains(content, "### Large") {
+		t.Errorf("empty Large bucket must be omitted:\n%s", content)
+	}
+	if strings.Contains(content, "### Small") {
+		t.Errorf("empty Small bucket must be omitted:\n%s", content)
+	}
+	if !strings.Contains(content, "### Medium") {
+		t.Errorf("Medium bucket must be present:\n%s", content)
 	}
 }
 

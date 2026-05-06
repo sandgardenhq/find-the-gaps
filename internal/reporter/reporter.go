@@ -135,19 +135,31 @@ func WriteGaps(
 		sb.WriteString("_None found._\n")
 	}
 
-	// Stale documentation: inaccuracies found in pages that DO cover a feature.
+	// Stale documentation: inaccuracies found in pages that DO cover a feature,
+	// grouped by priority (Large → Medium → Small). Empty buckets are omitted.
+	// Within a bucket, findings appear in stable original order (feature first,
+	// then issue position within that feature).
 	sb.WriteString("\n## Stale Documentation\n\n")
-	if len(drift) == 0 {
+	flat := flattenDrift(drift)
+	if len(flat) == 0 {
 		sb.WriteString("_None found._\n")
 	} else {
-		for _, finding := range drift {
-			fmt.Fprintf(&sb, "### %s\n\n", finding.Feature)
-			for _, issue := range finding.Issues {
-				if issue.Page != "" {
-					fmt.Fprintf(&sb, "- %s — %s\n\n", issue.Page, issue.Issue)
+		for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
+			bucket := filterDriftByPriority(flat, p)
+			if len(bucket) == 0 {
+				continue
+			}
+			fmt.Fprintf(&sb, "### %s\n\n", priorityHeading(p))
+			for _, item := range bucket {
+				if item.Issue.Page != "" {
+					fmt.Fprintf(&sb, "- **%s** — %s — %s\n", item.Feature, item.Issue.Page, item.Issue.Issue)
 				} else {
-					fmt.Fprintf(&sb, "- %s\n\n", issue.Issue)
+					fmt.Fprintf(&sb, "- **%s** — %s\n", item.Feature, item.Issue.Issue)
 				}
+				if item.Issue.PriorityReason != "" {
+					fmt.Fprintf(&sb, "  _why: %s_\n", item.Issue.PriorityReason)
+				}
+				sb.WriteString("\n")
 			}
 		}
 	}
