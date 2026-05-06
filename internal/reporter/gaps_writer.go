@@ -17,9 +17,10 @@ type GapsWriter struct {
 	prefix   string
 	debounce time.Duration
 
-	mu     sync.Mutex
-	latest []analyzer.DriftFinding
-	dirty  bool
+	mu      sync.Mutex
+	latest  []analyzer.DriftFinding
+	dirty   bool
+	lastErr error
 
 	wakeup    chan struct{}
 	closed    chan struct{}
@@ -58,11 +59,14 @@ func (w *GapsWriter) Push(findings []analyzer.DriftFinding) {
 }
 
 // Close flushes any pending state and waits for the writer goroutine to exit.
-// It is safe to call Close more than once.
+// It returns the most recent flush error, if any (e.g. disk full at rename
+// time). It is safe to call Close more than once.
 func (w *GapsWriter) Close() error {
 	w.closeOnce.Do(func() { close(w.closed) })
 	<-w.done
-	return nil
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.lastErr
 }
 
 func (w *GapsWriter) loop() {
@@ -110,8 +114,13 @@ func (w *GapsWriter) flush() {
 	body := w.prefix + "\n## Stale Documentation\n\n" + BuildGapsStaleSection(findings)
 	tmp := filepath.Join(w.dir, "gaps.md.tmp")
 	final := filepath.Join(w.dir, "gaps.md")
-	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
-		return
+	err := os.WriteFile(tmp, []byte(body), 0o644)
+	if err == nil {
+		err = os.Rename(tmp, final)
 	}
-	_ = os.Rename(tmp, final)
+	if err != nil {
+		w.mu.Lock()
+		w.lastErr = err
+		w.mu.Unlock()
+	}
 }

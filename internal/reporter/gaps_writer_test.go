@@ -218,3 +218,18 @@ func TestGapsWriter_closeIdempotent(t *testing.T) {
 	require.NoError(t, w.Close())
 	require.NoError(t, w.Close())
 }
+
+// TestGapsWriter_closeReportsFlushError pins that disk failures during the
+// final flush surface to the caller. analyze.go relies on this to fail the
+// run loudly instead of silently leaving a stale gaps.md.
+func TestGapsWriter_closeReportsFlushError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing-subdir")
+	// Directory does not exist; os.WriteFile to <dir>/gaps.md.tmp will fail.
+	w := reporter.NewGapsWriter(dir, "# Gaps Found\n\n", time.Millisecond)
+	w.Push(makeFinding("any"))
+	err := w.Close()
+	require.Error(t, err)
+	assert.True(t,
+		errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file"),
+		"expected a path-not-found error, got %v", err)
+}
