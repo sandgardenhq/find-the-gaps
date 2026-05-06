@@ -409,8 +409,15 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			if !driftSkipped {
+				gapsPrefix := reporter.BuildGapsStaticPrefix(featureMap, docCoveredFeatures)
+				gapsWriter := reporter.NewGapsWriter(projectDir, gapsPrefix, 500*time.Millisecond)
+				// Seed the writer with an empty slice so a run that produces
+				// zero findings still emits a gaps.md (matches the prior
+				// unconditional WriteGaps behavior).
+				gapsWriter.Push(nil)
 				driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
-					return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
+					gapsWriter.Push(accumulated)
+					return nil
 				}
 
 				var cached map[string]analyzer.CachedDriftEntry
@@ -434,6 +441,13 @@ func newAnalyzeCmd() *cobra.Command {
 					pageReader, repoPath,
 					cached, driftOnFinding, onFeatureDone,
 				)
+				// Always flush the writer before the function returns so a
+				// detection error still produces the most-recent gaps.md state
+				// on disk. Close is the source of truth for the live path; the
+				// trailing WriteGaps call only fires on the cache-skipped path.
+				if closeErr := gapsWriter.Close(); closeErr != nil && err == nil {
+					return fmt.Errorf("close gaps writer: %w", closeErr)
+				}
 				if err != nil {
 					return fmt.Errorf("detect drift: %w", err)
 				}
@@ -469,19 +483,15 @@ func newAnalyzeCmd() *cobra.Command {
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			// driftSkipped is load-bearing here: driftFindingsFromCache returns
-			// findings sorted by feature name, while a live DetectDrift run
-			// returns them in featureMap insertion order. Re-running WriteGaps
-			// with the cache-rebuilt slice would reorder gaps.md on every
-			// no-op re-run, churning the file's bytes for external tooling
-			// (git diffs, hash-based watchers) that reads gaps.md directly.
-			// site.Build keys drift by feature name in a map and is order-
-			// insensitive, so it does not need this gate — gaps.md does.
-			if !driftSkipped {
-				if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
-					return fmt.Errorf("write gaps: %w", err)
-				}
-			}
+			// gaps.md was written by GapsWriter.Close() on the live drift
+			// path above. On the cache-skipped path the existing gaps.md is
+			// reused as-is — re-running WriteGaps with cache-rebuilt findings
+			// would reorder the bytes (driftFindingsFromCache sorts by feature
+			// name; the live path uses featureMap insertion order) and churn
+			// the file for external tooling reading gaps.md (git diffs,
+			// hash-based watchers). site.Build keys drift by feature name in
+			// a map and is order-insensitive, so it does not need this gate —
+			// gaps.md does.
 			if experimentalCheckScreenshots {
 				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
