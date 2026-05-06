@@ -1,5 +1,23 @@
 # Progress
 
+## Fix: Drift judge tolerates extra fields in JSON response — COMPLETE
+- Started: 2026-05-06
+- Completed: 2026-05-06
+- Symptom: `bifrost CompleteJSON: JSONSchema "drift_judge_issues": response does not conform to schema: jsonschema: '/issues/0' does not validate with inline://schema.json#/properties/issues/items/additionalProperties: additionalProperties 'issue_dup_of' not allowed` — entire DetectDrift run aborts when the judge LLM hallucinates an extra field.
+- Root cause: Anthropic's tool `input_schema` is advisory; `additionalProperties: false` is not strictly enforced server-side, and the judge prompt's "duplicate of another / Merge duplicates" wording nudged the model to invent an `issue_dup_of` annotation. Our client-side `ValidateResponse` failed closed on the unknown key.
+- Fix (TDD, two layers):
+  1. `JSONSchema.ValidateResponse` (`internal/analyzer/schema.go`) signature changed from `error` to `(json.RawMessage, error)`. It now walks the schema in lockstep with the payload and strips object keys that are not declared in `properties` when the schema node has `additionalProperties: false`. All other failure modes (missing required, wrong type, bad enum, malformed JSON, invalid schema doc) still fail closed. Stripped keys debug-logged.
+  2. `BifrostClient.completeJSON{OpenAI,Anthropic}Messages` updated to return the cleaned bytes from `ValidateResponse`.
+  3. Drift judge prompt (`internal/analyzer/drift.go:511`) reworded: removed the "duplicate of another" framing in favor of "if multiple observations describe the same documentation problem, emit a single DriftIssue covering them all", and added an explicit "Output only the fields defined in the schema. Do not add any other fields." guardrail.
+- Tests (RED → GREEN):
+  - `internal/analyzer/schema_test.go`: replaced `TestJSONSchema_ValidateResponse_AdditionalProperties_ReturnsError` with `TestJSONSchema_ValidateResponse_StripsTopLevelExtraField` and `TestJSONSchema_ValidateResponse_StripsExtraFieldInArrayItems` (latter mirrors the exact production failure shape with `issue_dup_of`). All other `TestJSONSchema_ValidateResponse_*` tests updated to the new 2-value signature; missing-required, wrong-type, malformed-JSON, and invalid-schema-doc paths still fail closed.
+  - `internal/analyzer/drift_test.go`: added `validatingStubClient` wrapper that runs the canned response through `schema.ValidateResponse` (mirrors BifrostClient wiring), and `TestJudgeFeatureDrift_StripsExtraFieldsFromJudgeResponse` which feeds the judge an `issues[0].issue_dup_of: 2` and asserts the call succeeds with a clean `DriftIssue`.
+- Tests: `go test ./...` all green across 12 packages.
+- Coverage: `internal/analyzer` 93.6% statements (≥90% gate clear).
+- Build: ✅ `go build ./...` clean.
+- Linting: ✅ `golangci-lint run` reports 0 issues.
+- Notes: `additionalProperties: false` retained in the schemas so OpenAI's strict json_schema mode keeps enforcing it server-side — tolerance is purely on the client-side validation step for providers (Anthropic) where the schema is advisory.
+
 ## Feature: Unanalyzable Image Suppression (animated-gif-vision) - COMPLETE
 - Started: 2026-05-05
 - Completed: 2026-05-05
