@@ -30,19 +30,33 @@ const (
 
 // CachedDriftEntry is one feature's persisted drift result, used by
 // DetectDrift to short-circuit the investigator+judge when inputs are
-// unchanged. Files and Pages must be sorted ascending; the lookup compares
-// them as sorted sets against the current run's inputs.
+// unchanged. Files and FilteredPages must be sorted ascending; the lookup
+// compares them as sorted sets against the current run's inputs.
+//
+// FilteredPages is the post-filterDriftPages, pre-classifyDriftPages list
+// and is the cache key for the page side of the lookup. Pages is the
+// post-classification list passed to the investigator+judge; it is retained
+// for forward compatibility and debugging but the cache no longer keys on it.
+// Old caches written before FilteredPages existed load with FilteredPages
+// == nil and miss the cache once, then repopulate.
 type CachedDriftEntry struct {
-	Files  []string
-	Pages  []string
-	Issues []DriftIssue
+	Files         []string
+	FilteredPages []string
+	Pages         []string
+	Issues        []DriftIssue
 }
 
 // DriftFeatureDoneFunc fires after DetectDrift decides a feature's drift
 // result, whether the result came from a cache hit or a fresh investigate+judge.
 // Implementations typically persist the result so a future run can resume.
-// Files and Pages are sorted ascending. Return non-nil to abort detection.
-type DriftFeatureDoneFunc func(feature string, files, pages []string, issues []DriftIssue) error
+//
+// Files, filteredPages, and pages are sorted ascending. filteredPages is the
+// post-filterDriftPages, pre-classify list used as the page side of the
+// cache key. pages is the post-classify list that the investigator+judge
+// actually saw. On a cache hit, pages is the previously persisted value.
+//
+// Return non-nil to abort detection.
+type DriftFeatureDoneFunc func(feature string, files, filteredPages, pages []string, issues []DriftIssue) error
 
 // budgetForFeature returns the investigator round budget for a single
 // feature's drift check. Each read_file and read_page tool call costs one
@@ -122,18 +136,14 @@ func DetectDrift(
 		if len(pages) == 0 {
 			continue
 		}
-		pages = classifyDriftPages(ctx, classifier, pages, pageReader)
-		if len(pages) == 0 {
-			continue
-		}
 
 		sortedFiles := sortedCopy(entry.Files)
-		sortedPages := sortedCopy(pages)
+		sortedFiltered := sortedCopy(pages)
 
 		if cached != nil {
 			if c, ok := cached[entry.Feature.Name]; ok &&
 				equalStringSlice(c.Files, sortedFiles) &&
-				equalStringSlice(c.Pages, sortedPages) &&
+				equalStringSlice(c.FilteredPages, sortedFiltered) &&
 				!cacheNeedsRecompute(c) {
 				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
 				issues := c.Issues
@@ -146,13 +156,28 @@ func DetectDrift(
 					}
 				}
 				if onFeatureDone != nil {
-					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, c.Pages, issues); err != nil {
 						return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 					}
 				}
 				continue
 			}
 		}
+
+		// Cache miss: classify, then investigate+judge.
+		pages = classifyDriftPages(ctx, classifier, pages, pageReader)
+		if len(pages) == 0 {
+			// Every page classified as release notes. Persist a cache entry
+			// keyed on FilteredPages with empty Pages so the next run skips
+			// the classifier instead of re-running it on the same content.
+			if onFeatureDone != nil {
+				if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, []string{}, nil); err != nil {
+					return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+				}
+			}
+			continue
+		}
+		sortedPages := sortedCopy(pages)
 
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
@@ -172,7 +197,7 @@ func DetectDrift(
 			}
 		}
 		if onFeatureDone != nil {
-			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedPages, issues); err != nil {
+			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, sortedPages, issues); err != nil {
 				return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 			}
 		}

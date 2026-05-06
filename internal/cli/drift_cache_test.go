@@ -109,73 +109,130 @@ func TestSaveDriftCache_AtomicReplace(t *testing.T) {
 func TestIsDriftCacheHit(t *testing.T) {
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
-			Files: []string{"auth.go", "session.go"},
-			Pages: []string{"https://docs.example.com/auth"},
+			Files:         []string{"auth.go", "session.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
 		},
 	}
 
 	cases := []struct {
-		name      string
-		mapArg    map[string]analyzer.CachedDriftEntry
-		key       string
-		files     []string
-		pages     []string
-		wantHit   bool
-		assertion string
+		name          string
+		mapArg        map[string]analyzer.CachedDriftEntry
+		key           string
+		files         []string
+		filteredPages []string
+		wantHit       bool
+		assertion     string
 	}{
 		{
-			name:      "exact match → hit",
-			mapArg:    cached,
-			key:       "auth",
-			files:     []string{"auth.go", "session.go"},
-			pages:     []string{"https://docs.example.com/auth"},
-			wantHit:   true,
-			assertion: "identical sorted slices must match",
+			name:          "exact match → hit",
+			mapArg:        cached,
+			key:           "auth",
+			files:         []string{"auth.go", "session.go"},
+			filteredPages: []string{"https://docs.example.com/auth"},
+			wantHit:       true,
+			assertion:     "identical sorted slices must match",
 		},
 		{
-			name:      "missing key → miss",
-			mapArg:    cached,
-			key:       "search",
-			files:     []string{"search.go"},
-			pages:     []string{"https://docs.example.com/search"},
-			wantHit:   false,
-			assertion: "key not in cache must return false",
+			name:          "missing key → miss",
+			mapArg:        cached,
+			key:           "search",
+			files:         []string{"search.go"},
+			filteredPages: []string{"https://docs.example.com/search"},
+			wantHit:       false,
+			assertion:     "key not in cache must return false",
 		},
 		{
-			name:      "files differ → miss",
-			mapArg:    cached,
-			key:       "auth",
-			files:     []string{"auth.go"},
-			pages:     []string{"https://docs.example.com/auth"},
-			wantHit:   false,
-			assertion: "shorter file list with same prefix must not match",
+			name:          "files differ → miss",
+			mapArg:        cached,
+			key:           "auth",
+			files:         []string{"auth.go"},
+			filteredPages: []string{"https://docs.example.com/auth"},
+			wantHit:       false,
+			assertion:     "shorter file list with same prefix must not match",
 		},
 		{
-			name:      "pages differ → miss",
-			mapArg:    cached,
-			key:       "auth",
-			files:     []string{"auth.go", "session.go"},
-			pages:     []string{"https://docs.example.com/old"},
-			wantHit:   false,
-			assertion: "different page list must not match",
+			name:          "filteredPages differ → miss",
+			mapArg:        cached,
+			key:           "auth",
+			files:         []string{"auth.go", "session.go"},
+			filteredPages: []string{"https://docs.example.com/old"},
+			wantHit:       false,
+			assertion:     "different filteredPages list must not match",
 		},
 		{
-			name:      "nil cached map → miss",
-			mapArg:    nil,
-			key:       "auth",
-			files:     []string{"auth.go"},
-			pages:     []string{"https://docs.example.com/auth"},
-			wantHit:   false,
-			assertion: "nil cached map (first run or --no-cache) must return false without panic",
+			name:          "nil cached map → miss",
+			mapArg:        nil,
+			key:           "auth",
+			files:         []string{"auth.go"},
+			filteredPages: []string{"https://docs.example.com/auth"},
+			wantHit:       false,
+			assertion:     "nil cached map (first run or --no-cache) must return false without panic",
+		},
+		{
+			name: "old entry without FilteredPages → miss",
+			mapArg: map[string]analyzer.CachedDriftEntry{
+				"auth": {
+					Files: []string{"auth.go"},
+					// FilteredPages absent — pre-upgrade cache shape.
+					Pages: []string{"https://docs.example.com/auth"},
+				},
+			},
+			key:           "auth",
+			files:         []string{"auth.go"},
+			filteredPages: []string{"https://docs.example.com/auth"},
+			wantHit:       false,
+			assertion:     "old caches without FilteredPages must miss so the entry recomputes once",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isDriftCacheHit(tc.mapArg, tc.key, tc.files, tc.pages)
+			got := isDriftCacheHit(tc.mapArg, tc.key, tc.files, tc.filteredPages)
 			assert.Equal(t, tc.wantHit, got, tc.assertion)
 		})
 	}
+}
+
+func TestDriftCacheRoundTripFilteredPages(t *testing.T) {
+	// FilteredPages is the post-filterDriftPages, pre-classify list used as the
+	// per-feature cache key. It must round-trip through save/load alongside Files,
+	// Pages, and Issues.
+	path := filepath.Join(t.TempDir(), "drift.json")
+	in := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth", "https://docs.example.com/auth/api"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			Issues:        []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "Stale signature."}},
+		},
+	}
+	require.NoError(t, saveDriftCache(path, in))
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	require.Contains(t, got, "auth")
+	assert.Equal(t, in["auth"].FilteredPages, got["auth"].FilteredPages)
+	assert.Equal(t, in["auth"].Pages, got["auth"].Pages)
+}
+
+func TestLoadDriftCache_OldFileWithoutFilteredPages(t *testing.T) {
+	// A drift.json written before FilteredPages existed loads with FilteredPages
+	// == nil so the cache-key check at drift.go misses (nil != non-empty
+	// sortedFiltered) and the entry recomputes once. Entries with the field
+	// missing must NOT be normalized to an empty slice — that would conflate
+	// "old entry, recompute" with "no filtered pages, valid cache".
+	path := filepath.Join(t.TempDir(), "drift.json")
+	raw := `{"features":["auth"],"entries":[{"feature":"auth","files":["auth.go"],"pages":["https://x/auth"],"issues":[]}]}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o644))
+
+	got, ok := loadDriftCache(path)
+	require.True(t, ok)
+	entry, hasEntry := got["auth"]
+	require.True(t, hasEntry)
+	assert.Nil(t, entry.FilteredPages, "old entries without filteredPages must load as nil so the cache misses on next run")
+	// Other fields still populated normally.
+	assert.Equal(t, []string{"auth.go"}, entry.Files)
+	assert.Equal(t, []string{"https://x/auth"}, entry.Pages)
 }
 
 func TestLoadDriftCache_NilSlicesNormalized(t *testing.T) {
@@ -276,16 +333,21 @@ func TestNewDriftCachePersister_CacheHit_DoesNotRewriteFile(t *testing.T) {
 
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
-			Files:  []string{"auth.go"},
-			Pages:  []string{"https://docs.example.com/auth"},
-			Issues: []analyzer.DriftIssue{},
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			Issues:        []analyzer.DriftIssue{},
 		},
 	}
 	live := map[string]analyzer.CachedDriftEntry{"auth": cached["auth"]}
 	hits, fresh := 0, 0
 	persister := newDriftCachePersister(cached, live, path, &hits, &fresh)
 
-	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, nil)
+	err := persister("auth",
+		[]string{"auth.go"},
+		[]string{"https://docs.example.com/auth"}, // filteredPages
+		[]string{"https://docs.example.com/auth"}, // pages
+		nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, hits)
 	assert.Equal(t, 0, fresh)
@@ -305,7 +367,11 @@ func TestNewDriftCachePersister_CacheMiss_NoEntry_Saves(t *testing.T) {
 	persister := newDriftCachePersister(cached, live, path, &hits, &fresh)
 
 	issues := []analyzer.DriftIssue{{Page: "https://docs.example.com/auth", Issue: "Stale."}}
-	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, issues)
+	err := persister("auth",
+		[]string{"auth.go"},
+		[]string{"https://docs.example.com/auth"}, // filteredPages
+		[]string{"https://docs.example.com/auth"}, // pages
+		issues)
 	require.NoError(t, err)
 	assert.Equal(t, 0, hits)
 	assert.Equal(t, 1, fresh)
@@ -314,6 +380,7 @@ func TestNewDriftCachePersister_CacheMiss_NoEntry_Saves(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, got, "auth")
 	assert.Equal(t, []string{"auth.go"}, got["auth"].Files)
+	assert.Equal(t, []string{"https://docs.example.com/auth"}, got["auth"].FilteredPages)
 	assert.Equal(t, issues, got["auth"].Issues)
 }
 
@@ -322,13 +389,21 @@ func TestNewDriftCachePersister_CacheMiss_FilesChanged_Saves(t *testing.T) {
 	path := filepath.Join(dir, "drift.json")
 
 	cached := map[string]analyzer.CachedDriftEntry{
-		"auth": {Files: []string{"auth.go"}, Pages: []string{"https://docs.example.com/auth"}},
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
+		},
 	}
 	live := map[string]analyzer.CachedDriftEntry{"auth": cached["auth"]}
 	hits, fresh := 0, 0
 	persister := newDriftCachePersister(cached, live, path, &hits, &fresh)
 
-	err := persister("auth", []string{"auth.go", "session.go"}, []string{"https://docs.example.com/auth"}, nil)
+	err := persister("auth",
+		[]string{"auth.go", "session.go"},
+		[]string{"https://docs.example.com/auth"}, // filteredPages
+		[]string{"https://docs.example.com/auth"}, // pages
+		nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, hits)
 	assert.Equal(t, 1, fresh)
@@ -348,7 +423,11 @@ func TestNewDriftCachePersister_SaveError_Propagated(t *testing.T) {
 	hits, fresh := 0, 0
 	persister := newDriftCachePersister(cached, live, bogus, &hits, &fresh)
 
-	err := persister("auth", []string{"auth.go"}, []string{"https://docs.example.com/auth"}, nil)
+	err := persister("auth",
+		[]string{"auth.go"},
+		[]string{"https://docs.example.com/auth"}, // filteredPages
+		[]string{"https://docs.example.com/auth"}, // pages
+		nil)
 	require.Error(t, err)
 	assert.Equal(t, 1, fresh, "fresh increment happens before save attempt")
 }

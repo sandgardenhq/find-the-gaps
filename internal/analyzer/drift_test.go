@@ -978,8 +978,9 @@ func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
 
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
-			Files:  []string{"auth.go"},
-			Pages:  []string{"https://docs.example.com/auth"},
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
 			Issues: []analyzer.DriftIssue{{
 				Page: "https://docs.example.com/auth", Issue: "stale signature",
 				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
@@ -1000,6 +1001,7 @@ func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
 	assert.Equal(t, "stale signature", findings[0].Issues[0].Issue)
 	assert.Equal(t, 0, typical.calls, "investigator must not run on cache hit")
 	assert.Equal(t, 0, large.completeCalls, "judge must not run on cache hit")
+	assert.Equal(t, 0, small.completeCalls, "classifier must not run on cache hit")
 }
 
 func TestDetectDrift_CacheMissByFiles_RecomputesFresh(t *testing.T) {
@@ -1024,9 +1026,10 @@ func TestDetectDrift_CacheMissByFiles_RecomputesFresh(t *testing.T) {
 	// Cached entry from a prior run when the feature only had auth.go.
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
-			Files:  []string{"auth.go"}, // mismatch — current run has [auth.go, session.go]
-			Pages:  []string{"https://docs.example.com/auth"},
-			Issues: nil,
+			Files:         []string{"auth.go"}, // mismatch — current run has [auth.go, session.go]
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			Issues:        nil,
 		},
 	}
 
@@ -1062,9 +1065,10 @@ func TestDetectDrift_CacheMissByPages_RecomputesFresh(t *testing.T) {
 
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
-			Files:  []string{"auth.go"},
-			Pages:  []string{"https://docs.example.com/old"}, // mismatch
-			Issues: nil,
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/old"}, // mismatch on the cache key
+			Pages:         []string{"https://docs.example.com/old"},
+			Issues:        nil,
 		},
 	}
 
@@ -1112,8 +1116,9 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 
 	cached := map[string]analyzer.CachedDriftEntry{
 		"cached": {
-			Files:  []string{"c.go"},
-			Pages:  []string{"https://docs.example.com/c"},
+			Files:         []string{"c.go"},
+			FilteredPages: []string{"https://docs.example.com/c"},
+			Pages:         []string{"https://docs.example.com/c"},
 			Issues: []analyzer.DriftIssue{{
 				Page: "https://docs.example.com/c", Issue: "Cached drift.",
 				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
@@ -1126,7 +1131,7 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 		issuesCount int
 	}
 	var recorded []record
-	onFeatureDone := func(name string, files, pages []string, issues []analyzer.DriftIssue) error {
+	onFeatureDone := func(name string, _, _, _ []string, issues []analyzer.DriftIssue) error {
 		recorded = append(recorded, record{name: name, issuesCount: len(issues)})
 		return nil
 	}
@@ -1164,7 +1169,7 @@ func TestDetectDrift_OnFeatureDoneError_Aborts(t *testing.T) {
 	pageReader := func(_ string) (string, error) { return "# Page", nil }
 
 	calls := 0
-	onFeatureDone := func(_ string, _, _ []string, _ []analyzer.DriftIssue) error {
+	onFeatureDone := func(_ string, _, _, _ []string, _ []analyzer.DriftIssue) error {
 		calls++
 		return errors.New("disk full")
 	}
@@ -1178,6 +1183,254 @@ func TestDetectDrift_OnFeatureDoneError_Aborts(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk full")
 	assert.Equal(t, 1, calls, "second feature must not be processed after onFeatureDone error")
+}
+
+func TestDetectDrift_CacheHit_DoesNotCallClassifier(t *testing.T) {
+	// On a per-feature cache hit, the Small-tier classifier must not run.
+	// Today the classifier fires before the cache check; this test pins the
+	// new behavior: cache key now uses FilteredPages (post-filterDriftPages,
+	// pre-classify), so a hit short-circuits classifier+investigator+judge.
+	typical := &driftStubClient{}
+	large := &driftStubClient{}
+	classifierCalls := 0
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			classifierCalls++
+			return "no", nil
+		},
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/auth", Issue: "Cached drift.",
+				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
+			}},
+		},
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Equal(t, 0, classifierCalls, "cache hit must not invoke the Small-tier classifier")
+	assert.Equal(t, 0, typical.calls, "cache hit must not invoke the investigator")
+	assert.Equal(t, 0, large.completeCalls, "cache hit must not invoke the judge")
+}
+
+func TestDetectDrift_OnFeatureDone_ReceivesFilteredAndClassifiedPages(t *testing.T) {
+	// The DriftFeatureDoneFunc receives both the post-filter (pre-classify)
+	// page list and the post-classify page list. The first is the cache key,
+	// the second is what investigator+judge actually saw.
+	//
+	// Setup: two pages survive filterDriftPages (neither URL matches a
+	// release-note pattern). The LLM classifier drops the one whose content
+	// looks like a blog post; the other survives. So filteredPages contains
+	// both, pages contains only the survivor.
+	typical := &driftStubClient{responses: []analyzer.ChatMessage{driftDone()}}
+	large := &driftStubClient{}
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, prompt string) (string, error) {
+			if strings.Contains(prompt, "blog post") {
+				return "yes", nil
+			}
+			return "no", nil
+		},
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{
+			"https://docs.example.com/auth",
+			"https://docs.example.com/blog/post1",
+		}},
+	}
+	pageReader := func(url string) (string, error) {
+		if strings.Contains(url, "blog") {
+			return "This is a blog post about authentication.", nil
+		}
+		return "# Auth\nLogin reference.", nil
+	}
+
+	type record struct {
+		filtered, pages []string
+	}
+	var got record
+	onFeatureDone := func(_ string, _, filtered, pages []string, _ []analyzer.DriftIssue) error {
+		got = record{filtered: filtered, pages: pages}
+		return nil
+	}
+
+	_, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		nil, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	assert.Contains(t, got.filtered, "https://docs.example.com/blog/post1",
+		"filtered list is post-URL-pattern-filter, pre-LLM-classify — blog URL survives the regex filter")
+	assert.Contains(t, got.filtered, "https://docs.example.com/auth")
+	assert.NotContains(t, got.pages, "https://docs.example.com/blog/post1",
+		"classified list excludes the LLM-flagged blog page")
+	assert.Contains(t, got.pages, "https://docs.example.com/auth",
+		"classified list keeps the surviving page")
+}
+
+func TestDetectDrift_EmptyAfterClassify_StillCachesFilteredPages(t *testing.T) {
+	// When classifyDriftPages drops every page (every page classified as
+	// release notes), the feature must still record a cache entry so the
+	// next run skips the classifier. Pre-fix behavior: feature has no cache
+	// entry, classifier re-runs forever.
+	typical := &driftStubClient{}
+	large := &driftStubClient{}
+
+	// Run 1: classifier says "yes" to everything → all pages dropped.
+	classifierCalls := 0
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			classifierCalls++
+			return "yes", nil
+		},
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# anything", nil }
+
+	type record struct {
+		filtered, pages []string
+		issues          []analyzer.DriftIssue
+	}
+	var got record
+	var doneCalls int
+	onFeatureDone := func(_ string, _, filtered, pages []string, issues []analyzer.DriftIssue) error {
+		doneCalls++
+		got = record{filtered: filtered, pages: pages, issues: issues}
+		return nil
+	}
+
+	_, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		nil, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 1, doneCalls, "onFeatureDone must fire even when classifier drops every page")
+	assert.NotEmpty(t, got.filtered, "filtered list must be populated so the cache can key on it")
+	assert.Empty(t, got.pages, "pages list is empty because classifier dropped everything")
+	assert.Empty(t, got.issues, "no issues when no pages survive classification")
+	classifierCallsRun1 := classifierCalls
+
+	// Run 2: feed the run-1 result back in as the cache. Classifier must not run.
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: got.filtered,
+			Pages:         got.pages,
+			Issues:        nil,
+		},
+	}
+	classifierCalls = 0
+	doneCalls = 0
+	_, err = analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	assert.Greater(t, classifierCallsRun1, 0, "sanity: run 1 must have called the classifier at least once")
+	assert.Equal(t, 0, classifierCalls, "run 2 must hit the cache and skip the classifier entirely")
+	assert.Equal(t, 1, doneCalls, "onFeatureDone fires on cache hit too")
+}
+
+func TestDetectDrift_CacheWithoutFilteredPages_RecomputesOnce(t *testing.T) {
+	// Pre-upgrade caches have Files+Pages+Issues but no FilteredPages.
+	// The cache-key check at drift.go must miss (nil != non-empty
+	// sortedFiltered) so the entry recomputes once. After the recompute the
+	// callback should receive a non-nil filteredPages so the next run hits.
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+		},
+	}
+	large := &driftStubClient{completeFunc: judgeJSON("https://docs.example.com/auth", "Recomputed.")}
+	classifierCalls := 0
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			classifierCalls++
+			return "no", nil
+		},
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files: []string{"auth.go"},
+			// FilteredPages absent (nil) — old cache shape.
+			Pages: []string{"https://docs.example.com/auth"},
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/auth", Issue: "Old issue.",
+				Priority: analyzer.PriorityMedium, PriorityReason: "stale",
+			}},
+		},
+	}
+
+	var captured analyzer.CachedDriftEntry
+	onFeatureDone := func(_ string, files, filtered, pages []string, issues []analyzer.DriftIssue) error {
+		captured = analyzer.CachedDriftEntry{
+			Files: files, FilteredPages: filtered, Pages: pages, Issues: issues,
+		}
+		return nil
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "Recomputed.", findings[0].Issues[0].Issue, "old-shape entry must recompute, not return the cached issue")
+	assert.Greater(t, classifierCalls, 0, "miss path classifier must run")
+	assert.Greater(t, typical.calls, 0, "miss path investigator must run")
+
+	// After the recompute, the persisted entry must carry FilteredPages so
+	// the *next* run hits the cache and skips classifier+investigator+judge.
+	require.NotNil(t, captured.FilteredPages, "after recompute, FilteredPages must be populated")
+	assert.Equal(t, []string{"https://docs.example.com/auth"}, captured.FilteredPages)
 }
 
 func TestBudgetForFeature(t *testing.T) {

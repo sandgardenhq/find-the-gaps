@@ -774,5 +774,5 @@ touch <fixture>/some_file.go                                     # invalidates f
 - Skipping `site.Build` on no-op re-runs.
 - Skipping `WriteMapping`.
 - A new CLI flag to force-skip drift (use `--no-cache` to force re-run; that is sufficient).
-- Caching `classifyDriftPages` results separately. The completion sentinel makes this unnecessary for the skip path.
+- Caching `classifyDriftPages` results separately. The completion sentinel makes this unnecessary for the skip path. *(Resolved in `.plans/2026-05-06-drift-classify-cache.md`: the cache key now uses FilteredPages — post-filter, pre-classify — so cache hits skip the classifier without needing a separate cache.)*
 - Updating `PROGRESS.md` (project has stopped tracking per-task; reintroduce only if user asks).

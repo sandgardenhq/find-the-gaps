@@ -191,15 +191,17 @@ Before any scenario runs:
 **Steps**:
 1. Pick a small, real open-source Go project with a public docs site (documented in `testdata/README.md`).
 2. Clone the repo at a pinned commit.
-3. Run `find-the-gaps analyze --repo <path> --docs-url <url>`.
+3. Run `find-the-gaps analyze --repo <path> --docs-url <url> -v`.
 4. Wait for mdfetch ingestion + analysis to complete.
 5. Inspect the report.
+6. Re-run the same command against the same fixture, with `-v`, capturing stdout to a file.
 
 **Success Criteria**:
 - [ ] `mdfetch` successfully ingests the docs site (markdown files produced in the expected cache location).
 - [ ] Analysis completes without panics, timeouts, or Bifrost errors.
 - [ ] Report is non-empty and each finding is actionable (names a specific file/symbol/doc page).
 - [ ] No finding references a symbol or path that does not exist in the repo.
+- [ ] On the second invocation against an unchanged fixture, every drift feature logs `drift cache hit:` and the stdout shows zero classifier-shaped `usage:` lines (`prompt≈400, completion=4–5`) between drift cache hits — the per-feature cache now skips the Small-tier classifier on hit.
 
 **If Blocked**: If the docs site changes between runs and breaks the pin, document the new state and ask the developer whether to re-pin the fixture.
 
