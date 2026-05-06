@@ -1367,6 +1367,72 @@ func TestDetectDrift_EmptyAfterClassify_StillCachesFilteredPages(t *testing.T) {
 	assert.Equal(t, 1, doneCalls, "onFeatureDone fires on cache hit too")
 }
 
+func TestDetectDrift_CacheWithoutFilteredPages_RecomputesOnce(t *testing.T) {
+	// Pre-upgrade caches have Files+Pages+Issues but no FilteredPages.
+	// The cache-key check at drift.go must miss (nil != non-empty
+	// sortedFiltered) so the entry recomputes once. After the recompute the
+	// callback should receive a non-nil filteredPages so the next run hits.
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+		},
+	}
+	large := &driftStubClient{completeFunc: judgeJSON("https://docs.example.com/auth", "Recomputed.")}
+	classifierCalls := 0
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			classifierCalls++
+			return "no", nil
+		},
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files: []string{"auth.go"},
+			// FilteredPages absent (nil) — old cache shape.
+			Pages: []string{"https://docs.example.com/auth"},
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/auth", Issue: "Old issue.",
+				Priority: analyzer.PriorityMedium, PriorityReason: "stale",
+			}},
+		},
+	}
+
+	var captured analyzer.CachedDriftEntry
+	onFeatureDone := func(_ string, files, filtered, pages []string, issues []analyzer.DriftIssue) error {
+		captured = analyzer.CachedDriftEntry{
+			Files: files, FilteredPages: filtered, Pages: pages, Issues: issues,
+		}
+		return nil
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "Recomputed.", findings[0].Issues[0].Issue, "old-shape entry must recompute, not return the cached issue")
+	assert.Greater(t, classifierCalls, 0, "miss path classifier must run")
+	assert.Greater(t, typical.calls, 0, "miss path investigator must run")
+
+	// After the recompute, the persisted entry must carry FilteredPages so
+	// the *next* run hits the cache and skips classifier+investigator+judge.
+	require.NotNil(t, captured.FilteredPages, "after recompute, FilteredPages must be populated")
+	assert.Equal(t, []string{"https://docs.example.com/auth"}, captured.FilteredPages)
+}
+
 func TestBudgetForFeature(t *testing.T) {
 	cases := []struct {
 		name         string
