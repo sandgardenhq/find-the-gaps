@@ -23,7 +23,6 @@ func Run[T any](ctx context.Context, items []T, workers int, fn func(context.Con
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(workers)
 	for _, item := range items {
-		item := item
 		g.Go(func() error {
 			if gctx.Err() != nil {
 				return gctx.Err()
