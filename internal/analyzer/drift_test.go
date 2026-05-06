@@ -1294,6 +1294,79 @@ func TestDetectDrift_OnFeatureDone_ReceivesFilteredAndClassifiedPages(t *testing
 		"classified list keeps the surviving page")
 }
 
+func TestDetectDrift_EmptyAfterClassify_StillCachesFilteredPages(t *testing.T) {
+	// When classifyDriftPages drops every page (every page classified as
+	// release notes), the feature must still record a cache entry so the
+	// next run skips the classifier. Pre-fix behavior: feature has no cache
+	// entry, classifier re-runs forever.
+	typical := &driftStubClient{}
+	large := &driftStubClient{}
+
+	// Run 1: classifier says "yes" to everything → all pages dropped.
+	classifierCalls := 0
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			classifierCalls++
+			return "yes", nil
+		},
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# anything", nil }
+
+	type record struct {
+		filtered, pages []string
+		issues          []analyzer.DriftIssue
+	}
+	var got record
+	var doneCalls int
+	onFeatureDone := func(_ string, _, filtered, pages []string, issues []analyzer.DriftIssue) error {
+		doneCalls++
+		got = record{filtered: filtered, pages: pages, issues: issues}
+		return nil
+	}
+
+	_, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		nil, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 1, doneCalls, "onFeatureDone must fire even when classifier drops every page")
+	assert.NotEmpty(t, got.filtered, "filtered list must be populated so the cache can key on it")
+	assert.Empty(t, got.pages, "pages list is empty because classifier dropped everything")
+	assert.Empty(t, got.issues, "no issues when no pages survive classification")
+	classifierCallsRun1 := classifierCalls
+
+	// Run 2: feed the run-1 result back in as the cache. Classifier must not run.
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: got.filtered,
+			Pages:         got.pages,
+			Issues:        nil,
+		},
+	}
+	classifierCalls = 0
+	doneCalls = 0
+	_, err = analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		cached, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	assert.Greater(t, classifierCallsRun1, 0, "sanity: run 1 must have called the classifier at least once")
+	assert.Equal(t, 0, classifierCalls, "run 2 must hit the cache and skip the classifier entirely")
+	assert.Equal(t, 1, doneCalls, "onFeatureDone fires on cache hit too")
+}
+
 func TestBudgetForFeature(t *testing.T) {
 	cases := []struct {
 		name         string

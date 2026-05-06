@@ -167,6 +167,14 @@ func DetectDrift(
 		// Cache miss: classify, then investigate+judge.
 		pages = classifyDriftPages(ctx, classifier, pages, pageReader)
 		if len(pages) == 0 {
+			// Every page classified as release notes. Persist a cache entry
+			// keyed on FilteredPages with empty Pages so the next run skips
+			// the classifier instead of re-running it on the same content.
+			if onFeatureDone != nil {
+				if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, []string{}, nil); err != nil {
+					return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+				}
+			}
 			continue
 		}
 		sortedPages := sortedCopy(pages)
