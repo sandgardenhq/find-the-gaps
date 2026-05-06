@@ -30,7 +30,9 @@ tags = ["layer:{{ .Layer }}", "status:{{ $status }}", "user-facing:{{ $uf }}"]
 {{ range .DocURLs }}- [{{ . }}]({{ . }})
 {{ end }}{{ end }}
 
-{{ if .Drift }}
+{{ if .DriftBuckets }}
 ## Drift findings
-{{ range .Drift }}- {{ if .Page }}[{{ .Page }}]({{ .Page }}) — {{ end }}{{ .Issue }}
-{{ end }}{{ end }}
+{{ range .DriftBuckets }}
+### {{ .Heading }}
+{{ range .Issues }}- {{ if .Page }}[{{ .Page }}]({{ .Page }}) — {{ end }}{{ .Issue }}{{ if .PriorityReason }} _({{ .PriorityReason }})_{{ end }}
+{{ end }}{{ end }}{{ end }}

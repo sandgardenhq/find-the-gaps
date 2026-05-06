@@ -79,7 +79,12 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 	driftByFeature := map[string][]driftIssue{}
 	for _, d := range in.Drift {
 		for _, i := range d.Issues {
-			driftByFeature[d.Feature] = append(driftByFeature[d.Feature], driftIssue{Page: i.Page, Issue: i.Issue})
+			driftByFeature[d.Feature] = append(driftByFeature[d.Feature], driftIssue{
+				Page:           i.Page,
+				Issue:          i.Issue,
+				Priority:       i.Priority,
+				PriorityReason: i.PriorityReason,
+			})
 		}
 	}
 
@@ -102,16 +107,18 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 			continue // skip features whose name reduces to empty slug
 		}
 		documented := docFeatures[e.Feature.Name]
+		featureDrift := driftByFeature[e.Feature.Name]
 		page, err := renderFeature(featureData{
-			Name:        e.Feature.Name,
-			Description: e.Feature.Description,
-			Layer:       e.Feature.Layer,
-			UserFacing:  e.Feature.UserFacing,
-			Documented:  documented,
-			Files:       e.Files,
-			Symbols:     e.Symbols,
-			DocURLs:     docPagesByFeature[e.Feature.Name],
-			Drift:       driftByFeature[e.Feature.Name],
+			Name:         e.Feature.Name,
+			Description:  e.Feature.Description,
+			Layer:        e.Feature.Layer,
+			UserFacing:   e.Feature.UserFacing,
+			Documented:   documented,
+			Files:        e.Files,
+			Symbols:      e.Symbols,
+			DocURLs:      docPagesByFeature[e.Feature.Name],
+			Drift:        featureDrift,
+			DriftBuckets: bucketDrift(featureDrift),
 		})
 		if err != nil {
 			return err
@@ -164,6 +171,7 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 			}
 			byPage[g.PageURL] = append(byPage[g.PageURL], screenshotGap{
 				Quoted: g.QuotedPassage, ShouldShow: g.ShouldShow, Alt: g.SuggestedAlt, Insert: g.InsertionHint,
+				Priority: g.Priority, PriorityReason: g.PriorityReason,
 			})
 		}
 		pageSlugs := resolveSlugs(order)
@@ -172,6 +180,7 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 				PageURL: url,
 				Title:   url,
 				Gaps:    byPage[url],
+				Buckets: bucketScreenshotGaps(byPage[url]),
 			})
 			if err != nil {
 				return err
@@ -193,25 +202,48 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 		ssIdx.WriteString("+++\ntitle = \"Screenshots\"\nweight = 30\n+++\n")
 		if len(in.ImageIssues) > 0 {
 			ssIdx.WriteString("\n## Image Issues\n\n")
-			// Group by page, preserving first-occurrence order so readers
-			// can scan one page's issues together. Mirrors the reporter's
-			// ordering rule.
-			seenPage := map[string]bool{}
-			var pageOrder []string
-			byPage := map[string][]analyzer.ImageIssue{}
-			for _, ii := range in.ImageIssues {
-				if !seenPage[ii.PageURL] {
-					seenPage[ii.PageURL] = true
-					pageOrder = append(pageOrder, ii.PageURL)
+			// Outer grouping by priority (Large -> Medium -> Small, empty
+			// buckets omitted), inner grouping by page (first-occurrence
+			// order). Mirrors the reporter's screenshots.md layout.
+			for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
+				var bucket []analyzer.ImageIssue
+				for _, ii := range in.ImageIssues {
+					if ii.Priority == p {
+						bucket = append(bucket, ii)
+					}
 				}
-				byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
-			}
-			for _, page := range pageOrder {
-				for _, ii := range byPage[page] {
-					fmt.Fprintf(&ssIdx, "- **Page:** %s\n", ii.PageURL)
-					fmt.Fprintf(&ssIdx, "  **Image:** ![%s](%s)\n", ii.Index, ii.Src)
-					fmt.Fprintf(&ssIdx, "  **Issue:** %s\n", ii.Reason)
-					fmt.Fprintf(&ssIdx, "  **Suggested action:** %s\n\n", ii.SuggestedAction)
+				if len(bucket) == 0 {
+					continue
+				}
+				switch p {
+				case analyzer.PriorityLarge:
+					ssIdx.WriteString("### Large\n\n")
+				case analyzer.PriorityMedium:
+					ssIdx.WriteString("### Medium\n\n")
+				case analyzer.PrioritySmall:
+					ssIdx.WriteString("### Small\n\n")
+				}
+				seenPage := map[string]bool{}
+				var pageOrder []string
+				byPage := map[string][]analyzer.ImageIssue{}
+				for _, ii := range bucket {
+					if !seenPage[ii.PageURL] {
+						seenPage[ii.PageURL] = true
+						pageOrder = append(pageOrder, ii.PageURL)
+					}
+					byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
+				}
+				for _, page := range pageOrder {
+					for _, ii := range byPage[page] {
+						fmt.Fprintf(&ssIdx, "- **Page:** %s\n", ii.PageURL)
+						fmt.Fprintf(&ssIdx, "  **Image:** ![%s](%s)\n", ii.Index, ii.Src)
+						fmt.Fprintf(&ssIdx, "  **Issue:** %s\n", ii.Reason)
+						fmt.Fprintf(&ssIdx, "  **Suggested action:** %s\n", ii.SuggestedAction)
+						if ii.PriorityReason != "" {
+							fmt.Fprintf(&ssIdx, "  **Why:** %s\n", ii.PriorityReason)
+						}
+						ssIdx.WriteString("\n")
+					}
 				}
 			}
 		}

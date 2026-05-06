@@ -803,6 +803,8 @@ func TestMaterializeExpandedScreenshotIndexRendersImageIssues(t *testing.T) {
 			Src:             "https://example.com/img/dash.png",
 			Reason:          "shows dashboard but prose describes settings",
 			SuggestedAction: "replace",
+			Priority:        analyzer.PriorityMedium,
+			PriorityReason:  "test stub",
 		}},
 	}
 	if err := materialize(srcDir, in, BuildOptions{
