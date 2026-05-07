@@ -368,6 +368,45 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 ---
 
+### Scenario 16: Update Check on Startup
+
+**Context**: Verify that `ftg` checks the GitHub Releases API on startup, prints a platform-aware upgrade notice when behind, caches the result for 24h, and respects every documented opt-out.
+
+**Prerequisites**:
+- `ftg` binary built from a commit that resolves to a non-`dev` version (e.g. via `go build -ldflags "-X github.com/sandgardenhq/find-the-gaps/internal/cli.version=v0.0.1"`).
+- Network reachable to `https://api.github.com`.
+- A clean machine state: `rm -f ~/.find-the-gaps/update-check.json`.
+
+**Steps**:
+1. With `~/.find-the-gaps/update-check.json` deleted and the binary's resolved version older than the latest GitHub release, run `ftg doctor` from a TTY. Capture stdout + stderr.
+2. Inspect `~/.find-the-gaps/update-check.json`.
+3. Run `ftg doctor` a second time within the cache window. Capture stderr.
+4. Run `ftg --version`. Capture stderr.
+5. Run `ftg --help`. Capture stderr.
+6. Delete the cache file and run `FIND_THE_GAPS_NO_UPDATE_CHECK=1 ftg doctor`. Capture stderr.
+7. Delete the cache file and run `CI=true ftg doctor`. Capture stderr.
+8. Pipe stderr to a file: `ftg doctor 2>/tmp/out` and inspect `/tmp/out`.
+9. Build a binary with the version unset (so `currentVersion()` returns `"dev"`) and run `ftg doctor`. Capture stderr.
+10. On a Linux machine without `brew` on `$PATH`, repeat step 1.
+
+**Success Criteria**:
+- [ ] Step 1 stderr contains `A new version of ftg is available: <tag>` followed by both the Homebrew and `go install` upgrade lines, with the macOS-style ordering on macOS (brew first) and the Linux-with-brew ordering when `brew` is on `$PATH`.
+- [ ] Step 1 stderr contains the release notes URL `https://github.com/sandgardenhq/find-the-gaps/releases/tag/<tag>`.
+- [ ] Step 1 stderr places the notice **after** the `doctor` output, not before.
+- [ ] Step 2: the cache file exists and contains valid JSON with `last_checked_at`, `latest_version`, and `current_version_at_check` fields.
+- [ ] Step 3 stderr does not include any `A new version` notice for a release equal to the cached `latest_version` IF the user has caught up; if still behind, the notice still appears (cached). The relevant invariant: no second GitHub API call (verifiable by setting `FIND_THE_GAPS_UPDATE_BASE_URL=http://127.0.0.1:1` for the second run — if behavior is unchanged, the cache short-circuited).
+- [ ] Step 4 (`--version`): no notice on stderr.
+- [ ] Step 5 (`--help`): no notice on stderr.
+- [ ] Step 6 (`FIND_THE_GAPS_NO_UPDATE_CHECK=1`): no notice; cache file is NOT recreated.
+- [ ] Step 7 (`CI=true`): no notice; cache file is NOT recreated.
+- [ ] Step 8 (stderr redirected to file): no notice in `/tmp/out` because stderr is not a TTY.
+- [ ] Step 9 (dev build): no notice on stderr; cache file is NOT recreated.
+- [ ] Step 10 (Linux without brew): notice appears with `go install` line first and Homebrew second.
+
+**If Blocked**: If the notice fires on `--version` or `--help`, the executed-command capture in `internal/cli/root.go` is broken — stop and ask. If the cache is rewritten on every run, the freshness check is wrong; capture the file's `last_checked_at` field across two runs and ask. If GitHub returns rate-limit errors during verification (HTTP 403), the test machine is hitting unauthenticated rate limits — wait an hour and re-run; do NOT add API authentication, since the production code path is unauthenticated.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
