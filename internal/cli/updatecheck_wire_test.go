@@ -27,8 +27,17 @@ func stubGitHub(t *testing.T, tag string) (*httptest.Server, *int32) {
 }
 
 // withTestEnv sets env vars for the duration of the test and restores them.
+// Always starts by clearing inherited gate-relevant env vars (CI,
+// FIND_THE_GAPS_QUIET, FIND_THE_GAPS_NO_UPDATE_CHECK) so the test sees a
+// known baseline regardless of the harness environment — GitHub Actions sets
+// CI=true, which would silently flip every "should-show-notice" test into a
+// skip. Values in kv overlay on top, so a test asserting the CI gate can set
+// CI=true via kv.
 func withTestEnv(t *testing.T, kv map[string]string) {
 	t.Helper()
+	for _, k := range []string{"CI", "FIND_THE_GAPS_QUIET", "FIND_THE_GAPS_NO_UPDATE_CHECK"} {
+		t.Setenv(k, "")
+	}
 	for k, v := range kv {
 		t.Setenv(k, v)
 	}
