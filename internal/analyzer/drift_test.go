@@ -1603,3 +1603,52 @@ func TestBudgetForFeature(t *testing.T) {
 		})
 	}
 }
+
+// TestJudgeFeatureDrift_RetriesOnMalformedJSON verifies that a transient
+// malformed-JSON response from the LLM does not abort the whole run — the
+// judge retries up to 3 times and returns the first successful parse. Covers
+// the "LLM returned a half-baked tool call" and "provider hiccup" cases.
+func TestJudgeFeatureDrift_RetriesOnMalformedJSON(t *testing.T) {
+	var calls int
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			calls++
+			if calls < 4 {
+				return `{"issues": [{not valid json`, nil
+			}
+			return `{"issues":[{"page":"https://docs/x","issue":"docs claim X but code does Y","priority":"medium","priority_reason":"test stub"}]}`, nil
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, obs)
+	require.NoError(t, err, "judge must retry malformed JSON up to 3 times")
+	require.Len(t, issues, 1)
+	assert.Equal(t, 4, calls, "judge should call the LLM 4 times: 1 initial + 3 retries before giving up")
+}
+
+// TestJudgeFeatureDrift_RetriesExhausted_ReturnsError verifies that after the
+// retry budget is exhausted the judge surfaces an error so the caller can
+// stop the run with a restart-friendly message.
+func TestJudgeFeatureDrift_RetriesExhausted_ReturnsError(t *testing.T) {
+	var calls int
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			calls++
+			return "", errors.New("provider unavailable")
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	_, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, obs)
+	require.Error(t, err, "judge must surface error after retries exhausted")
+	assert.Contains(t, err.Error(), "provider unavailable")
+	assert.Equal(t, 4, calls, "judge should attempt 4 times total before giving up")
+	assert.ErrorIs(t, err, analyzer.ErrLLMRetriesExhausted, "exhausted errors must be detectable via errors.Is so the CLI can show a restart-friendly message")
+}

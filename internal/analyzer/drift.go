@@ -29,7 +29,19 @@ const (
 	// investigator round budget. Protects against runaway cost when a feature
 	// mapping has unrealistically many files or pages.
 	driftBudgetCeiling = 100
+
+	// driftJudgeMaxAttempts is the total number of times the judge LLM call
+	// will be tried (1 initial + up to 3 retries) before giving up on the
+	// feature. Covers transient provider failures and malformed JSON
+	// responses without retrying long enough to drag the run out.
+	driftJudgeMaxAttempts = 4
 )
+
+// ErrLLMRetriesExhausted is wrapped into the error returned by the drift judge
+// when every retry attempt against the LLM provider failed. The CLI checks for
+// it via errors.Is to surface a restart-friendly message — completed features
+// are persisted to the drift cache and a re-run resumes from them.
+var ErrLLMRetriesExhausted = errors.New("llm retries exhausted")
 
 // CachedDriftEntry is one feature's persisted drift result, used by
 // DetectDrift to short-circuit the investigator+judge when inputs are
@@ -578,18 +590,33 @@ If every observation is a false alarm, emit an empty "issues" array.`,
 		pageRoleSummary(uniqueObservationPages(observations)),
 		priorityRubric)
 
-	raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
-	if err != nil {
-		return nil, fmt.Errorf("judgeFeatureDrift %q: %w", feature.Name, err)
+	// Retry the judge call up to driftJudgeMaxAttempts on any failure
+	// (transport error, malformed JSON, or schema-validation failure). The
+	// drift cache persists per-feature, so a hard failure after the budget
+	// is exhausted still lets the user re-run analyze and pick up where
+	// they left off.
+	var lastErr error
+	for attempt := 1; attempt <= driftJudgeMaxAttempts; attempt++ {
+		raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
+		if err != nil {
+			lastErr = err
+			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
+			continue
+		}
+		var resp judgeResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			lastErr = fmt.Errorf("invalid JSON response: %w", err)
+			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, lastErr)
+			continue
+		}
+		if err := validateDriftIssues(resp.Issues); err != nil {
+			lastErr = err
+			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
+			continue
+		}
+		return resp.Issues, nil
 	}
-	var resp judgeResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("judgeFeatureDrift %q: invalid JSON response: %w", feature.Name, err)
-	}
-	if err := validateDriftIssues(resp.Issues); err != nil {
-		return nil, fmt.Errorf("judgeFeatureDrift %q: %w", feature.Name, err)
-	}
-	return resp.Issues, nil
+	return nil, fmt.Errorf("judgeFeatureDrift %q: %w: %s", feature.Name, ErrLLMRetriesExhausted, lastErr)
 }
 
 // releaseNotePatterns are URL path segments that identify changelog/release-note
