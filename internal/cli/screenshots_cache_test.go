@@ -61,7 +61,7 @@ func TestScreenshotsCache_roundTrip(t *testing.T) {
 			ImageIssues: []analyzer.ImageIssue{},
 		},
 	}
-	require.NoError(t, saveScreenshotsCache(path, in, nil))
+	require.NoError(t, saveScreenshotsCache(path, in))
 
 	got, ok := loadScreenshotsCache(path)
 	require.True(t, ok)
@@ -161,7 +161,7 @@ func TestScreenshotsCache_entriesAreSortedByURL(t *testing.T) {
 			URL: "https://docs.example.com/mango", ContentHash: "hm",
 		},
 	}
-	require.NoError(t, saveScreenshotsCache(path, in, nil))
+	require.NoError(t, saveScreenshotsCache(path, in))
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestScreenshotsCachePages_listedSortedByURL(t *testing.T) {
 		screenshotsCacheKey("https://x/zebra", "hz"): {URL: "https://x/zebra", ContentHash: "hz"},
 		screenshotsCacheKey("https://x/alpha", "ha"): {URL: "https://x/alpha", ContentHash: "ha"},
 	}
-	require.NoError(t, saveScreenshotsCache(path, in, nil))
+	require.NoError(t, saveScreenshotsCache(path, in))
 	file, ok := loadScreenshotsCacheFile(path)
 	require.True(t, ok)
 	require.Len(t, file.Pages, 2)

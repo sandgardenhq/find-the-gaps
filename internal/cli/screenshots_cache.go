@@ -109,10 +109,12 @@ func screenshotsCacheEntriesToMap(entries []screenshotsCacheEntry) map[string]sc
 	return m
 }
 
-// saveScreenshotsCache writes current to path atomically (temp-file + rename).
-// Entries are sorted by URL for stable diffs.
-func saveScreenshotsCache(path string, current map[string]screenshotsCacheEntry, complete *screenshotsComplete) error {
-	return saveScreenshotsCacheComplete(path, current, complete)
+// saveScreenshotsCache writes current to path atomically (temp-file + rename)
+// without a completion sentinel. Entries are sorted by URL for stable diffs.
+// Mirrors drift_cache.go's saveDriftCache shape so a maintainer who knows one
+// API knows the other.
+func saveScreenshotsCache(path string, current map[string]screenshotsCacheEntry) error {
+	return saveScreenshotsCacheComplete(path, current, nil)
 }
 
 // saveScreenshotsCacheComplete writes the cache atomically with a completion
@@ -200,6 +202,6 @@ func newScreenshotsCachePersister(live map[string]screenshotsCacheEntry, path st
 		mu.Lock()
 		defer mu.Unlock()
 		live[screenshotsCacheKey(entry.URL, entry.ContentHash)] = entry
-		return saveScreenshotsCache(path, live, nil)
+		return saveScreenshotsCache(path, live)
 	}
 }
