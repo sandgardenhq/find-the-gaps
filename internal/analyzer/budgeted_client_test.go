@@ -1,10 +1,35 @@
 package analyzer
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 )
+
+// fakeInnerLLM is a minimal in-package LLMClient used by budgetedClient
+// tests. (The cross-package fakeClient in analyzer_test cannot be reached
+// from package analyzer.) Captures call counts so tests can assert the
+// gate either passed through (calls == 1) or refused (calls == 0).
+type fakeInnerLLM struct {
+	caps  ModelCapabilities
+	calls int
+}
+
+func (f *fakeInnerLLM) Complete(_ context.Context, _ string) (string, error) {
+	f.calls++
+	return "ok", nil
+}
+func (f *fakeInnerLLM) CompleteJSON(_ context.Context, _ string, _ JSONSchema) (json.RawMessage, error) {
+	f.calls++
+	return json.RawMessage(`{}`), nil
+}
+func (f *fakeInnerLLM) CompleteJSONMultimodal(_ context.Context, _ []ChatMessage, _ JSONSchema) (json.RawMessage, error) {
+	f.calls++
+	return json.RawMessage(`{}`), nil
+}
+func (f *fakeInnerLLM) Capabilities() ModelCapabilities { return f.caps }
 
 // TestErrTokenBudgetExceeded_ImplementsError pins the error message format
 // and the errors.Is contract. Callers detect the error via errors.Is against
@@ -98,4 +123,87 @@ func TestCountPayloadTokens_CountsToolCallArguments(t *testing.T) {
 	if countPayloadTokens("", withCall, nil, JSONSchema{}) <= countPayloadTokens("", withoutCall, nil, JSONSchema{}) {
 		t.Fatalf("ToolCall arguments should contribute to the count")
 	}
+}
+
+// TestBudgetedClient_PassthroughWhenUnderBudget pins that requests well
+// under the gate hit the inner client unchanged.
+func TestBudgetedClient_PassthroughWhenUnderBudget(t *testing.T) {
+	inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 100000}}
+	bc := newBudgetedClient(inner, "test")
+	if _, err := bc.CompleteJSON(context.Background(), "tiny", JSONSchema{}); err != nil {
+		t.Fatal(err)
+	}
+	if inner.calls != 1 {
+		t.Fatalf("inner not called: calls=%d", inner.calls)
+	}
+}
+
+// TestBudgetedClient_RefusesWhenOverBudget pins the core gate behavior:
+// a payload bigger than 0.9 × MaxInputTokens returns ErrTokenBudgetExceeded
+// without reaching the inner client. The original 294k-token incident is a
+// concrete instance of this path.
+func TestBudgetedClient_RefusesWhenOverBudget(t *testing.T) {
+	inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 10}}
+	bc := newBudgetedClient(inner, "test-site")
+	huge := strings.Repeat("token-ish-text ", 200)
+
+	_, err := bc.CompleteJSON(context.Background(), huge, JSONSchema{})
+
+	var bErr ErrTokenBudgetExceeded
+	if !errors.As(err, &bErr) {
+		t.Fatalf("want ErrTokenBudgetExceeded, got %v", err)
+	}
+	if bErr.Provider != "p" || bErr.Model != "m" || bErr.Where != "test-site" {
+		t.Fatalf("error fields wrong: %+v", bErr)
+	}
+	if bErr.Counted <= bErr.Budget {
+		t.Fatalf("Counted (%d) should exceed Budget (%d)", bErr.Counted, bErr.Budget)
+	}
+	if inner.calls != 0 {
+		t.Fatalf("inner should NOT be called when over budget, calls=%d", inner.calls)
+	}
+}
+
+// TestBudgetedClient_NoBudgetMeansNoGate pins the self-hosted contract:
+// MaxInputTokens=0 disables the gate so ollama/lmstudio users with
+// large-context models aren't artificially throttled.
+func TestBudgetedClient_NoBudgetMeansNoGate(t *testing.T) {
+	inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "ollama", Model: "*", MaxInputTokens: 0}}
+	bc := newBudgetedClient(inner, "test")
+	huge := strings.Repeat("x ", 100000)
+	if _, err := bc.CompleteJSON(context.Background(), huge, JSONSchema{}); err != nil {
+		t.Fatal(err)
+	}
+	if inner.calls != 1 {
+		t.Fatalf("inner not called when budget is 0: calls=%d", inner.calls)
+	}
+}
+
+// TestBudgetedClient_GatesAllSingleShotMethods pins that Complete,
+// CompleteJSON, and CompleteJSONMultimodal each go through the gate.
+func TestBudgetedClient_GatesAllSingleShotMethods(t *testing.T) {
+	huge := strings.Repeat("xx ", 1000)
+
+	t.Run("Complete", func(t *testing.T) {
+		inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 10}}
+		bc := newBudgetedClient(inner, "t")
+		if _, err := bc.Complete(context.Background(), huge); !errors.Is(err, ErrTokenBudgetExceeded{}) {
+			t.Fatalf("expected budget error, got %v", err)
+		}
+		if inner.calls != 0 {
+			t.Fatalf("inner should not be called: %d", inner.calls)
+		}
+	})
+
+	t.Run("CompleteJSONMultimodal", func(t *testing.T) {
+		inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 10}}
+		bc := newBudgetedClient(inner, "t")
+		msgs := []ChatMessage{{Role: "user", Content: huge}}
+		if _, err := bc.CompleteJSONMultimodal(context.Background(), msgs, JSONSchema{}); !errors.Is(err, ErrTokenBudgetExceeded{}) {
+			t.Fatalf("expected budget error, got %v", err)
+		}
+		if inner.calls != 0 {
+			t.Fatalf("inner should not be called: %d", inner.calls)
+		}
+	})
 }

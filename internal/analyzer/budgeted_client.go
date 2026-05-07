@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -51,6 +52,96 @@ func countPayloadTokens(prompt string, messages []ChatMessage, tools []Tool, sch
 		n += countTokens(string(schema.Doc))
 	}
 	return n
+}
+
+// budgetedClient wraps an LLMClient (and, when the inner also satisfies
+// ToolLLMClient, exposes the multi-turn shape too) and refuses sends whose
+// estimated input token count exceeds 0.9 × the inner client's
+// Capabilities().MaxInputTokens. A zero MaxInputTokens disables the gate
+// entirely (used for ollama/lmstudio "*" rows).
+//
+// The decorator never edits the payload. Compaction (e.g. judge chunking)
+// lives in the caller, which knows the prompt's semantic structure.
+//
+// Constructed once per tier in cli/llm_client.go via NewBudgetedClient.
+type budgetedClient struct {
+	inner LLMClient
+	tool  ToolLLMClient // non-nil iff inner satisfies ToolLLMClient
+	where string        // free-form site label baked into ErrTokenBudgetExceeded.Where
+}
+
+// newBudgetedClient wraps inner. When inner also implements ToolLLMClient,
+// the returned value satisfies ToolLLMClient too.
+func newBudgetedClient(inner LLMClient, where string) *budgetedClient {
+	bc := &budgetedClient{inner: inner, where: where}
+	if t, ok := inner.(ToolLLMClient); ok {
+		bc.tool = t
+	}
+	return bc
+}
+
+// NewBudgetedClient is the exported constructor used by tier wiring.
+// Returns LLMClient; callers that need ToolLLMClient type-assert.
+func NewBudgetedClient(inner LLMClient, where string) LLMClient {
+	return newBudgetedClient(inner, where)
+}
+
+// Capabilities returns the inner client's capabilities verbatim. The
+// decorator does not alter what the rest of the analyzer sees about the
+// model — it only adds a pre-send gate.
+func (b *budgetedClient) Capabilities() ModelCapabilities { return b.inner.Capabilities() }
+
+// gate returns ErrTokenBudgetExceeded when payload exceeds the inner
+// client's gated budget (0.9 × MaxInputTokens). MaxInputTokens <= 0
+// disables the gate.
+func (b *budgetedClient) gate(payload int) error {
+	caps := b.inner.Capabilities()
+	if caps.MaxInputTokens <= 0 {
+		return nil
+	}
+	gated := int(0.9 * float64(caps.MaxInputTokens))
+	if payload > gated {
+		return ErrTokenBudgetExceeded{
+			Provider: caps.Provider,
+			Model:    caps.Model,
+			Counted:  payload,
+			Budget:   gated,
+			Where:    b.where,
+		}
+	}
+	return nil
+}
+
+func (b *budgetedClient) Complete(ctx context.Context, prompt string) (string, error) {
+	if err := b.gate(countPayloadTokens(prompt, nil, nil, JSONSchema{})); err != nil {
+		return "", err
+	}
+	return b.inner.Complete(ctx, prompt)
+}
+
+func (b *budgetedClient) CompleteJSON(ctx context.Context, prompt string, schema JSONSchema) (json.RawMessage, error) {
+	if err := b.gate(countPayloadTokens(prompt, nil, nil, schema)); err != nil {
+		return nil, err
+	}
+	return b.inner.CompleteJSON(ctx, prompt, schema)
+}
+
+func (b *budgetedClient) CompleteJSONMultimodal(ctx context.Context, msgs []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
+	if err := b.gate(countPayloadTokens("", msgs, nil, schema)); err != nil {
+		return nil, err
+	}
+	return b.inner.CompleteJSONMultimodal(ctx, msgs, schema)
+}
+
+// CompleteWithTools delegates to the inner ToolLLMClient. The per-turn
+// budget hook and per-tool-result clip land in the agent-loop integration
+// task; this method exists today so *budgetedClient satisfies
+// ToolLLMClient and tier wiring can land before the loop hook is in.
+func (b *budgetedClient) CompleteWithTools(ctx context.Context, msgs []ChatMessage, tools []Tool, opts ...AgentOption) (AgentResult, error) {
+	if b.tool == nil {
+		return AgentResult{}, fmt.Errorf("CompleteWithTools: inner client does not support tool use")
+	}
+	return b.tool.CompleteWithTools(ctx, msgs, tools, opts...)
 }
 
 // ErrTokenBudgetExceeded is returned by budgetedClient when a request's
