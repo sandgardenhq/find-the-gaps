@@ -57,7 +57,7 @@ jobs:
             -trimpath \
             -ldflags "-s -w -X github.com/sandgardenhq/find-the-gaps/internal/cli.version=${VERSION}" \
             -o dist/ftg \
-            ./cmd/find-the-gaps
+            ./cmd/ftg
 
       - name: Verify version stamp
         env:

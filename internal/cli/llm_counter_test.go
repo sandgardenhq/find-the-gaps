@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -245,16 +246,21 @@ func TestLogLLMCallCounts_InfoLevel_Silent(t *testing.T) {
 
 // TestAnalyze_verbose_logsCallCountsOnNonSuccessPath verifies the LLM call
 // summary is emitted once the tiering is built, regardless of which return
-// path the run takes. With mdfetch scrubbed from PATH the crawl yields zero
-// pages, which trips an early `return nil` at line ~199 of analyze.go that
-// previously bypassed the summary. The summary line must still appear.
+// path the run takes. The crawl is pointed at an unreachable URL so it fails
+// after the tiering is wired; the summary line must still appear.
+//
+// A stub mdfetch is placed on $PATH to satisfy the doctor.Require precheck —
+// the precheck fires before tiering, and is exercised separately in the
+// doctor package. --no-site removes the need for a hugo stub.
 func TestAnalyze_verbose_logsCallCountsOnNonSuccessPath(t *testing.T) {
 	t.Cleanup(func() {
 		log.SetOutput(os.Stderr)
 		log.SetLevel(log.InfoLevel)
 	})
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	t.Setenv("PATH", t.TempDir())
+	pathDir := t.TempDir()
+	writeStubBin(t, pathDir, "mdfetch")
+	t.Setenv("PATH", pathDir)
 
 	repo := t.TempDir()
 	cacheBase := t.TempDir()
@@ -264,9 +270,18 @@ func TestAnalyze_verbose_logsCallCountsOnNonSuccessPath(t *testing.T) {
 		"--repo", repo,
 		"--cache-dir", cacheBase,
 		"--docs-url", "http://127.0.0.1:1/does-not-exist",
+		"--no-site",
 	})
 	if !strings.Contains(stderr.String(), "LLM call counts") {
 		t.Fatalf("expected 'LLM call counts' summary in stderr on non-success path; got: %q", stderr.String())
+	}
+}
+
+func writeStubBin(t *testing.T, dir, name string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

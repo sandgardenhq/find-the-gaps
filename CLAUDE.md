@@ -294,7 +294,7 @@ The TDD rules above are language-agnostic. Apply them using these Go conventions
 - **Test file layout** — IGNORE the TypeScript `__tests__/example.test.ts` pattern. Use standard Go layout:
   - Production file `internal/foo/bar.go` → test file `internal/foo/bar_test.go` (same directory, same package for white-box tests, or `package foo_test` for black-box tests).
 - **Coverage thresholds** — Go reports lines/statements as one number; branches are not a first-class metric. Target **≥90% statement coverage** per package. `go test -cover ./...` is the gate. Use `go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out` to inspect.
-- **End-to-end CLI tests** — Integration scenarios belong in `cmd/find-the-gaps/testdata/*.txtar` and run via `testscript`.
+- **End-to-end CLI tests** — Integration scenarios belong in `cmd/ftg/testdata/*.txtar` and run via `testscript`.
 
 ### Commands
 

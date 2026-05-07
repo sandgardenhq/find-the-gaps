@@ -26,7 +26,7 @@ var RequiredTools = []Tool{
 		Name:        "mdfetch",
 		Binary:      "mdfetch",
 		VersionArg:  "--version",
-		InstallHint: "npm install -g @sandgarden/mdfetch@latest",
+		InstallHint: "brew install sandgardenhq/tap/mdfetch (or: npm install -g @sandgarden/mdfetch@latest)",
 	},
 	{
 		Name:        "hugo",

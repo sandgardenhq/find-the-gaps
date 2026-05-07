@@ -56,14 +56,18 @@ The formula installs the `ftg` binary and pulls in `hugo` and `sandgardenhq/tap/
 ### Other platforms
 
 ```sh
-go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest
+go install github.com/sandgardenhq/find-the-gaps/cmd/ftg@latest
 ```
 
-`go install` names the binary after its source directory, so the result is `find-the-gaps`. Alias or symlink it to `ftg` to match the rest of this README:
+`go install` only installs the `ftg` binary. `analyze` and `render` also need `mdfetch` and `hugo` on your `$PATH`:
 
 ```sh
-ln -s "$(go env GOPATH)/bin/find-the-gaps" "$(go env GOPATH)/bin/ftg"
+npm install -g @sandgarden/mdfetch@latest
 ```
+
+For `hugo`, grab a binary from the [Hugo releases page](https://github.com/gohugoio/hugo/releases) (or use your distro's package manager).
+
+Run `ftg doctor` to confirm. If `mdfetch` or `hugo` is missing, the offending command will refuse to run and tell you exactly what to install.
 
 Or build from source — `make build` produces `./ftg` directly:
 

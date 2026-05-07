@@ -369,7 +369,7 @@ func TestWriteMapping_RichFields_Documented(t *testing.T) {
 				Layer:       "cli",
 				UserFacing:  true,
 			},
-			Files:   []string{"cmd/find-the-gaps/main.go"},
+			Files:   []string{"cmd/ftg/main.go"},
 			Symbols: []string{"NewRootCmd"},
 		},
 	}

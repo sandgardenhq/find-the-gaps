@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
@@ -49,6 +50,13 @@ func newRenderCmd() *cobra.Command {
 		RunE: func(cc *cobra.Command, _ []string) error {
 			if projectFlag != "" && cc.Flags().Changed("repo") {
 				return fmt.Errorf("--project and --repo are mutually exclusive")
+			}
+
+			if err := requireExternalTools(cc.Context(), doctor.Precheck{
+				Command: "ftg render",
+				Tools:   []string{"hugo"},
+			}); err != nil {
+				return err
 			}
 
 			projectDir, projectName, err := resolveRenderProjectDir(cc, cacheDir, repoPath, projectFlag)
@@ -145,9 +153,6 @@ func newRenderCmd() *cobra.Command {
 					GeneratedAt: time.Now(),
 				})
 			if err != nil {
-				if errors.Is(err, site.ErrHugoMissing) {
-					return fmt.Errorf("hugo not found on PATH; install via `brew install hugo` (or see https://github.com/gohugoio/hugo/releases)")
-				}
 				return fmt.Errorf("build site: %w", err)
 			}
 
