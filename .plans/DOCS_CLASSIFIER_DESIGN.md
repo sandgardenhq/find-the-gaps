@@ -18,11 +18,13 @@ The framing is **correctness**, not efficiency. Filtering non-docs pages is what
 
 Each page gets one boolean: `is_docs`. The rule the model applies:
 
-> A page is **docs** if a user trying to *use* this product would consult it for current technical information about features, APIs, configuration, or behavior. Default to docs when unsure.
+> A page is **docs** if a user trying to *use* this product would consult it for current technical information about features, APIs, configuration, or behavior. **Marketing pages and blog posts are never docs**, even when they contain code snippets or release announcements. Default to docs when unsure about a technical-looking page that is NOT clearly a marketing page or blog post.
 
-**Docs:** API references, tutorials, quickstarts, configuration references, changelogs / release notes, "Announcing v3"-style new-feature blog posts, marketing landing pages with code snippets or technical claims about product behavior.
+**Docs:** API references, tutorials, quickstarts, configuration references, dedicated changelog / release-notes pages.
 
-**Not-docs:** engineering retrospectives ("how we built X"), customer case studies, team / about / careers / legal pages, pricing pages without technical content, generic company blog posts.
+**Not-docs:** marketing pages (landing pages, product/feature pages, pricing, comparison pages — even with code snippets), blog posts of any kind (release/launch announcements, feature-announcement posts, deep-dives, engineering retrospectives, generic company posts), customer case studies, team / about / careers / legal pages.
+
+The "no marketing, no blog" rule is intentionally strict: docs are the canonical reference surface a user returns to, not promotional or editorial content. A feature mentioned only on a `/blog/` post or a marketing landing page is treated as undocumented — see edge cases below.
 
 False negatives are worse than false positives — silently dropping a real docs page hides gaps the tool was built to find. The classifier defaults to `is_docs = true` when uncertain.
 

@@ -3,19 +3,36 @@ title = "{{ .ProjectName }}"
 type = "docs"
 +++
 
-_Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}_
-
 {{ if .Summary }}{{ .Summary }}{{ end }}
 
 ## At a glance
 
+<div class="ftg-stats">
 {{ if .Expanded -}}
-- [**{{ .FeatureCount }} features**](/features/)
+<a class="ftg-stat-card ftg-stat-card--neutral" href="/features/">
 {{- else -}}
-- [**{{ .FeatureCount }} features**](/mapping/)
+<a class="ftg-stat-card ftg-stat-card--neutral" href="/mapping/">
 {{- end }}
-- [**{{ .UndocumentedUserCount }} undocumented (user-facing)**](/gaps/)
-- [**{{ .DriftCount }} drift findings**](/gaps/)
+<span class="ftg-stat-num">{{ .FeatureCount }}</span>
+<span class="ftg-stat-label">Features</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .UndocumentedUserCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--bad{{ end }}" href="/gaps/">
+<span class="ftg-stat-num">{{ .UndocumentedUserCount }}</span>
+<span class="ftg-stat-label">Undocumented user-facing</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .DriftCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--bad{{ end }}" href="/gaps/">
+<span class="ftg-stat-num">{{ .DriftCount }}</span>
+<span class="ftg-stat-label">Drift findings</span>
+</a>
+
 {{- if .ScreenshotsRan }}
-- [**{{ .ScreenshotGapCount }} missing screenshots**](/screenshots/)
+<a class="ftg-stat-card {{ if eq .ScreenshotGapCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--bad{{ end }}" href="/screenshots/">
+<span class="ftg-stat-num">{{ .ScreenshotGapCount }}</span>
+<span class="ftg-stat-label">Missing screenshots</span>
+</a>
 {{- end }}
+</div>
+
+<p class="ftg-generated">Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}</p>

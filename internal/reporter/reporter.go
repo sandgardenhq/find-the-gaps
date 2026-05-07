@@ -2,12 +2,21 @@ package reporter
 
 import (
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
+
+// esc shortens html.EscapeString. LLM-derived strings (drift issues, alt text,
+// page URLs, etc.) are interpolated into raw HTML cards in gaps.md and
+// screenshots.md; without escaping, a `<`, `>`, `&`, or `"` from the model
+// would either leak as a stray tag or break an attribute. The markdown path
+// goldmark uses for non-HTML content escapes these automatically — we mirror
+// that here for the raw-HTML path.
+func esc(s string) string { return html.EscapeString(s) }
 
 // WriteMapping writes mapping.md to dir.
 //
@@ -71,9 +80,14 @@ func WriteMapping(dir string, summary analyzer.ProductSummary, mapping analyzer.
 }
 
 // WriteGaps writes gaps.md to dir.
-// Undocumented Code: features with a code implementation but no documentation page.
-// Unmapped Features: features mentioned in docs with no code match.
+// Undocumented Features: user-facing features with a code implementation but no documentation page.
 // Stale Documentation: inaccuracies found in pages that DO cover a feature.
+//
+// Internal (non-user-facing) features are intentionally excluded from the
+// "Undocumented" section — the user-impact bar is what matters for docs.
+// Documented-but-unmapped features are also no longer reported: in practice
+// they were dominated by docs-side hallucinations and added more noise than
+// signal.
 func WriteGaps(
 	dir string,
 	mapping analyzer.FeatureMap,
@@ -87,18 +101,12 @@ func WriteGaps(
 }
 
 // BuildGapsStaticPrefix renders the portion of gaps.md whose contents do not
-// change as drift findings stream in: the document title, Undocumented Code
-// (split by user-facing) and Unmapped Features. The returned string ends with
-// the trailing newline of the Unmapped Features body, so the caller composes
-// the Stale Documentation section by appending "\n## Stale Documentation\n\n"
-// followed by BuildGapsStaleSection.
+// change as drift findings stream in: the document title and the Undocumented
+// Features section. The returned string ends with the trailing newline of the
+// Undocumented Features body, so the caller composes the Stale Documentation
+// section by appending "\n## Stale Documentation\n\n" followed by
+// BuildGapsStaleSection.
 func BuildGapsStaticPrefix(mapping analyzer.FeatureMap, allDocFeatures []string) string {
-	codeFeatures := make(map[string]bool)
-	for _, entry := range mapping {
-		if len(entry.Files) > 0 {
-			codeFeatures[entry.Feature.Name] = true
-		}
-	}
 	docFeatures := make(map[string]bool)
 	for _, f := range allDocFeatures {
 		docFeatures[f] = true
@@ -107,42 +115,25 @@ func BuildGapsStaticPrefix(mapping analyzer.FeatureMap, allDocFeatures []string)
 	var sb strings.Builder
 	sb.WriteString("# Gaps Found\n\n")
 
-	sb.WriteString("## Undocumented Code\n\n")
-
-	sb.WriteString("### User-facing\n\n")
-	found := false
+	// Undocumented features: user-facing features implemented in code but
+	// missing from docs. Each is rendered as a problem callout via the
+	// .ftg-undoc CSS class so the rendered site reads as a list of issues
+	// rather than a plain bullet list.
+	sb.WriteString("## Undocumented Features\n\n")
+	var undoc []analyzer.FeatureEntry
 	for _, entry := range mapping {
 		if len(entry.Files) > 0 && !docFeatures[entry.Feature.Name] && entry.Feature.UserFacing {
-			fmt.Fprintf(&sb, "- \"%s\" has code implementation but no documentation page\n", entry.Feature.Name)
-			found = true
+			undoc = append(undoc, entry)
 		}
 	}
-	if !found {
+	if len(undoc) == 0 {
 		sb.WriteString("_None found._\n")
-	}
-
-	sb.WriteString("\n### Not user-facing\n\n")
-	found = false
-	for _, entry := range mapping {
-		if len(entry.Files) > 0 && !docFeatures[entry.Feature.Name] && !entry.Feature.UserFacing {
-			fmt.Fprintf(&sb, "- \"%s\" has code implementation but no documentation page\n", entry.Feature.Name)
-			found = true
+	} else {
+		sb.WriteString(`<div class="ftg-undoc-list">` + "\n\n")
+		for _, entry := range undoc {
+			fmt.Fprintf(&sb, `<div class="ftg-undoc"><span class="ftg-undoc-name">%s</span><span class="ftg-undoc-msg"> — has code implementation but no documentation page</span></div>`+"\n\n", esc(entry.Feature.Name))
 		}
-	}
-	if !found {
-		sb.WriteString("_None found._\n")
-	}
-
-	sb.WriteString("\n## Unmapped Features\n\n")
-	found = false
-	for _, feat := range allDocFeatures {
-		if !codeFeatures[feat] {
-			fmt.Fprintf(&sb, "- \"%s\" mentioned in docs — no code match found\n", feat)
-			found = true
-		}
-	}
-	if !found {
-		sb.WriteString("_None found._\n")
+		sb.WriteString("</div>\n")
 	}
 
 	return sb.String()
@@ -166,18 +157,21 @@ func BuildGapsStaleSection(drift []analyzer.DriftFinding) string {
 		if len(bucket) == 0 {
 			continue
 		}
-		fmt.Fprintf(&sb, "### %s\n\n", priorityHeading(p))
+		fmt.Fprintf(&sb, "<div class=\"ftg-priority ftg-priority--%s\">\n\n### %s\n\n</div>\n\n", priorityClass(p), priorityHeading(p))
+		fmt.Fprintf(&sb, `<div class="ftg-stale-list">`+"\n\n")
 		for _, item := range bucket {
+			fmt.Fprintf(&sb, `<div class="ftg-stale ftg-stale--%s">`+"\n", priorityClass(p))
+			fmt.Fprintf(&sb, `<span class="ftg-stale-feature">%s</span>`+"\n", esc(item.Feature))
 			if item.Issue.Page != "" {
-				fmt.Fprintf(&sb, "- **%s** — %s — %s\n", item.Feature, item.Issue.Page, item.Issue.Issue)
-			} else {
-				fmt.Fprintf(&sb, "- **%s** — %s\n", item.Feature, item.Issue.Issue)
+				fmt.Fprintf(&sb, `<a class="ftg-stale-page" href="%s">%s</a>`+"\n", esc(item.Issue.Page), esc(item.Issue.Page))
 			}
+			fmt.Fprintf(&sb, `<span class="ftg-stale-issue">%s</span>`+"\n", esc(item.Issue.Issue))
 			if item.Issue.PriorityReason != "" {
-				fmt.Fprintf(&sb, "  _why: %s_\n", item.Issue.PriorityReason)
+				fmt.Fprintf(&sb, `<span class="ftg-stale-why">why: %s</span>`+"\n", esc(item.Issue.PriorityReason))
 			}
-			sb.WriteString("\n")
+			sb.WriteString("</div>\n\n")
 		}
+		sb.WriteString("</div>\n\n")
 	}
 	return sb.String()
 }
@@ -235,15 +229,20 @@ func BuildScreenshotsBytes(res analyzer.ScreenshotResult) []byte {
 	return []byte(sb.String())
 }
 
-// gapRenderer renders one ScreenshotGap into the builder. Used to differentiate
-// missing-screenshot rendering (Insert hint) from possibly-covered rendering
-// (Insert if uncovered hint) without duplicating bucket plumbing.
-type gapRenderer func(*strings.Builder, analyzer.ScreenshotGap)
+// gapRenderer renders one ScreenshotGap into the builder. The third argument
+// is the priority class suffix ("large" / "medium" / "small") so the
+// renderer can stamp the correct `.ftg-shot--*` modifier onto its card.
+// Used to differentiate missing-screenshot rendering (Insert hint) from
+// possibly-covered rendering (Insert if uncovered hint) without duplicating
+// bucket plumbing.
+type gapRenderer func(*strings.Builder, analyzer.ScreenshotGap, string)
 
-// writeGapBuckets emits "### Large/Medium/Small" sub-headings, omitting empty
-// buckets, then within each bucket emits "#### <pageURL>" page headings (in
-// stable input order) followed by the rendered gap items via render. Anchors
-// are emitted only on the missing-screenshots side because the existing inline
+// writeGapBuckets emits priority sub-headings (wrapped in
+// `.ftg-priority--{large,medium,small}` for color) and renders each finding
+// inside a `.ftg-shot` card. The card carries the page URL, the quoted
+// passage, and the field labels in one visual unit so a reader sees
+// page → passage → what to show → where to put it together. Anchors are
+// emitted only on the missing-screenshots side because the existing inline
 // permalinks/TOC integration only reads anchors from that section.
 func writeGapBuckets(sb *strings.Builder, gaps []analyzer.ScreenshotGap, render gapRenderer, emitAnchor bool) {
 	for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
@@ -251,8 +250,12 @@ func writeGapBuckets(sb *strings.Builder, gaps []analyzer.ScreenshotGap, render 
 		if len(bucket) == 0 {
 			continue
 		}
-		fmt.Fprintf(sb, "### %s\n\n", priorityHeading(p))
-		// Page grouping inside the bucket, first-occurrence order.
+		fmt.Fprintf(sb, "<div class=\"ftg-priority ftg-priority--%s\">\n\n### %s\n\n</div>\n\n", priorityClass(p), priorityHeading(p))
+		sb.WriteString(`<div class="ftg-shot-list">` + "\n\n")
+		// Page grouping inside the bucket, first-occurrence order. The page
+		// header stays as an `<h4>` heading (#### markdown) so Hugo's TOC
+		// continues to pick it up — but the per-finding card carries its
+		// own page label too so a card scanned in isolation makes sense.
 		seen := map[string]bool{}
 		var order []string
 		byPage := map[string][]analyzer.ScreenshotGap{}
@@ -270,44 +273,55 @@ func writeGapBuckets(sb *strings.Builder, gaps []analyzer.ScreenshotGap, render 
 				fmt.Fprintf(sb, "#### %s\n\n", page)
 			}
 			for _, g := range byPage[page] {
-				render(sb, g)
+				render(sb, g, priorityClass(p))
 			}
 		}
+		sb.WriteString("</div>\n\n")
 	}
 }
 
-func renderMissingGap(sb *strings.Builder, g analyzer.ScreenshotGap) {
-	fmt.Fprintf(sb, "- **Passage:**\n\n")
+func renderMissingGap(sb *strings.Builder, g analyzer.ScreenshotGap, prio string) {
+	fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", prio)
+	fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(g.PageURL), esc(g.PageURL))
+	sb.WriteString(`<div class="ftg-shot-body">` + "\n\n")
+	sb.WriteString(`<div class="ftg-shot-section ftg-shot-passage"><span class="ftg-shot-label">Passage</span>` + "\n\n")
 	fmt.Fprintf(sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
-	fmt.Fprintf(sb, "  - **Screenshot should show:** %s\n", g.ShouldShow)
-	fmt.Fprintf(sb, "  - **Alt text:** %s\n", g.SuggestedAlt)
-	fmt.Fprintf(sb, "  - **Insert:** %s\n", g.InsertionHint)
+	sb.WriteString("</div>\n")
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Should show</span>%s</div>`+"\n", esc(g.ShouldShow))
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Alt text</span><code>%s</code></div>`+"\n", esc(g.SuggestedAlt))
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Insert</span>%s</div>`+"\n", esc(g.InsertionHint))
 	if g.PriorityReason != "" {
-		fmt.Fprintf(sb, "  - **Why:** %s\n", g.PriorityReason)
+		fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", esc(g.PriorityReason))
 	}
-	sb.WriteString("\n")
+	sb.WriteString("</div>\n</div>\n\n")
 }
 
-func renderPossiblyCoveredGap(sb *strings.Builder, g analyzer.ScreenshotGap) {
-	fmt.Fprintf(sb, "- **Passage:**\n\n")
+func renderPossiblyCoveredGap(sb *strings.Builder, g analyzer.ScreenshotGap, prio string) {
+	fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", prio)
+	fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(g.PageURL), esc(g.PageURL))
+	sb.WriteString(`<div class="ftg-shot-body">` + "\n\n")
+	sb.WriteString(`<div class="ftg-shot-section ftg-shot-passage"><span class="ftg-shot-label">Passage</span>` + "\n\n")
 	fmt.Fprintf(sb, "%s\n\n", fencedCodeBlock(g.QuotedPassage))
-	fmt.Fprintf(sb, "  - **Would have suggested:** %s\n", g.ShouldShow)
-	fmt.Fprintf(sb, "  - **Insert (if uncovered):** %s\n", g.InsertionHint)
+	sb.WriteString("</div>\n")
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Would have suggested</span>%s</div>`+"\n", esc(g.ShouldShow))
+	fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Insert (if uncovered)</span>%s</div>`+"\n", esc(g.InsertionHint))
 	if g.PriorityReason != "" {
-		fmt.Fprintf(sb, "  - **Why:** %s\n", g.PriorityReason)
+		fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", esc(g.PriorityReason))
 	}
-	sb.WriteString("\n")
+	sb.WriteString("</div>\n</div>\n\n")
 }
 
-// writeImageIssueBuckets emits Large/Medium/Small sub-headings for image
-// issues, then within each bucket groups by page (first-occurrence order).
+// writeImageIssueBuckets emits priority sub-headings (color-wrapped) and
+// renders each issue as an `.ftg-shot` card so the screenshots page has a
+// single visual language for findings.
 func writeImageIssueBuckets(sb *strings.Builder, issues []analyzer.ImageIssue) {
 	for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
 		bucket := filterImageIssuesByPriority(issues, p)
 		if len(bucket) == 0 {
 			continue
 		}
-		fmt.Fprintf(sb, "### %s\n\n", priorityHeading(p))
+		fmt.Fprintf(sb, "<div class=\"ftg-priority ftg-priority--%s\">\n\n### %s\n\n</div>\n\n", priorityClass(p), priorityHeading(p))
+		sb.WriteString(`<div class="ftg-shot-list">` + "\n\n")
 		seen := map[string]bool{}
 		var order []string
 		byPage := map[string][]analyzer.ImageIssue{}
@@ -321,15 +335,21 @@ func writeImageIssueBuckets(sb *strings.Builder, issues []analyzer.ImageIssue) {
 		for _, page := range order {
 			fmt.Fprintf(sb, "#### %s\n\n", page)
 			for _, ii := range byPage[page] {
-				fmt.Fprintf(sb, "- **Image:** ![%s](%s)\n", ii.Index, ii.Src)
-				fmt.Fprintf(sb, "  **Issue:** %s\n", ii.Reason)
-				fmt.Fprintf(sb, "  **Suggested action:** %s\n", ii.SuggestedAction)
+				fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", priorityClass(p))
+				fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(ii.PageURL), esc(ii.PageURL))
+				sb.WriteString(`<div class="ftg-shot-body">` + "\n\n")
+				sb.WriteString(`<div class="ftg-shot-section ftg-shot-image"><span class="ftg-shot-label">Image</span>` + "\n\n")
+				fmt.Fprintf(sb, "![%s](%s)\n\n", ii.Index, ii.Src)
+				sb.WriteString("</div>\n")
+				fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Issue</span>%s</div>`+"\n", esc(ii.Reason))
+				fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Suggested action</span>%s</div>`+"\n", esc(ii.SuggestedAction))
 				if ii.PriorityReason != "" {
-					fmt.Fprintf(sb, "  **Why:** %s\n", ii.PriorityReason)
+					fmt.Fprintf(sb, `<div class="ftg-shot-section"><span class="ftg-shot-label">Why</span>%s</div>`+"\n", esc(ii.PriorityReason))
 				}
-				sb.WriteString("\n")
+				sb.WriteString("</div>\n</div>\n\n")
 			}
 		}
+		sb.WriteString("</div>\n\n")
 	}
 }
 

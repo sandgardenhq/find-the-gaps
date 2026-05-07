@@ -71,7 +71,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "show debug logs")
-	cmd.AddCommand(newDoctorCmd(), newAnalyzeCmd(), newServeCmd())
+	cmd.AddCommand(newDoctorCmd(), newAnalyzeCmd(), newRenderCmd(), newServeCmd())
 	return cmd
 }
 
