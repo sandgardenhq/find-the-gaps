@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -464,6 +465,9 @@ func newAnalyzeCmd() *cobra.Command {
 					return fmt.Errorf("close gaps writer: %w", closeErr)
 				}
 				if err != nil {
+					if errors.Is(err, analyzer.ErrLLMRetriesExhausted) {
+						printRestartHint(cmd.ErrOrStderr())
+					}
 					return fmt.Errorf("detect drift: %w", err)
 				}
 				log.Infof("drift cache: %d hits, %d fresh", hits, fresh)
@@ -790,4 +794,17 @@ func stringSliceEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// printRestartHint writes a one-shot warning explaining that the run was
+// stopped by a retried-and-exhausted LLM call (provider hiccup, malformed
+// response, network blip) and that re-running analyze resumes from cached
+// per-feature drift results.
+func printRestartHint(w io.Writer) {
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "WARNING: analyze stopped because an LLM call failed after several retries.")
+	_, _ = fmt.Fprintln(w, "         This usually means the LLM provider is temporarily unavailable.")
+	_, _ = fmt.Fprintln(w, "         Re-run `ftg analyze` to resume — completed features are cached")
+	_, _ = fmt.Fprintln(w, "         and will be skipped.")
+	_, _ = fmt.Fprintln(w)
 }
