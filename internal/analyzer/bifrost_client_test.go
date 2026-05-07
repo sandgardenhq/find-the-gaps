@@ -1133,3 +1133,202 @@ func TestFormatUsage_NilDetails_ReportsZeroes(t *testing.T) {
 func TestFormatUsage_NilUsage_EmptyString(t *testing.T) {
 	assert.Equal(t, "", formatUsage(nil))
 }
+
+// scriptedBifrostRequester is a test double that returns successive responses
+// from a script and records every request it received. Unlike the single-shot
+// fakeBifrostRequester, it lets a test assert on the messages sent to each
+// individual attempt — the right shape for testing the CompleteJSON retry
+// path, which makes a second call with corrective context appended to the
+// messages slice.
+type scriptedBifrostRequester struct {
+	responses []scriptedBifrostResponse
+	requests  []*schemas.BifrostChatRequest
+}
+
+type scriptedBifrostResponse struct {
+	resp     *schemas.BifrostChatResponse
+	bifroErr *schemas.BifrostError
+}
+
+func (s *scriptedBifrostRequester) ChatCompletionRequest(_ *schemas.BifrostContext, req *schemas.BifrostChatRequest) (*schemas.BifrostChatResponse, *schemas.BifrostError) {
+	s.requests = append(s.requests, req)
+	idx := len(s.requests) - 1
+	if idx >= len(s.responses) {
+		// Tests that hit this path are scripted incorrectly — a third call
+		// when only two were configured indicates the retry layer is looping.
+		return nil, &schemas.BifrostError{Error: &schemas.ErrorField{Message: "scriptedBifrostRequester: ran out of scripted responses"}}
+	}
+	r := s.responses[idx]
+	return r.resp, r.bifroErr
+}
+
+func anthropicToolResp(toolName, args string) *schemas.BifrostChatResponse {
+	id := "tc_" + toolName
+	name := toolName
+	return &schemas.BifrostChatResponse{
+		Choices: []schemas.BifrostResponseChoice{
+			makeToolChoice(nil, []schemas.ChatAssistantMessageToolCall{
+				{
+					ID:       &id,
+					Function: schemas.ChatAssistantMessageToolCallFunction{Name: &name, Arguments: args},
+				},
+			}),
+		},
+	}
+}
+
+func openAIContentResp(content string) *schemas.BifrostChatResponse {
+	c := content
+	return &schemas.BifrostChatResponse{
+		Choices: []schemas.BifrostResponseChoice{
+			makeChoice(&schemas.ChatMessageContent{ContentStr: &c}),
+		},
+	}
+}
+
+// followUpUserText returns the text content of the last user message in the
+// (already-rendered) request input. Handles both ContentStr and ContentBlocks
+// shapes so the helper survives any future rendering tweak.
+func followUpUserText(t *testing.T, req *schemas.BifrostChatRequest) string {
+	t.Helper()
+	require.NotEmpty(t, req.Input, "request must carry at least one message")
+	last := req.Input[len(req.Input)-1]
+	require.Equal(t, schemas.ChatMessageRoleUser, last.Role, "follow-up must be a user message")
+	require.NotNil(t, last.Content)
+	if last.Content.ContentStr != nil {
+		return *last.Content.ContentStr
+	}
+	if len(last.Content.ContentBlocks) > 0 && last.Content.ContentBlocks[0].Text != nil {
+		return *last.Content.ContentBlocks[0].Text
+	}
+	t.Fatalf("follow-up user message has neither ContentStr nor a text ContentBlock")
+	return ""
+}
+
+// Reproduces the production failure: the Anthropic forced-tool call returns
+// arguments that don't match the schema (the issues field would be a string
+// instead of an array). CompleteJSON must retry once with a corrective
+// follow-up message and surface the corrected response on the second try.
+func TestBifrostClient_CompleteJSON_Anthropic_RetriesOnSchemaValidationFailure(t *testing.T) {
+	badArgs := `{"summary":"oops","features":"not an array"}`
+	goodArgs := `{"summary":"ok","features":["a","b"]}`
+
+	// The tool name in each response must match the forced "respond" tool the
+	// client requests; otherwise the existing wrong-tool-name path kicks in
+	// before the validation retry can.
+	scripted := &scriptedBifrostRequester{
+		responses: []scriptedBifrostResponse{
+			{resp: anthropicToolResp("respond", badArgs)},
+			{resp: anthropicToolResp("respond", goodArgs)},
+		},
+	}
+	client := newBifrostClientWithFake(scripted, schemas.Anthropic, "claude-opus-4-7")
+	got, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err, "retry must recover from a single schema-validation glitch")
+	assert.JSONEq(t, goodArgs, string(got))
+
+	require.Len(t, scripted.requests, 2, "expected exactly two attempts (first + retry)")
+
+	retry := scripted.requests[1]
+	require.GreaterOrEqual(t, len(retry.Input), 2,
+		"retry must append a corrective user message after the original prompt")
+	followUp := followUpUserText(t, retry)
+	assert.Contains(t, followUp, "analyze_response", "follow-up must name the schema")
+	assert.Contains(t, followUp, badArgs, "follow-up must include the bad output for self-correction")
+}
+
+// If the retry also returns malformed arguments, the second validation error
+// must propagate — no infinite retry, no third attempt.
+func TestBifrostClient_CompleteJSON_Anthropic_RetryFailureBubblesUp(t *testing.T) {
+	badArgs := `{"summary":"oops","features":"still not an array"}`
+
+	scripted := &scriptedBifrostRequester{
+		responses: []scriptedBifrostResponse{
+			{resp: anthropicToolResp("respond", badArgs)},
+			{resp: anthropicToolResp("respond", badArgs)},
+		},
+	}
+	client := newBifrostClientWithFake(scripted, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "analyze_response", "error must name the schema")
+	assert.Len(t, scripted.requests, 2, "exactly 2 attempts; no third try")
+}
+
+// Schema validation is the only failure mode the retry can recover. A
+// network/provider-side error ("rate limited", upstream 5xx, etc.) must
+// bubble up after the first attempt — retrying a transport failure is not
+// the job of this helper.
+func TestBifrostClient_CompleteJSON_Anthropic_DoesNotRetryOnTransportError(t *testing.T) {
+	scripted := &scriptedBifrostRequester{
+		responses: []scriptedBifrostResponse{
+			{bifroErr: &schemas.BifrostError{Error: &schemas.ErrorField{Message: "rate limited"}}},
+		},
+	}
+	client := newBifrostClientWithFake(scripted, schemas.Anthropic, "claude-opus-4-7")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rate limited")
+	assert.Len(t, scripted.requests, 1, "must NOT retry on transport-level errors")
+}
+
+// OpenAI's native structured outputs (response_format=json_schema, strict=true)
+// is supposed to enforce the schema, but defensive validation can still fire
+// if our schema definition slips. Same retry-with-correction contract as the
+// Anthropic path.
+func TestBifrostClient_CompleteJSON_OpenAI_RetriesOnSchemaValidationFailure(t *testing.T) {
+	bad := `{"features":"not an array"}` // missing required "summary"; wrong type for features
+	good := `{"summary":"ok","features":["a","b"]}`
+
+	scripted := &scriptedBifrostRequester{
+		responses: []scriptedBifrostResponse{
+			{resp: openAIContentResp(bad)},
+			{resp: openAIContentResp(good)},
+		},
+	}
+	client := newBifrostClientWithFake(scripted, schemas.OpenAI, "gpt-4o-mini")
+	got, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.NoError(t, err)
+	assert.JSONEq(t, good, string(got))
+	require.Len(t, scripted.requests, 2)
+
+	retry := scripted.requests[1]
+	require.GreaterOrEqual(t, len(retry.Input), 2,
+		"retry must append a corrective user message after the original prompt")
+	followUp := followUpUserText(t, retry)
+	assert.Contains(t, followUp, "analyze_response")
+	assert.Contains(t, followUp, bad)
+}
+
+// Mirror of the Anthropic retry-failure-bubbles-up test for the OpenAI path.
+// Confirms the OpenAI branch also caps at exactly two attempts.
+func TestBifrostClient_CompleteJSON_OpenAI_RetryFailureBubblesUp(t *testing.T) {
+	bad := `{"features":"still not an array"}`
+
+	scripted := &scriptedBifrostRequester{
+		responses: []scriptedBifrostResponse{
+			{resp: openAIContentResp(bad)},
+			{resp: openAIContentResp(bad)},
+		},
+	}
+	client := newBifrostClientWithFake(scripted, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "analyze_response")
+	assert.Len(t, scripted.requests, 2, "exactly 2 attempts; no third try")
+}
+
+// Mirror of the Anthropic transport-error test for the OpenAI path. The retry
+// is gated on schema validation failure, not on every error.
+func TestBifrostClient_CompleteJSON_OpenAI_DoesNotRetryOnTransportError(t *testing.T) {
+	scripted := &scriptedBifrostRequester{
+		responses: []scriptedBifrostResponse{
+			{bifroErr: &schemas.BifrostError{Error: &schemas.ErrorField{Message: "bad model"}}},
+		},
+	}
+	client := newBifrostClientWithFake(scripted, schemas.OpenAI, "gpt-4o-mini")
+	_, err := client.CompleteJSON(context.Background(), "x", testAnalyzeSchema())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bad model")
+	assert.Len(t, scripted.requests, 1, "must NOT retry on transport-level errors")
+}
