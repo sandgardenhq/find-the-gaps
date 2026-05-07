@@ -79,3 +79,59 @@ func TestOpenAIDefaults_AreVisionAndToolCapable(t *testing.T) {
 		assert.True(t, caps.Vision, "%s default %q must support vision", tc.name, tc.tier)
 	}
 }
+
+// TestResolveCapabilities_KnownModelsCarryMaxInputTokens pins the per-model
+// input budget for every hosted model in knownModels. Values are ~10% under
+// the provider's published context window so output tokens and per-provider
+// serialization overhead do not push a request over the wire-level cap.
+func TestResolveCapabilities_KnownModelsCarryMaxInputTokens(t *testing.T) {
+	cases := []struct {
+		provider, model string
+		want            int
+	}{
+		{"anthropic", "claude-haiku-4-5", 180000},
+		{"anthropic", "claude-sonnet-4-6", 180000},
+		{"anthropic", "claude-opus-4-7", 180000},
+		{"openai", "gpt-5.5", 260000},
+		{"openai", "gpt-5.4", 260000},
+		{"openai", "gpt-5.4-mini", 260000},
+		{"openai", "gpt-5.4-nano", 260000},
+		{"openai", "gpt-5", 260000},
+		{"openai", "gpt-5-mini", 260000},
+		{"openai", "gpt-4o", 115000},
+		{"openai", "gpt-4o-mini", 115000},
+		{"groq", "meta-llama/llama-4-scout-17b-16e-instruct", 120000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider+"/"+tc.model, func(t *testing.T) {
+			caps, ok := ResolveCapabilities(tc.provider, tc.model)
+			assert.True(t, ok)
+			assert.Equal(t, tc.want, caps.MaxInputTokens)
+		})
+	}
+}
+
+// TestResolveCapabilities_UnknownModelOnKnownProviderUsesConservativeDefault
+// pins the fallback behavior: a future model on a known provider gets a
+// 100k budget rather than zero. This is below GPT-4o's 128k floor and any
+// modern hosted production model, so the gate fires safely on a brand-new
+// row before the table catches up — and an obscure model can't reproduce
+// the 294k incident this work fixes.
+func TestResolveCapabilities_UnknownModelOnKnownProviderUsesConservativeDefault(t *testing.T) {
+	caps, ok := ResolveCapabilities("anthropic", "claude-future-99")
+	assert.True(t, ok)
+	assert.Equal(t, 100000, caps.MaxInputTokens)
+}
+
+// TestResolveCapabilities_SelfHostedWildcardHasNoBudget pins the contract
+// that ollama/lmstudio's wildcard rows carry a zero MaxInputTokens, meaning
+// the budget gate is disabled. The user picks the model and the harness
+// can't know its limit; failing closed would surprise users running tiny
+// local models that fit comfortably.
+func TestResolveCapabilities_SelfHostedWildcardHasNoBudget(t *testing.T) {
+	for _, provider := range []string{"ollama", "lmstudio"} {
+		caps, ok := ResolveCapabilities(provider, "anything-the-user-picked")
+		assert.True(t, ok, provider)
+		assert.Equal(t, 0, caps.MaxInputTokens, provider)
+	}
+}
