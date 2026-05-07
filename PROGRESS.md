@@ -1497,3 +1497,42 @@ find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<
 ```
 
 Expected speedup target (Scenario 15 step 3): on a fixture with ≥ 10 docs pages and ≥ 5 drift candidates, `--workers=8` should beat `--workers=1` by at least 2x wall-clock. Smaller fixtures may show smaller speedups; the gate is "meaningfully faster," not a hard ratio.
+
+
+## Task: Per-Model Token Budget — COMPLETE
+
+- Started: 2026-05-07
+- Branch: `fix/drift-token-budget`
+- Tests: all passing (`go test ./... -count=1` green; analyzer suite ~3s, full repo ~3min)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean for changes on this branch (two pre-existing staticcheck warnings on `bifrost_client_test.go` predate this work — last touched on `main`)
+- Plan: `.plans/2026-05-07-token-budget-plan.md`
+- Design: `.plans/2026-05-07-token-budget-design.md`
+
+### What it does
+
+Fixes the "Input tokens exceed the configured limit of 272000 tokens" crash from the drift investigator by adding a per-model `MaxInputTokens` budget that gates every LLM call before the wire send.
+
+### Tasks completed (13/14)
+
+1. `MaxInputTokens` field on `cli.ModelCapabilities` + populated table (Anthropic 180k, OpenAI 5x family 260k, GPT-4o family 115k, Groq llama-4-scout 120k; conservative 100k default for unknown models on a known provider).
+2. Mirrored on `analyzer.ModelCapabilities` via the new `toAnalyzerCaps` propagation helper.
+3. `ErrTokenBudgetExceeded` typed error with `errors.Is` sentinel matching.
+4. `countPayloadTokens` aggregator (prompt + messages + tools + schema, ContentBlock text + ToolCall arguments).
+5. `budgetedClient` decorator gates `Complete`, `CompleteJSON`, `CompleteJSONMultimodal` at 0.9 × `MaxInputTokens`.
+6. Decorator wired into every tier in `internal/cli/llm_client.go:buildTierClient`.
+7. **Agent loop**: `WithPreTurnHook` and `WithMaxToolResultTokens` options; `clipToolResult` truncates oversized tool reads with a `[truncated: ~N tokens omitted]` marker; `budgetedClient.CompleteWithTools` attaches both hooks.
+8. Drift investigator recovers from `ErrTokenBudgetExceeded` like `ErrMaxRounds` — partial observations flow to the judge; zero observations returns a typed error.
+9. `DetectDrift` skips un-investigated features (typed-error path) without writing a misleading "no drift" cache entry; the run continues for other features.
+10. `judgeFeatureDrift` chunked-judging compaction: refactored into `judgeOneShot` + `chunkObservationsToFit`. On budget overflow, observations are split into chunks that each fit, judged separately, and merged. Lossless at the observation level.
+11. `AnalyzePage` logs + skips on the typed error.
+12. `detectionPass` (screenshot pass) logs + skips, returning the same `(nil, nil, true, nil)` skip shape already used for in-process budget overflow. The relevance pass already handled the error correctly via its existing fail-open branch.
+13. `MapFeaturesToCode` logs + skips a budget-busting batch (with a "batcher pre-sizing should have prevented this; investigate" hint) and continues with the remaining batches.
+
+### Task 14 (verification) — partial
+
+- ✅ Full test suite green.
+- ✅ Lint clean for this branch's changes.
+- ⏳ End-to-end repro of the original failing fixture is left for the developer — the failing input is on the user's machine, not in this workspace.
+- ⏳ PR creation deferred to the user (a user-visible action).
+
