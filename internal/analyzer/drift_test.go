@@ -172,6 +172,110 @@ func TestDetectDrift_DocumentedFeature_ReturnsIssues(t *testing.T) {
 	assert.Contains(t, findings[0].Issues[0].Issue, "Email requirement")
 }
 
+// When the judge call fails for one feature, DetectDrift must log a warning
+// and continue with subsequent features. Reproduces the production failure
+// where a single malformed judge response (issues:"<string>" instead of
+// issues:[…]) aborted a 12-minute analyze run after work on 7 prior features
+// had already completed.
+func TestDetectDrift_JudgeFailureIsolatesToFeature(t *testing.T) {
+	// Investigator runs both features (4 messages: 2 per feature). Reusing
+	// driftStubClient.responses serves them in order — note_observation, then
+	// driftDone, twice.
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+			noteObservation("https://docs.example.com/search", "old s", "new s", "drift s"),
+			driftDone(),
+		},
+	}
+	// Judge fails for "auth", succeeds for "search". The prompt template at
+	// drift.go:514 always emits "Feature: <name>" so we can route on it.
+	goodJudge := judgeJSON("https://docs.example.com/search", "Search drift.")
+	large := &driftStubClient{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			if strings.Contains(prompt, "Feature: auth") {
+				return "", errors.New("simulated judge failure")
+			}
+			return goodJudge(ctx, prompt)
+		},
+	}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"s.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/search"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Page", nil }
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		nil, nil, nil,
+	)
+	require.NoError(t, err, "judge failure for one feature must not abort the run")
+	require.Len(t, findings, 1, "auth dropped, search retained")
+	assert.Equal(t, "search", findings[0].Feature)
+	require.Len(t, findings[0].Issues, 1)
+	assert.Contains(t, findings[0].Issues[0].Issue, "Search drift.")
+}
+
+// Per the project decision (don't cache failures): when a judge call fails
+// for a feature, onFeatureDone must NOT fire for it. The next run will
+// re-investigate from scratch instead of inheriting a permanent silent
+// zero-finding cache that would mask a recurring model regression.
+func TestDetectDrift_JudgeFailureSkipsCacheCallback(t *testing.T) {
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+			noteObservation("https://docs.example.com/search", "old s", "new s", "drift s"),
+			driftDone(),
+		},
+	}
+	goodJudge := judgeJSON("https://docs.example.com/search", "Search drift.")
+	large := &driftStubClient{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			if strings.Contains(prompt, "Feature: auth") {
+				return "", errors.New("simulated judge failure")
+			}
+			return goodJudge(ctx, prompt)
+		},
+	}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"s.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		{Feature: "search", Pages: []string{"https://docs.example.com/search"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Page", nil }
+
+	var seen []string
+	onFeatureDone := func(name string, _, _, _ []string, _ []analyzer.DriftIssue) error {
+		seen = append(seen, name)
+		return nil
+	}
+
+	_, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo",
+		nil, nil, onFeatureDone,
+	)
+	require.NoError(t, err)
+	assert.NotContains(t, seen, "auth", "failed feature must not be cached")
+	assert.Contains(t, seen, "search", "successful feature must still be cached")
+}
+
 func TestDetectDrift_LLMReturnsEmptyArray_FeatureDropped(t *testing.T) {
 	// Investigator emits zero observations — the feature produces zero findings,
 	// the judge must NOT be invoked, and the feature is dropped.

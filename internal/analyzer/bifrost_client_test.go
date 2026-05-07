@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -1316,6 +1317,28 @@ func TestBifrostClient_CompleteJSON_OpenAI_RetryFailureBubblesUp(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "analyze_response")
 	assert.Len(t, scripted.requests, 2, "exactly 2 attempts; no third try")
+}
+
+// schemaCorrectionMessage caps the bad-output excerpt at maxCorrectionRawLen
+// so a runaway model output can't blow past the model's window when we
+// re-send it as part of the retry prompt. The cap fires only on truly large
+// outputs; small outputs pass through verbatim.
+func TestSchemaCorrectionMessage_TruncatesLargeRawBody(t *testing.T) {
+	schema := JSONSchema{Name: "test_schema", Doc: json.RawMessage(`{"type":"object"}`)}
+	validatorErr := errors.New("missing properties: 'foo'")
+
+	// Just over the cap so the truncation branch fires.
+	huge := json.RawMessage(strings.Repeat("a", maxCorrectionRawLen+128))
+	got := schemaCorrectionMessage(schema, huge, validatorErr)
+	assert.Contains(t, got, "test_schema")
+	assert.Contains(t, got, "missing properties: 'foo'")
+	assert.Contains(t, got, "...[truncated]", "outputs over the cap must be truncated")
+
+	// Just under the cap — no truncation marker, full body present.
+	small := json.RawMessage(`{"foo":"bar"}`)
+	got2 := schemaCorrectionMessage(schema, small, validatorErr)
+	assert.Contains(t, got2, `{"foo":"bar"}`)
+	assert.NotContains(t, got2, "...[truncated]")
 }
 
 // Mirror of the Anthropic transport-error test for the OpenAI path. The retry
