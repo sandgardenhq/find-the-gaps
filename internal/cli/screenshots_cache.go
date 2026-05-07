@@ -14,7 +14,10 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
-// screenshotsCacheFile is the on-disk shape of <projectDir>/screenshots.json.
+// screenshotsCacheFile is the on-disk shape of <projectDir>/screenshots-cache.json.
+// The path is distinct from <projectDir>/screenshots.json (the reporter's
+// user-visible flat findings artifact); the cache and the report cannot share
+// a filename because each writer would clobber the other's shape mid-run.
 // The Pages list mirrors the sorted entry URLs for quick inspection; lookup
 // itself is per-entry against Entries (keyed by URL+ContentHash).
 type screenshotsCacheFile struct {
