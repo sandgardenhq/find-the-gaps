@@ -140,13 +140,13 @@ func TestRun_HelpReturnsZero(t *testing.T) {
 	}
 }
 
-func TestRun_AnalyzeReturnsZero(t *testing.T) {
+func TestRun_AnalyzeMissingDocsURL_ReturnsNonZero(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
-	if code != 0 {
-		t.Errorf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero (analyze without --docs-url should fail); stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
@@ -218,12 +218,9 @@ func TestRootCmd_verboseShorthand_appearsInHelp(t *testing.T) {
 }
 
 func TestRootCmd_verbose_acceptedWithoutError(t *testing.T) {
-	dir := t.TempDir()
-	cacheBase := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase})
-	if code != 0 {
-		t.Fatalf("--verbose flag rejected (code=%d): stderr=%q", code, stderr.String())
+	cmd := NewRootCmd()
+	if err := cmd.PersistentFlags().Parse([]string{"--verbose"}); err != nil {
+		t.Fatalf("--verbose should parse on root: %v", err)
 	}
 }
 
@@ -235,15 +232,13 @@ func TestRun_verbose_showsDebugOutput(t *testing.T) {
 		log.SetOutput(os.Stderr)
 		log.SetLevel(log.InfoLevel)
 	})
-	// Runs analyze over an empty repo (no docs-url) with --verbose.
-	// Expects at least one DEBUG line in stderr.
+	// Runs analyze over an empty repo with --verbose. The scan logs at DEBUG
+	// before the docs path runs, so we don't need a real docs URL or a
+	// successful run — any --docs-url value satisfies the required-flag check.
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase})
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%q", code, stderr.String())
-	}
+	_ = run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
 	if !strings.Contains(stderr.String(), "DEBU") {
 		t.Errorf("expected DEBU lines in stderr with --verbose; got: %q", stderr.String())
 	}
@@ -258,10 +253,7 @@ func TestRun_noVerbose_noDebugOutput(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%q", code, stderr.String())
-	}
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
 	if strings.Contains(stderr.String(), "DEBU") {
 		t.Errorf("expected no DEBU lines in stderr without --verbose; got: %q", stderr.String())
 	}
@@ -288,16 +280,12 @@ func TestRun_noVerbose_infoLogsVisible(t *testing.T) {
 		log.SetLevel(log.InfoLevel)
 	})
 	// Info-level messages from the analyze pipeline must appear even without --verbose.
-	// (Nothing currently triggers a Warn in the no-docs-url path, so just confirm
-	// Info lines appear — the phase-start logs are Info.)
+	// "scanning repository" is logged before the docs path runs, so we accept
+	// the eventual non-zero exit and only assert on the log content.
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%q", code, stderr.String())
-	}
-	// The "scanning repository" Info log must appear at default level.
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
 	if !strings.Contains(stderr.String(), "scanning repository") {
 		t.Errorf("expected 'scanning repository' info log in stderr; got: %q", stderr.String())
 	}

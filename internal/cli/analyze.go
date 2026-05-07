@@ -145,10 +145,6 @@ func newAnalyzeCmd() *cobra.Command {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), formatScanSummary(stats))
 			}
 
-			if docsURL == "" {
-				return nil
-			}
-
 			required := []string{"mdfetch"}
 			suffix := ""
 			if !noSite {
@@ -660,6 +656,7 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&cacheDir, "cache-dir", ".find-the-gaps", "base directory for all cached results")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "force full re-scan, ignoring any cached results")
 	cmd.Flags().StringVar(&docsURL, "docs-url", "", "URL of the documentation site to analyze")
+	_ = cmd.MarkFlagRequired("docs-url")
 	cmd.Flags().IntVar(&workers, "workers", 5, "number of parallel mdfetch workers")
 	cmd.Flags().StringVar(&llmSmall, "llm-small", "",
 		"small-tier model as \"provider/model\" (default: anthropic/claude-haiku-4-5)")

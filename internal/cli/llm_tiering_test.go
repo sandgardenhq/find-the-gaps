@@ -14,8 +14,20 @@ func TestNewLLMTiering_DefaultsRequireAnthropicKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when neither key set")
 	}
-	if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
-		t.Fatalf("error should mention ANTHROPIC_API_KEY, got %v", err)
+	msg := err.Error()
+	// The error must name both supported keys and show how to set each one,
+	// so a first-time user can recover without hunting through docs.
+	for _, want := range []string{
+		"ANTHROPIC_API_KEY",
+		"OPENAI_API_KEY",
+		"export ANTHROPIC_API_KEY=",
+		"export OPENAI_API_KEY=",
+		"console.anthropic.com",
+		"platform.openai.com",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error should mention %q, got:\n%s", want, msg)
+		}
 	}
 }
 

@@ -1,6 +1,6 @@
-# analyze accepts --experimental-check-screenshots without error (no --docs-url,
-# so the analyze command short-circuits after scanning — the flag just needs
-# to parse).
+# analyze accepts --experimental-check-screenshots without error. --docs-url
+# is required, so the run fails after scanning; the scan summary still prints
+# first and the flag just needs to parse cleanly.
 mkdir repo
-exec ftg analyze --repo repo --cache-dir $WORK/cache --experimental-check-screenshots
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid --experimental-check-screenshots
 stdout 'scanned 0 files'
