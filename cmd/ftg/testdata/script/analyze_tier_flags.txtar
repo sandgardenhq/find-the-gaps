@@ -1,8 +1,10 @@
-# analyze accepts all three tier flags with their Anthropic defaults. With a
-# stub API key set, the run succeeds: the docs URL resolves to zero pages, so
-# no LLM call is actually made — this exercises flag parsing and cobra
-# binding for the full tiering surface.
+# analyze accepts all three tier flags with their Anthropic defaults. We
+# scrub mdfetch/hugo from $PATH so the precheck fails the same way on CI
+# (which doesn't ship them) and on dev machines (which usually do); the scan
+# summary still prints first, which is what we assert. This exercises flag
+# parsing and cobra binding for the full tiering surface.
 env ANTHROPIC_API_KEY=stub
+env PATH=$FTG_BIN_DIR
 mkdir repo
-exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid --llm-small anthropic/claude-haiku-4-5 --llm-typical anthropic/claude-sonnet-4-6 --llm-large anthropic/claude-opus-4-7
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid --llm-small anthropic/claude-haiku-4-5 --llm-typical anthropic/claude-sonnet-4-6 --llm-large anthropic/claude-opus-4-7
 stdout 'scanned 0 files'
