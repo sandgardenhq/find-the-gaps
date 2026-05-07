@@ -1,0 +1,14 @@
+# render refuses to start when hugo is missing from $PATH and prints a clear
+# install message. The precheck runs before any cache reads, so it fires even
+# without the cache files render normally needs. PATH is scrubbed so hugo
+# isn't reachable; testscript routes `exec ftg` through its registered-
+# command map.
+mkdir repo
+env PATH=$FTG_BIN_DIR
+! exec ftg render --repo repo --cache-dir $WORK/cache
+stderr 'ftg render needs'
+stderr 'hugo'
+stderr 'not found on \$PATH'
+stderr 'brew install hugo'
+# render does not depend on mdfetch — the message must not list it.
+! stderr 'mdfetch'

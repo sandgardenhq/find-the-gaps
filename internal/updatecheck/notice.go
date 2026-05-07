@@ -9,7 +9,7 @@ import (
 
 const (
 	brewLine = "  brew upgrade sandgardenhq/tap/find-the-gaps"
-	goLine   = "  go install github.com/sandgardenhq/find-the-gaps/cmd/find-the-gaps@latest"
+	goLine   = "  go install github.com/sandgardenhq/find-the-gaps/cmd/ftg@latest"
 )
 
 // RenderNotice formats the upgrade message printed on stderr after the command

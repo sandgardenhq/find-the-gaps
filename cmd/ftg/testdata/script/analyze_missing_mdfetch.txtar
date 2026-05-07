@@ -1,0 +1,23 @@
+# analyze refuses to start when mdfetch is missing from $PATH and prints a
+# clear install message. We scrub PATH down to an empty directory so neither
+# mdfetch nor hugo are reachable; testscript routes `exec ftg` through its
+# registered-command map, not PATH, so ftg still works.
+mkdir repo
+env PATH=$FTG_BIN_DIR
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://example.com/docs
+stderr 'ftg analyze needs'
+stderr 'mdfetch'
+stderr 'not found on \$PATH'
+stderr 'brew install sandgardenhq/tap/mdfetch'
+stderr 'npm install -g @sandgarden/mdfetch@latest'
+stderr 'Pass --no-site to skip Hugo'
+
+# The cache directory must NOT have been populated — the precheck runs before
+# any work, so cache/repo/docs should not exist.
+! exists $WORK/cache/repo/docs
+
+# With --no-site we still need mdfetch, so the precheck must still fire and
+# the suffix line must NOT mention --no-site (since hugo isn't requested).
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://example.com/docs --no-site
+stderr 'mdfetch'
+! stderr 'Pass --no-site to skip Hugo'

@@ -17,7 +17,7 @@ before:
 builds:
   - id: ftg
     binary: ftg
-    main: ./cmd/find-the-gaps
+    main: ./cmd/ftg
     env:
       - CGO_ENABLED=1
     flags:

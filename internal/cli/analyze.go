@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
@@ -145,6 +145,20 @@ func newAnalyzeCmd() *cobra.Command {
 
 			if docsURL == "" {
 				return nil
+			}
+
+			required := []string{"mdfetch"}
+			suffix := ""
+			if !noSite {
+				required = append(required, "hugo")
+				suffix = "Pass --no-site to skip Hugo."
+			}
+			if err := doctor.Require(ctx, doctor.Precheck{
+				Command: "ftg analyze",
+				Tools:   required,
+				Suffix:  suffix,
+			}); err != nil {
+				return err
 			}
 
 			if llmSmall == "" {
@@ -603,9 +617,6 @@ func newAnalyzeCmd() *cobra.Command {
 						GeneratedAt: time.Now(),
 					})
 				if err != nil {
-					if errors.Is(err, site.ErrHugoMissing) {
-						return fmt.Errorf("hugo not found on PATH; install via `brew install hugo` (or see https://github.com/gohugoio/hugo/releases), or pass --no-site to skip site generation")
-					}
 					return fmt.Errorf("build site: %w", err)
 				}
 			}

@@ -1,7 +1,7 @@
 # Find the Gaps — developer shortcuts.
 
 BIN := ftg
-PKG := ./cmd/find-the-gaps
+PKG := ./cmd/ftg
 COVERAGE := coverage.out
 
 .PHONY: help build test test-race cover cover-html lint fmt tidy clean all vendor-hextra
