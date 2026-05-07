@@ -52,7 +52,7 @@ func newRenderCmd() *cobra.Command {
 				return fmt.Errorf("--project and --repo are mutually exclusive")
 			}
 
-			if err := doctor.Require(cc.Context(), doctor.Precheck{
+			if err := requireExternalTools(cc.Context(), doctor.Precheck{
 				Command: "ftg render",
 				Tools:   []string{"hugo"},
 			}); err != nil {

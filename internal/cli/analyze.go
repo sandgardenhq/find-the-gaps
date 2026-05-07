@@ -155,7 +155,7 @@ func newAnalyzeCmd() *cobra.Command {
 				required = append(required, "hugo")
 				suffix = "Pass --no-site to skip Hugo."
 			}
-			if err := doctor.Require(ctx, doctor.Precheck{
+			if err := requireExternalTools(ctx, doctor.Precheck{
 				Command: "ftg analyze",
 				Tools:   required,
 				Suffix:  suffix,

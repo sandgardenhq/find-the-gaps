@@ -1,7 +1,18 @@
 # analyze must fail fast when --llm-typical names a provider that does not
 # support tool use. Validation runs before any crawl or LLM work.
+#
+# Note: we provide a stub mdfetch on $PATH (and pass --no-site so hugo isn't
+# required) so the external-tool precheck passes. The precheck fires before
+# tier validation; if it didn't pass here, we'd never reach the tool-use
+# rejection that this scenario actually pins.
 env ANTHROPIC_API_KEY=stub
+chmod 755 bin/mdfetch
+env PATH=$WORK/bin:$PATH
 mkdir repo
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.invalid --llm-typical ollama/llama3.1
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.invalid --llm-typical ollama/llama3.1 --no-site
 stderr 'tool use'
 stderr 'typical'
+
+-- bin/mdfetch --
+#!/bin/sh
+echo "mdfetch stub"
