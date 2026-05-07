@@ -1,17 +1,21 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
+	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -222,4 +226,113 @@ func writeTempFile(t *testing.T, content string) string {
 	p := filepath.Join(t.TempDir(), "page.md")
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
 	return p
+}
+
+// peakInFlightStubClient observes the maximum number of concurrent
+// CompleteJSON callers that hit the analyze_page_response schema. Each call
+// holds for ~20ms so a serial loop tops out at 1 in flight, while a parallel
+// dispatcher with workers >= 2 reliably hits >= 2.
+type peakInFlightStubClient struct {
+	inFlight   atomic.Int32
+	peak       atomic.Int32
+	pageCalls  atomic.Int32
+	holdMillis int
+}
+
+func (s *peakInFlightStubClient) Complete(_ context.Context, _ string) (string, error) {
+	return "no", nil
+}
+
+func (s *peakInFlightStubClient) CompleteWithTools(_ context.Context, _ []analyzer.ChatMessage, _ []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+	return analyzer.AgentResult{
+		FinalMessage: analyzer.ChatMessage{Role: "assistant", Content: "done"},
+		Rounds:       1,
+	}, nil
+}
+
+func (s *peakInFlightStubClient) CompleteJSON(_ context.Context, _ string, schema analyzer.JSONSchema) (json.RawMessage, error) {
+	switch schema.Name {
+	case "analyze_page_response":
+		cur := s.inFlight.Add(1)
+		for {
+			p := s.peak.Load()
+			if cur <= p || s.peak.CompareAndSwap(p, cur) {
+				break
+			}
+		}
+		time.Sleep(time.Duration(s.holdMillis) * time.Millisecond)
+		s.inFlight.Add(-1)
+		s.pageCalls.Add(1)
+		return json.RawMessage(`{"summary":"page summary","features":["feature-one"],"is_docs":true}`), nil
+	case "code_features_response":
+		return json.RawMessage(`{"features":[{"name":"feature-one","description":"Does feature one.","layer":"cli","user_facing":true}]}`), nil
+	case "map_response":
+		return json.RawMessage(`{"entries":[{"feature":"feature-one","files":["main.go"],"symbols":["Run"]}]}`), nil
+	case "map_page_response":
+		return json.RawMessage(`{"features":["feature-one"]}`), nil
+	case "synthesize_product_response":
+		return json.RawMessage(`{"description":"A test product.","features":["feature-one"]}`), nil
+	}
+	return json.RawMessage(`{}`), nil
+}
+
+func (s *peakInFlightStubClient) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+
+func (s *peakInFlightStubClient) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+
+// TestAnalyze_pageAnalysisRunsConcurrently asserts that the per-page LLM call
+// in the analyze pipeline runs concurrently when --workers > 1. The stub
+// records peak in-flight callers; with the serial loop this is 1, and the
+// parallel implementation must observe >= 2.
+func TestAnalyze_pageAnalysisRunsConcurrently(t *testing.T) {
+	repoDir := t.TempDir()
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repoDir))
+	projectDir := filepath.Join(cacheBase, projectName)
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\nfunc Run() {}\n"), 0o644))
+
+	docsDir := filepath.Join(projectDir, "docs")
+	require.NoError(t, os.MkdirAll(docsDir, 0o755))
+	idx, err := spider.LoadIndex(docsDir)
+	require.NoError(t, err)
+
+	const numPages = 8
+	pageURLs := make([]string, numPages)
+	for i := range numPages {
+		u := fmt.Sprintf("https://docs.example.com/page-%02d", i)
+		pageURLs[i] = u
+		filename := spider.URLToFilename(u)
+		require.NoError(t, os.WriteFile(filepath.Join(docsDir, filename), fmt.Appendf(nil, "# Page %d\n\nContent for page %d.\n", i, i), 0o644))
+		require.NoError(t, idx.Record(u, filename))
+	}
+
+	stub := &peakInFlightStubClient{holdMillis: 20}
+	prevFactory := tieringFactory
+	t.Cleanup(func() { tieringFactory = prevFactory })
+	tieringFactory = func(_, _, _ string) (analyzer.LLMTiering, error) {
+		return &stubTiering{client: stub, counter: analyzer.NewTiktokenCounter()}, nil
+	}
+
+	args := []string{
+		"analyze",
+		"--repo", repoDir,
+		"--cache-dir", cacheBase,
+		"--docs-url", pageURLs[0],
+		"--workers", "4",
+		"--no-site",
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run(&stdout, &stderr, args); code != 0 {
+		t.Fatalf("analyze run failed (code=%d): stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	assert.Equal(t, int32(numPages), stub.pageCalls.Load(), "every page must hit the small-tier LLM")
+	assert.GreaterOrEqual(t, stub.peak.Load(), int32(2),
+		"page-analysis loop must run pages concurrently when --workers > 1; peak in-flight=%d", stub.peak.Load())
 }

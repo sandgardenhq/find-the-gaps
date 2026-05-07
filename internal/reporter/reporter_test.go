@@ -990,6 +990,109 @@ func TestWriteScreenshots_GroupsByPriority(t *testing.T) {
 	assert.Contains(t, s, "quickstart")
 }
 
+func TestBuildGapsStaticPrefix_includesUndocumentedFeatures(t *testing.T) {
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},        // undocumented user-facing → shown
+		{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: false}, Files: []string{"b.go"}},        // non-user-facing → excluded by policy
+		{Feature: analyzer.CodeFeature{Name: "gamma", UserFacing: true}, Files: []string{"c.go"}},        // documented (in allDocFeatures) → not undoc
+		{Feature: analyzer.CodeFeature{Name: "delta", UserFacing: true}, Files: []string{}},              // no code mapping → not undoc
+	}
+	docFeatures := []string{"gamma", "epsilon"} // epsilon is doc-only — main removed the Unmapped Features section
+	got := reporter.BuildGapsStaticPrefix(mapping, docFeatures)
+	assert.Contains(t, got, "# Gaps Found")
+	assert.Contains(t, got, "## Undocumented Features")
+	assert.Contains(t, got, "alpha")
+	// beta, gamma, delta, epsilon must not appear in the prefix.
+	assert.NotContains(t, got, "beta")
+	assert.NotContains(t, got, "gamma")
+	assert.NotContains(t, got, "delta")
+	assert.NotContains(t, got, "epsilon")
+	// Old section names that no longer exist.
+	assert.NotContains(t, got, "## Undocumented Code")
+	assert.NotContains(t, got, "## Unmapped Features")
+	assert.NotContains(t, got, "## Stale Documentation")
+}
+
+func TestBuildGapsStaticPrefix_omitsStaleSection(t *testing.T) {
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},
+	}
+	got := reporter.BuildGapsStaticPrefix(mapping, []string{"alpha"})
+	assert.NotContains(t, got, "## Stale Documentation")
+	assert.NotContains(t, got, "_None found._\n\n## Stale Documentation")
+}
+
+func TestBuildGapsStaleSection_priorityBucketing(t *testing.T) {
+	drift := []analyzer.DriftFinding{
+		{Feature: "alpha", Issues: []analyzer.DriftIssue{
+			{Page: "p1", Issue: "small-issue-A", Priority: analyzer.PrioritySmall, PriorityReason: "deep"},
+			{Page: "p2", Issue: "large-issue-A", Priority: analyzer.PriorityLarge, PriorityReason: "readme"},
+		}},
+		{Feature: "beta", Issues: []analyzer.DriftIssue{
+			{Page: "p3", Issue: "medium-issue-B", Priority: analyzer.PriorityMedium, PriorityReason: "reference"},
+			{Page: "p4", Issue: "large-issue-B", Priority: analyzer.PriorityLarge, PriorityReason: "quickstart"},
+		}},
+	}
+	got := reporter.BuildGapsStaleSection(drift)
+	idxLarge := strings.Index(got, "### Large")
+	idxMedium := strings.Index(got, "### Medium")
+	idxSmall := strings.Index(got, "### Small")
+	require.GreaterOrEqual(t, idxLarge, 0)
+	require.GreaterOrEqual(t, idxMedium, 0)
+	require.GreaterOrEqual(t, idxSmall, 0)
+	assert.Less(t, idxLarge, idxMedium)
+	assert.Less(t, idxMedium, idxSmall)
+	// The stale-section helper does NOT include the section header itself; the
+	// composing call (WriteGaps) renders "## Stale Documentation".
+	assert.NotContains(t, got, "## Stale Documentation")
+	// Within Large bucket, large-issue-A appears before large-issue-B.
+	largeBlock := got[idxLarge:idxMedium]
+	assert.Less(t, strings.Index(largeBlock, "large-issue-A"), strings.Index(largeBlock, "large-issue-B"))
+}
+
+func TestBuildGapsStaleSection_emptyInput(t *testing.T) {
+	got := reporter.BuildGapsStaleSection(nil)
+	assert.Contains(t, got, "_None found._")
+	assert.NotContains(t, got, "### Large")
+	assert.NotContains(t, got, "### Medium")
+	assert.NotContains(t, got, "### Small")
+}
+
+// TestWriteGaps_byteIdenticalToBuilders is the safety net Task 4's GapsWriter
+// will rely on: composing the two helpers produces exactly the bytes
+// WriteGaps writes to disk. A regression here means the writer goroutine
+// will silently disagree with the legacy writer, churning gaps.md by one
+// newline on every run.
+func TestWriteGaps_byteIdenticalToBuilders(t *testing.T) {
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "beta"}, Files: []string{"b.go"}},
+		{Feature: analyzer.CodeFeature{Name: "gamma", UserFacing: true}, Files: []string{"c.go"}},
+	}
+	docFeatures := []string{"gamma", "delta", "epsilon"}
+	drift := []analyzer.DriftFinding{
+		{Feature: "alpha", Issues: []analyzer.DriftIssue{
+			{Page: "p1", Issue: "large-A", Priority: analyzer.PriorityLarge, PriorityReason: "readme"},
+			{Page: "p2", Issue: "small-A", Priority: analyzer.PrioritySmall, PriorityReason: "deep"},
+		}},
+		{Feature: "gamma", Issues: []analyzer.DriftIssue{
+			{Page: "p3", Issue: "medium-G", Priority: analyzer.PriorityMedium, PriorityReason: "reference"},
+		}},
+	}
+
+	dir := t.TempDir()
+	require.NoError(t, reporter.WriteGaps(dir, mapping, docFeatures, drift))
+	onDisk, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	require.NoError(t, err)
+
+	composed := reporter.BuildGapsStaticPrefix(mapping, docFeatures) +
+		"\n## Stale Documentation\n\n" +
+		reporter.BuildGapsStaleSection(drift)
+
+	assert.Equal(t, string(onDisk), composed,
+		"composing the two builders must produce byte-identical output to WriteGaps")
+}
+
 func TestWriteGaps_NoLongerRendersScreenshotsSection(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{

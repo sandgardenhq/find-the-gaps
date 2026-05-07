@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/log"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
 const (
@@ -103,6 +106,7 @@ func DetectDrift(
 	docsMap DocsFeatureMap,
 	pageReader func(url string) (string, error),
 	repoRoot string,
+	workers int,
 	cached map[string]CachedDriftEntry,
 	onFinding DriftProgressFunc,
 	onFeatureDone DriftFeatureDoneFunc,
@@ -122,8 +126,16 @@ func DetectDrift(
 		}
 	}
 
-	var findings []DriftFinding
-
+	// Build the work list up-front. Features that fail the early skip
+	// conditions (no files, no pages, all pages release-note-shaped) are
+	// dropped here so each parallel worker has a uniform body.
+	type driftJob struct {
+		entry          FeatureEntry
+		pages          []string
+		sortedFiles    []string
+		sortedFiltered []string
+	}
+	jobs := make([]driftJob, 0, len(featureMap))
 	for _, entry := range featureMap {
 		if len(entry.Files) == 0 {
 			continue
@@ -136,9 +148,34 @@ func DetectDrift(
 		if len(pages) == 0 {
 			continue
 		}
+		jobs = append(jobs, driftJob{
+			entry:          entry,
+			pages:          pages,
+			sortedFiles:    sortedCopy(entry.Files),
+			sortedFiltered: sortedCopy(pages),
+		})
+	}
 
-		sortedFiles := sortedCopy(entry.Files)
-		sortedFiltered := sortedCopy(pages)
+	var (
+		findingsMu sync.Mutex
+		findings   []DriftFinding
+	)
+
+	// appendAndSnapshot appends f to findings under findingsMu and returns a
+	// stable copy of the accumulated slice. The snapshot lets callers fire
+	// onFinding outside the lock without seeing concurrent mutations.
+	appendAndSnapshot := func(f DriftFinding) []DriftFinding {
+		findingsMu.Lock()
+		defer findingsMu.Unlock()
+		findings = append(findings, f)
+		return append([]DriftFinding(nil), findings...)
+	}
+
+	err := parallel.Run(ctx, jobs, workers, func(ctx context.Context, job driftJob) error {
+		entry := job.entry
+		sortedFiles := job.sortedFiles
+		sortedFiltered := job.sortedFiltered
+		pages := job.pages
 
 		if cached != nil {
 			if c, ok := cached[entry.Feature.Name]; ok &&
@@ -148,19 +185,19 @@ func DetectDrift(
 				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
 				issues := c.Issues
 				if len(issues) > 0 {
-					findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
+					snapshot := appendAndSnapshot(DriftFinding{Feature: entry.Feature.Name, Issues: issues})
 					if onFinding != nil {
-						if err := onFinding(findings); err != nil {
-							return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
+						if err := onFinding(snapshot); err != nil {
+							return fmt.Errorf("DetectDrift: onFinding: %w", err)
 						}
 					}
 				}
 				if onFeatureDone != nil {
 					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, c.Pages, issues); err != nil {
-						return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+						return fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 					}
 				}
-				continue
+				return nil
 			}
 		}
 
@@ -172,35 +209,39 @@ func DetectDrift(
 			// the classifier instead of re-running it on the same content.
 			if onFeatureDone != nil {
 				if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, []string{}, nil); err != nil {
-					return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+					return fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 				}
 			}
-			continue
+			return nil
 		}
 		sortedPages := sortedCopy(pages)
 
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
-			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
+			return fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
 		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)
 		if err != nil {
-			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
+			return fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
 
 		if len(issues) > 0 {
-			findings = append(findings, DriftFinding{Feature: entry.Feature.Name, Issues: issues})
+			snapshot := appendAndSnapshot(DriftFinding{Feature: entry.Feature.Name, Issues: issues})
 			if onFinding != nil {
-				if err := onFinding(findings); err != nil {
-					return nil, fmt.Errorf("DetectDrift: onFinding: %w", err)
+				if err := onFinding(snapshot); err != nil {
+					return fmt.Errorf("DetectDrift: onFinding: %w", err)
 				}
 			}
 		}
 		if onFeatureDone != nil {
 			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, sortedPages, issues); err != nil {
-				return nil, fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
+				return fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return findings, nil

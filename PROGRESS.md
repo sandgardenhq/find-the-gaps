@@ -1373,3 +1373,127 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - OpenAI defaults refreshed to the 2026 lineup per a fresh web search: small=`gpt-5.4-nano`, typical=`gpt-5.4-mini`, large=`gpt-5.5`. New rows added to the capability registry for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano` (all `tool_use=true vision=true`); legacy `gpt-5`/`gpt-5-mini`/`gpt-4o`/`gpt-4o-mini` rows kept for backwards compatibility.
   - Fix #2: Added `ImageIssues []analyzer.ImageIssue` to `site.Inputs` and threaded `screenshotResult.ImageIssues` from `analyze.go`. `materializeExpanded` now renders the `## Image Issues` section into `content/screenshots/_index.md` so expanded-mode sites match mirror mode (which picks up the section transitively from screenshots.md). Two new tests pin both the populated and absent cases.
   - README updated: Configuration section's OpenAI fallback list and the "vision-capable small-tier models" table.
+
+## Task 11: ScreenshotsWriter goroutine + wiring — COMPLETE
+- Started: 2026-05-06
+- Tests: 8 new ScreenshotsWriter tests + 1 new analyzer onResultUpdated test, all passing under -race
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Coverage: reporter 98.4%, analyzer 93.2%, cli 91.5%
+- Completed: 2026-05-06
+- Notes:
+  - Mirrored GapsWriter shape into new `reporter.ScreenshotsWriter` (debounce, single-writer goroutine, atomic temp+rename, Close-propagates-flush-error).
+  - Extracted `BuildScreenshotsBytes` from `WriteScreenshots`; existing reporter golden tests still drive the byte-identical contract.
+  - Added analyzer-level `onResultUpdated func(snapshot ScreenshotResult)` to `DetectScreenshotGaps`. Snapshot is built outside the result-mu lock by cloning the four result slices; sibling workers are not serialized.
+  - `analyze.go` constructs the writer before dispatch, seeds it with an empty result so a zero-finding live run still emits the file, calls `Close()` inline (not deferred) before site.Build, and removes the trailing `WriteScreenshots`. Cache-skipped path is untouched.
+
+---
+
+# Parallelization branch (`parallelize-llm-phases`) — summary
+
+- Design doc: `.plans/2026-05-06-parallelize-llm-phases-design.md`
+- Implementation plan: `.plans/2026-05-06-parallelize-llm-phases-plan.md`
+- Goal: cut wall-clock time on `find-the-gaps analyze` by running the three LLM-heavy phases (page analysis, drift detection, screenshot detection) in parallel under one bounded worker pool, with safe coordination of shared caches and report files.
+
+## Per-task summary (T1–T11)
+
+| # | Task | Commit | Tests / coverage | Status |
+|---|------|--------|------------------|--------|
+| T1 | `runParallel` helper (`internal/parallel`) | `e58e122` (+ `5fbcb7d`, `7999a79`, `098f035`) | 5 tests; package coverage 100.0% | Complete |
+| T2 | Parallelize page-analysis loop in `cli/analyze.go` | `9806a11` (+ `6dc99e1`, `87166f2`) | New parallel-dispatch test in `internal/cli`; coverage 91.5% | Complete |
+| T3 | Extract `gaps.md` static prefix + stale section helpers in `internal/reporter` | `4d7f35e` (+ `2b73d2c`) | Byte-identical golden tests pin `WriteGaps` vs builders | Complete |
+| T4 | `GapsWriter` goroutine (debounce, single-writer, atomic temp+rename) | `ba4cf02` (+ `dcf7dd7`, `36aa0f0`, `b43c0c9`) | 9 GapsWriter tests; coalescing + rearm coverage; flush errors surfaced through `Close` | Complete |
+| T5 | Wire `GapsWriter` into `analyze.go` for the drift phase | `faab3c5` | `internal/cli` race-clean | Complete |
+| T6 | Mutex-guard the drift cache persister | `e096fed` | Concurrent-callers test added | Complete |
+| T7 | Parallelize drift detection in `internal/analyzer/drift.go` | `eda6727` | All analyzer tests green under `-race`; coverage 93.2% | Complete |
+| T8 | `screenshots-cache.json` per-page cache + completion sentinel | `19d7ed4` (+ `f400cfa`) | New cache load/save tests; sentinel parity with drift cache | Complete |
+| T9 | Wire screenshot cache into `DetectScreenshotGaps` | `a721111` (+ `c8f6713`) | Renamed cache file from `screenshots.json` to `screenshots-cache.json` to avoid collision with reporter's user-visible flat-findings file | Complete |
+| T10 | Parallelize screenshot detection | `7c80acb` | Race-clean parallel dispatch over pages | Complete |
+| T11 | `ScreenshotsWriter` goroutine + wiring (mirrors GapsWriter shape) | `167a728` | 8 new writer tests + analyzer `onResultUpdated` test; reporter coverage 98.1% | Complete |
+
+Plus design-tracking commit `de76236` (track design doc) and one rename-correction commit `c8f6713`.
+
+## Per-package coverage at HEAD (T11 landed; pre-T12)
+
+Captured via `go test -cover ./...`:
+
+```
+cmd/find-the-gaps                100.0%
+internal/action                  no statements
+internal/analyzer                93.2%
+internal/cli                     91.5%
+internal/doctor                  100.0%
+internal/parallel                100.0%
+internal/reporter                98.1%
+internal/scanner                 93.6%
+internal/scanner/ignore          94.8%
+internal/scanner/lang            90.4%
+internal/scanner/types           no test files
+internal/site                    86.4%
+internal/spider                  95.2%
+```
+
+`internal/site` 86.4% is a pre-existing gap inherited from the vision-image-analysis branch and is unchanged by parallelization. Every other package is ≥ 90%, with the two new concurrency-bearing packages (`internal/parallel`, `internal/reporter`) above 98%.
+
+## Verification gates at HEAD
+
+- `go test -race -count=1 ./...` — clean across all 13 packages (page-analysis, drift, and screenshot phases all exercise concurrency under the race detector).
+- `go build ./...` — clean.
+- `golangci-lint run ./...` — 0 issues.
+- `find-the-gaps doctor` — both `mdfetch` and `hugo` resolved on this machine.
+
+## Task 12: end-to-end verification + docs — COMPLETE (docs half)
+- Started: 2026-05-06
+- Tests: full suite race-clean (`go test -race -count=1 ./...`); doctor command exits `0`.
+- Build: ✅ `go build ./...` clean.
+- Linting: ✅ `golangci-lint run` 0 issues.
+- Completed: 2026-05-06
+- Notes:
+  - Appended Scenario 15 (Parallel Execution) to `.plans/VERIFICATION_PLAN.md`. Scenario covers (a) parallel speedup vs `--workers=1` baseline with sorted byte-comparison across `gaps.md`, `screenshots.md`, `mapping.md`, `drift.json`, `screenshots.json`, and `screenshots-cache.json`, and (b) crash-recover via SIGINT mid-screenshot-pass and asserting `screenshots-cache.json` partial-progress is honored on re-run.
+  - The plan's original Step 3 mentioned `screenshots.json` as the cache file; the scenario disambiguates: `screenshots-cache.json` is the per-page cache + completion sentinel introduced in T8/T9, while `screenshots.json` remains the reporter's user-visible flat-findings file. They cannot share a filename; rename landed in commit `c8f6713`.
+  - Half B (real e2e runs of Scenarios 1, 2, 3, 9, 15) is intentionally not executed in this commit. These need real LLM credentials, real network access, and a pinned fixture; deferred to operator handoff (see next section).
+
+## Operator handoff — Scenarios still pending
+
+Half B of Task 12 (the real-LLM-call e2e runs) was not run by Claude. It requires:
+
+- A funded Anthropic / Bifrost API key (`ANTHROPIC_API_KEY` or `BIFROST_API_KEY` per the SDK conventions).
+- `mdfetch` and `hugo` on `$PATH` (`ftg doctor` confirms).
+- A pinned fixture under `testdata/fixtures/known-good/` (or equivalent) and a stable docs URL (see `testdata/README.md` for the pinned project; suggested per VERIFICATION_PLAN.md is a small open-source Go project with public docs).
+
+Scenarios still needing an operator pass on this branch:
+
+| Scenario | What it gates |
+|----------|---------------|
+| Scenario 1 (Happy Path) | Confirms parallelization didn't regress the no-gaps base case. |
+| Scenario 2 (Undocumented Public Surface) | Confirms parallel page-analysis still surfaces undocumented exports. |
+| Scenario 3 (Stale Example) | Confirms parallel drift detection still fires + retains priority bucketing. |
+| Scenario 9 (End-to-End on a Real Docs Site) | Confirms cache-hit logging path (`drift cache hit:`) still skips the Small-tier classifier on re-runs, and that no Bifrost errors appear under parallel dispatch. |
+| Scenario 15 (Parallel Execution) | The new scenario — speedup + sorted byte-equivalence + SIGINT crash-recover. |
+
+Exact invocations to run (from repo root, with the binary built as `find-the-gaps` or `ftg`):
+
+```bash
+# Scenarios 1, 2, 3 — uses the same fixture, modify between runs per the plan
+find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<known-good-docs>
+
+# Scenario 9 — real public docs site
+find-the-gaps analyze --repo <pinned-clone-path> --docs-url <pinned-docs-url> -v
+
+# Scenario 15 step 1 (parallel)
+rm -rf <projectDir>
+time find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs> --workers=8 -v
+
+# Scenario 15 step 2 (serial baseline)
+rm -rf <projectDir>
+time find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs> --workers=1 -v
+
+# Scenario 15 step 5 (SIGINT mid-run; Ctrl-C while screenshot pass is logging cache misses)
+rm -rf <projectDir>
+find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs> --workers=8 -v
+# ... Ctrl-C ...
+find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs> --workers=8 -v
+# Compare cache-hit vs cache-miss counts in the second run's audit log.
+```
+
+Expected speedup target (Scenario 15 step 3): on a fixture with ≥ 10 docs pages and ≥ 5 drift candidates, `--workers=8` should beat `--workers=1` by at least 2x wall-clock. Smaller fixtures may show smaller speedups; the gate is "meaningfully faster," not a hard ratio.
