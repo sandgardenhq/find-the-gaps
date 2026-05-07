@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 )
 
 // materialize writes a Hugo source tree into srcDir based on the inputs and options.
@@ -176,9 +177,13 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 		}
 		pageSlugs := resolveSlugs(order)
 		for _, url := range order {
+			title := reporter.PageLabelFromURL(url)
+			if title == "" {
+				title = url
+			}
 			body, err := renderScreenshotPage(screenshotPageData{
 				PageURL: url,
-				Title:   url,
+				Title:   title,
 				Gaps:    byPage[url],
 				Buckets: bucketScreenshotGaps(byPage[url]),
 			})
@@ -370,14 +375,50 @@ func buildHomeData(in Inputs, opts BuildOptions) homeData {
 			undoc++
 		}
 	}
+
+	// Drift is grouped by feature in Inputs, but the at-a-glance counts
+	// are over individual issues — flatten and bucket by priority.
+	var driftTotal, driftLarge, driftMedium, driftSmall int
+	for _, d := range in.Drift {
+		for _, i := range d.Issues {
+			driftTotal++
+			switch i.Priority {
+			case analyzer.PriorityLarge:
+				driftLarge++
+			case analyzer.PriorityMedium:
+				driftMedium++
+			case analyzer.PrioritySmall:
+				driftSmall++
+			}
+		}
+	}
+
+	var ssLarge, ssMedium, ssSmall int
+	for _, g := range in.Screenshots {
+		switch g.Priority {
+		case analyzer.PriorityLarge:
+			ssLarge++
+		case analyzer.PriorityMedium:
+			ssMedium++
+		case analyzer.PrioritySmall:
+			ssSmall++
+		}
+	}
+
 	return homeData{
 		ProjectName:           opts.ProjectName,
 		GeneratedAt:           opts.GeneratedAt,
 		Summary:               in.Summary.Description,
 		FeatureCount:          len(in.Mapping),
 		UndocumentedUserCount: undoc,
-		DriftCount:            len(in.Drift),
+		DriftCount:            driftTotal,
+		DriftLargeCount:       driftLarge,
+		DriftMediumCount:      driftMedium,
+		DriftSmallCount:       driftSmall,
 		ScreenshotGapCount:    len(in.Screenshots),
+		ScreenshotLargeCount:  ssLarge,
+		ScreenshotMediumCount: ssMedium,
+		ScreenshotSmallCount:  ssSmall,
 		ScreenshotsRan:        in.ScreenshotsRan,
 		Mode:                  opts.Mode,
 	}

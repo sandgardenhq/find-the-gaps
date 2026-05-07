@@ -715,7 +715,11 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	assert.Contains(t, s, "# Missing Screenshots")
 	// Page grouping inside the priority bucket, first-occurrence order. With
 	// priority grouping, page headings live under "#### " rather than "### ".
-	assert.Regexp(t, `#### https://example.com/quickstart[\s\S]*#### https://example.com/setup`, s)
+	// The heading text is now a derived page label (URL → "Quickstart") so
+	// the URL itself can live inside the card as a link.
+	assert.Regexp(t, `#### Quickstart[\s\S]*#### Setup`, s)
+	// The URL still appears inside each card body via the head link.
+	assert.Contains(t, s, `<a href="https://example.com/quickstart">https://example.com/quickstart</a>`)
 	// Each gap's four fields render.
 	assert.Contains(t, s, "Run the command and see the output.")
 	assert.Contains(t, s, "Terminal showing the analyze summary")
@@ -751,8 +755,9 @@ func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 	require.NoError(t, err)
 	s := string(body)
 	// /second appears first because it shows up first in the input. Page
-	// headings live under "#### " inside the priority bucket.
-	assert.Regexp(t, `#### https://example.com/second[\s\S]*#### https://example.com/first`, s)
+	// headings live under "#### " inside the priority bucket and now use
+	// a derived label so they read as page names, not repeated URLs.
+	assert.Regexp(t, `#### Second[\s\S]*#### First`, s)
 }
 
 // TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks pins the
@@ -810,10 +815,11 @@ func TestWriteScreenshots_PerPageHeadingHasExplicitAnchor(t *testing.T) {
 	require.NoError(t, err)
 	s := string(body)
 
-	// Page headings now live at #### under the priority bucket. Anchor IDs
-	// remain stable so existing TOC + permalink wiring keeps working.
-	assert.Contains(t, s, "#### https://example.com/docs/start {#https-example-com-docs-start}")
-	assert.Contains(t, s, "#### https://example.com/docs/admin {#https-example-com-docs-admin}")
+	// Page headings now live at #### under the priority bucket. The text is
+	// a derived label (last path segment, prettified). Anchor IDs remain
+	// URL-derived so existing TOC + permalink wiring keeps working.
+	assert.Contains(t, s, "#### Start {#https-example-com-docs-start}")
+	assert.Contains(t, s, "#### Admin {#https-example-com-docs-admin}")
 }
 
 func TestWriteScreenshots_RendersImageIssuesSection(t *testing.T) {
