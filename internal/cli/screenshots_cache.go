@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -187,6 +189,88 @@ func saveScreenshotsCacheComplete(path string, current map[string]screenshotsCac
 		return err
 	}
 	return nil
+}
+
+// computeScreenshotsInputHash returns a hex SHA-256 over the inputs the
+// screenshot pass consumes from upstream (page URLs + content hash + small-tier
+// model identity). It is independent of slice iteration order — pages are
+// sorted by URL before hashing. The model identity is folded in so a model
+// change forces a re-run (different vision behavior produces different audit
+// stats and findings).
+func computeScreenshotsInputHash(docPages []analyzer.DocPage, llmSmall string) string {
+	type pEntry struct {
+		URL  string `json:"url"`
+		Hash string `json:"hash"`
+	}
+	type payload struct {
+		Pages []pEntry `json:"pages"`
+		Small string   `json:"small"`
+	}
+
+	entries := make([]pEntry, 0, len(docPages))
+	for _, p := range docPages {
+		sum := sha256.Sum256([]byte(p.Content))
+		entries = append(entries, pEntry{URL: p.URL, Hash: hex.EncodeToString(sum[:])})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].URL < entries[j].URL })
+
+	data, _ := json.Marshal(payload{Pages: entries, Small: llmSmall})
+	out := sha256.Sum256(data)
+	return hex.EncodeToString(out[:])
+}
+
+// screenshotsCachedFromCli adapts the cli-side cache map (loaded from disk)
+// into the analyzer-facing ScreenshotsCachedPage map keyed by URL+ContentHash.
+// Used at the call boundary so DetectScreenshotGaps does not depend on cli
+// types.
+func screenshotsCachedFromCli(in map[string]screenshotsCacheEntry) map[string]analyzer.ScreenshotsCachedPage {
+	out := make(map[string]analyzer.ScreenshotsCachedPage, len(in))
+	for k, v := range in {
+		out[k] = analyzer.ScreenshotsCachedPage{
+			URL:         v.URL,
+			ContentHash: v.ContentHash,
+			Stats:       v.Stats,
+			Missing:     v.Missing,
+			Possibly:    v.Possibly,
+			ImageIssues: v.ImageIssues,
+		}
+	}
+	return out
+}
+
+// screenshotsCacheEntryFromAnalyzer adapts a ScreenshotsCachedPage emitted by
+// the analyzer's per-page onPageDone callback into the cli's on-disk shape.
+// Mirrors screenshotsCachedFromCli in the opposite direction.
+func screenshotsCacheEntryFromAnalyzer(in analyzer.ScreenshotsCachedPage) screenshotsCacheEntry {
+	return screenshotsCacheEntry{
+		URL:         in.URL,
+		ContentHash: in.ContentHash,
+		Stats:       in.Stats,
+		Missing:     in.Missing,
+		Possibly:    in.Possibly,
+		ImageIssues: in.ImageIssues,
+	}
+}
+
+// screenshotResultFromCache rebuilds an analyzer.ScreenshotResult from a
+// cache map for the cache-skipped (sentinel-matched) path. The returned
+// AuditStats are sorted in docPages order so subsequent reporting matches
+// what a live run would have produced.
+func screenshotResultFromCache(cache map[string]screenshotsCacheEntry, docPages []analyzer.DocPage) analyzer.ScreenshotResult {
+	var res analyzer.ScreenshotResult
+	for _, p := range docPages {
+		sum := sha256.Sum256([]byte(p.Content))
+		hash := hex.EncodeToString(sum[:])
+		c, ok := cache[screenshotsCacheKey(p.URL, hash)]
+		if !ok {
+			continue
+		}
+		res.MissingGaps = append(res.MissingGaps, c.Missing...)
+		res.PossiblyCovered = append(res.PossiblyCovered, c.Possibly...)
+		res.ImageIssues = append(res.ImageIssues, c.ImageIssues...)
+		res.AuditStats = append(res.AuditStats, c.Stats)
+	}
+	return res
 }
 
 // newScreenshotsCachePersister returns a per-page persister used during

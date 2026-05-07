@@ -467,18 +467,72 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			var screenshotResult analyzer.ScreenshotResult
+			screenshotsSkipped := false
 			if experimentalCheckScreenshots {
-				log.Infof("detecting missing screenshots...")
+				// The cache lives at a separate path from the user-visible
+				// screenshots.json artifact (which is rewritten by
+				// reporter.WriteScreenshotsJSON in a flatter shape). Mixing the
+				// two filenames would cause the reporter to clobber the cache
+				// file's completion sentinel mid-run.
+				screenshotsCachePath := filepath.Join(projectDir, "screenshots-cache.json")
+				screenshotsMdPath := filepath.Join(projectDir, "screenshots.md")
 				docPages := buildScreenshotDocPages(pages, analyses)
-				progress := func(done, total int, page string) {
-					log.Infof("  [%d/%d] %s", done, total, page)
+				wantScreenshotsHash := computeScreenshotsInputHash(docPages, llmSmall)
+
+				if !noCache {
+					if file, ok := loadScreenshotsCacheFile(screenshotsCachePath); ok &&
+						file.Complete != nil && file.Complete.Hash == wantScreenshotsHash {
+						if _, statErr := os.Stat(screenshotsMdPath); statErr == nil {
+							cachedMap := screenshotsCacheEntriesToMap(file.Entries)
+							screenshotResult = screenshotResultFromCache(cachedMap, docPages)
+							screenshotsSkipped = true
+							log.Infof("screenshots: cache complete, skipping (hash %s…)", wantScreenshotsHash[:8])
+						}
+					}
 				}
-				screenshotResult, err = analyzer.DetectScreenshotGaps(ctx, tiering.Small(), docPages, progress)
-				if err != nil {
-					return fmt.Errorf("detect screenshots: %w", err)
+
+				if !screenshotsSkipped {
+					log.Infof("detecting missing screenshots...")
+					progress := func(done, total int, page string) {
+						log.Infof("  [%d/%d] %s", done, total, page)
+					}
+
+					var cachedScreenshots map[string]analyzer.ScreenshotsCachedPage
+					var liveScreenshotsMap map[string]screenshotsCacheEntry
+					if !noCache {
+						if loaded, ok := loadScreenshotsCache(screenshotsCachePath); ok {
+							liveScreenshotsMap = loaded
+							cachedScreenshots = screenshotsCachedFromCli(loaded)
+							log.Infof("using cached screenshot results (%d pages)", len(loaded))
+						}
+					}
+					if liveScreenshotsMap == nil {
+						liveScreenshotsMap = map[string]screenshotsCacheEntry{}
+					}
+					persist := newScreenshotsCachePersister(liveScreenshotsMap, screenshotsCachePath)
+					onPageDone := func(_ string, entry analyzer.ScreenshotsCachedPage) error {
+						return persist(screenshotsCacheEntryFromAnalyzer(entry))
+					}
+
+					screenshotResult, err = analyzer.DetectScreenshotGaps(
+						ctx, tiering.Small(), docPages,
+						cachedScreenshots, onPageDone, progress,
+					)
+					if err != nil {
+						return fmt.Errorf("detect screenshots: %w", err)
+					}
+					log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotResult.MissingGaps))
+					emitScreenshotAuditLog(screenshotResult.AuditStats)
+
+					// Stamp the completion sentinel so the next no-op re-run
+					// can short-circuit. UTC for byte-stable JSON.
+					if err := saveScreenshotsCacheComplete(screenshotsCachePath, liveScreenshotsMap, &screenshotsComplete{
+						Hash:        wantScreenshotsHash,
+						CompletedAt: time.Now().UTC(),
+					}); err != nil {
+						return fmt.Errorf("save screenshots completion: %w", err)
+					}
 				}
-				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotResult.MissingGaps))
-				emitScreenshotAuditLog(screenshotResult.AuditStats)
 			}
 
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
@@ -493,7 +547,7 @@ func newAnalyzeCmd() *cobra.Command {
 			// hash-based watchers). site.Build keys drift by feature name in
 			// a map and is order-insensitive, so it does not need this gate —
 			// gaps.md does.
-			if experimentalCheckScreenshots {
+			if experimentalCheckScreenshots && !screenshotsSkipped {
 				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots: %w", err)
 				}

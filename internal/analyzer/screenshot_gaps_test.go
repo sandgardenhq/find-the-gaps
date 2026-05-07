@@ -198,7 +198,7 @@ func (f *fakeLLMClient) Capabilities() ModelCapabilities { return ModelCapabilit
 
 func TestDetectScreenshotGaps_NoPages(t *testing.T) {
 	client := &fakeLLMClient{}
-	res, err := DetectScreenshotGaps(context.Background(), client, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, res.MissingGaps)
 	assert.Empty(t, res.AuditStats)
@@ -214,7 +214,7 @@ func TestDetectScreenshotGaps_SinglePage_Findings(t *testing.T) {
 	pages := []DocPage{
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n\nRun the command.\n"},
 	}
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, res.MissingGaps, 1)
 	assert.Equal(t, "https://example.com/a", res.MissingGaps[0].PageURL)
@@ -238,7 +238,7 @@ func TestDetectScreenshotGaps_NormalizesLiteralEscapeSequences(t *testing.T) {
 	pages := []DocPage{
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
 	}
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, res.MissingGaps, 1)
 	assert.Equal(t, "2. Click Add API Key.\n \n3. Enter a Name.", res.MissingGaps[0].QuotedPassage,
@@ -253,7 +253,7 @@ func TestDetectScreenshotGaps_ParseErrorIsolatesPage(t *testing.T) {
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n"},
 		{URL: "https://example.com/b", Path: "/tmp/b.md", Content: "# B\n"},
 	}
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
 	require.NoError(t, err) // parse errors log-and-continue
 	assert.Empty(t, res.MissingGaps)
 	assert.Len(t, client.prompts, 2) // both pages were attempted
@@ -275,7 +275,7 @@ func TestDetectScreenshotGaps_Progress(t *testing.T) {
 			page        string
 		}{done, total, page})
 	}
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, progress)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, progress)
 	require.NoError(t, err)
 	require.Len(t, calls, 2)
 	assert.Equal(t, 1, calls[0].done)
@@ -309,7 +309,7 @@ func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
 	client := &fakeLLMClient{}
 	pages := []DocPage{{URL: "https://example.com/huge", Path: "/tmp/huge.md", Content: big}}
 
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, client.prompts, 1, "page should still be sent, just truncated")
 
@@ -443,7 +443,7 @@ func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 	cancel()
 	client := &fakeLLMClient{errs: []error{context.Canceled}}
 	pages := []DocPage{{URL: "https://x", Path: "/x", Content: "# x\n"}}
-	_, err := DetectScreenshotGaps(ctx, client, pages, nil)
+	_, err := DetectScreenshotGaps(ctx, client, pages, nil, nil, nil)
 	require.Error(t, err)
 }
 
@@ -985,7 +985,7 @@ This is a guided multi-step OAuth flow with several intermediate states the read
 			}]
 		}`),
 	}
-	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, nil, nil, nil)
 	require.NoError(t, err)
 	if len(res.MissingGaps) != 0 {
 		t.Errorf("MissingGaps = %d, want 0", len(res.MissingGaps))

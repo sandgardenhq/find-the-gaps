@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,38 @@ import (
 
 	"github.com/charmbracelet/log"
 )
+
+// ScreenshotsCachedPage is the per-page payload persisted to screenshots.json
+// (and exposed to the cli persister). The shape mirrors the on-disk record
+// kept by the cli's screenshotsCacheEntry so the cli adapts at the persister
+// boundary without an internal conversion layer leaking analyzer types.
+//
+// ContentHash binds an entry to the exact page content it was computed
+// against; the lookup key is URL+ContentHash so a content change drops the
+// cached entry and forces re-analysis.
+type ScreenshotsCachedPage struct {
+	URL         string              `json:"url"`
+	ContentHash string              `json:"contentHash"`
+	Stats       ScreenshotPageStats `json:"stats"`
+	Missing     []ScreenshotGap     `json:"missing"`
+	Possibly    []ScreenshotGap     `json:"possiblyCovered"`
+	ImageIssues []ImageIssue        `json:"imageIssues"`
+}
+
+// screenshotsCacheKey is the composite map key for a screenshots cache
+// entry. The pipe separator is illegal in URLs and hex hashes so the
+// concatenation is unambiguous. Mirrors the cli helper of the same shape.
+func screenshotsCacheKey(url, contentHash string) string {
+	return url + "|" + contentHash
+}
+
+// hashScreenshotPageContent returns a hex SHA-256 of the page content. It
+// is the input to the URL+ContentHash composite cache key; identical bytes
+// in identical order yield identical hashes across runs and machines.
+func hashScreenshotPageContent(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
 
 // ScreenshotPromptBudget caps the per-page screenshot-detection prompt size,
 // measured by the local cl100k_base estimator. It must absorb two sources of
@@ -1149,15 +1183,42 @@ func unescapeLiteralWhitespace(s string) string {
 // failures are logged and skipped (fail-open); context / network errors are
 // returned immediately. Returns a ScreenshotResult bundling missing-screenshot
 // gaps, vision image-issues, and per-page audit stats.
+//
+// The cached map (keyed by URL+ContentHash) lets a partial run from a prior
+// invocation short-circuit per-page LLM work — entries whose key matches the
+// freshly computed hash are appended to the result without issuing any LLM
+// call. Pass nil to disable. onPageDone, when non-nil, is invoked once per
+// freshly analyzed page (not on cache hits) with the entry suitable for
+// persistence; the caller owns the on-disk shape. Both parameters are
+// optional; nil values preserve pre-cache behavior.
 func DetectScreenshotGaps(
 	ctx context.Context,
 	client LLMClient,
 	pages []DocPage,
+	cached map[string]ScreenshotsCachedPage,
+	onPageDone func(url string, entry ScreenshotsCachedPage) error,
 	progress ScreenshotProgressFunc,
 ) (ScreenshotResult, error) {
 	var result ScreenshotResult
 	total := len(pages)
 	for i, page := range pages {
+		// Cache lookup: a hit short-circuits all per-page LLM work. The
+		// cached entry's shape mirrors the live result fields one-for-one,
+		// so we can append directly.
+		contentHash := hashScreenshotPageContent(page.Content)
+		if cached != nil {
+			if c, ok := cached[screenshotsCacheKey(page.URL, contentHash)]; ok {
+				result.MissingGaps = append(result.MissingGaps, c.Missing...)
+				result.PossiblyCovered = append(result.PossiblyCovered, c.Possibly...)
+				result.ImageIssues = append(result.ImageIssues, c.ImageIssues...)
+				result.AuditStats = append(result.AuditStats, c.Stats)
+				if progress != nil {
+					progress(i+1, total, page.URL)
+				}
+				continue
+			}
+		}
+
 		refs := extractImages(page.Content)
 		stats := ScreenshotPageStats{
 			PageURL:    page.URL,
@@ -1223,7 +1284,27 @@ func DetectScreenshotGaps(
 		stats.DetectionSkipped = skipped
 		result.MissingGaps = append(result.MissingGaps, gaps...)
 		result.PossiblyCovered = append(result.PossiblyCovered, suppressed...)
+		// stats.ImageIssues was set inside the vision branch when relevancePass
+		// ran; collect just this page's issues for the persister so a re-run
+		// rebuilds the page's slice from the cache without re-collecting.
+		// We slice off the tail of result.ImageIssues that we appended for
+		// this page; if the vision branch didn't run, the slice for this
+		// page is empty.
+		pageIssues := result.ImageIssues[len(result.ImageIssues)-stats.ImageIssues:]
 		result.AuditStats = append(result.AuditStats, stats)
+		if onPageDone != nil {
+			entry := ScreenshotsCachedPage{
+				URL:         page.URL,
+				ContentHash: contentHash,
+				Stats:       stats,
+				Missing:     append([]ScreenshotGap(nil), gaps...),
+				Possibly:    append([]ScreenshotGap(nil), suppressed...),
+				ImageIssues: append([]ImageIssue(nil), pageIssues...),
+			}
+			if err := onPageDone(page.URL, entry); err != nil {
+				return result, fmt.Errorf("persist screenshot cache for %s: %w", page.URL, err)
+			}
+		}
 		if progress != nil {
 			progress(i+1, total, page.URL)
 		}
