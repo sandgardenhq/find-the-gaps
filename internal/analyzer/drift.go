@@ -599,6 +599,12 @@ If every observation is a false alarm, emit an empty "issues" array.`,
 	for attempt := 1; attempt <= driftJudgeMaxAttempts; attempt++ {
 		raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
 		if err != nil {
+			// User abort or parent deadline — propagate immediately so the
+			// CLI can distinguish a cancel from a provider failure and skip
+			// the retry-exhausted restart hint.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
 			lastErr = err
 			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
 			continue

@@ -1652,3 +1652,31 @@ func TestJudgeFeatureDrift_RetriesExhausted_ReturnsError(t *testing.T) {
 	assert.Equal(t, 4, calls, "judge should attempt 4 times total before giving up")
 	assert.ErrorIs(t, err, analyzer.ErrLLMRetriesExhausted, "exhausted errors must be detectable via errors.Is so the CLI can show a restart-friendly message")
 }
+
+// TestJudgeFeatureDrift_ContextCanceled_NoRetries verifies that when the
+// caller's context is canceled (e.g. user Ctrl+C), the judge does NOT burn
+// retries on the dead context — it returns the context error immediately so
+// cancellation propagates cleanly and the CLI doesn't show a misleading
+// "LLM retries exhausted" restart hint for a user-initiated abort.
+func TestJudgeFeatureDrift_ContextCanceled_NoRetries(t *testing.T) {
+	var calls int
+	client := &driftStubClient{
+		completeFunc: func(ctx context.Context, _ string) (string, error) {
+			calls++
+			return "", ctx.Err()
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := analyzer.JudgeFeatureDrift(ctx, client, feature, obs)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled, "context cancellation must propagate so callers can distinguish user abort from provider failure")
+	assert.NotErrorIs(t, err, analyzer.ErrLLMRetriesExhausted, "user-initiated cancel must not be reported as an exhausted-retry failure")
+	assert.LessOrEqual(t, calls, 1, "cancellation must not burn the retry budget")
+}
