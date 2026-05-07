@@ -230,6 +230,16 @@ func DetectDrift(
 
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
+			// A typed budget error from the investigator means the very
+			// first turn was already over budget — no observations were
+			// recorded. Log + skip the feature without writing a drift
+			// cache entry; a re-run with --llm-typical=<bigger-model>
+			// retries cleanly. Do NOT abort the run; other features still
+			// get a chance.
+			if errors.Is(err, ErrTokenBudgetExceeded{}) {
+				log.Warnf("drift investigator could not start for feature %q: %v; skipping (no cache entry written)", entry.Feature.Name, err)
+				return nil
+			}
 			return fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
 		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)

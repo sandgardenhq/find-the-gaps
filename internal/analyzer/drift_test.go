@@ -1061,6 +1061,47 @@ func TestInvestigateFeatureDrift_TokenBudgetHitWithZeroObs_ReturnsTypedError(t *
 	}
 }
 
+// TestDetectDrift_SkipsUninvestigatedFeatureWithoutAborting pins that a
+// single feature whose investigator returned ErrTokenBudgetExceeded with
+// zero observations does NOT abort the whole run, and does NOT trigger
+// onFeatureDone (which would persist a misleading "no drift" cache entry).
+// Other features in the same run continue normally.
+func TestDetectDrift_SkipsUninvestigatedFeatureWithoutAborting(t *testing.T) {
+	// One feature whose typical-tier investigator immediately returns the
+	// budget error with no observations — mimics "system prompt + tool
+	// defs alone exceed budget".
+	typical := &budgetErrToolStub{} // returns ErrTokenBudgetExceeded with zero obs
+
+	// Large tier (judge) and small tier (classifier) are still constructed
+	// but should never run for the failed feature.
+	large := &driftStubClient{}
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil },
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "huge-feature"}, Files: []string{"big.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "huge-feature", Pages: []string{"https://docs.example.com/huge"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Huge", nil }
+
+	var doneCalls int
+	onDone := func(_ string, _, _, _ []string, _ []analyzer.DriftIssue) error {
+		doneCalls++
+		return nil
+	}
+
+	findings, err := analyzer.DetectDrift(context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo", 1, nil, nil, onDone)
+
+	require.NoError(t, err, "a single feature's budget error must not abort the run")
+	assert.Empty(t, findings, "no findings from an un-investigated feature")
+	assert.Equal(t, 0, doneCalls, "onFeatureDone must NOT fire for un-investigated features (no cache write)")
+}
+
 func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
 	// Two observations recorded, then loop exhausts without "done". The
 	// stub reuses the last element when responses runs out, so we script
