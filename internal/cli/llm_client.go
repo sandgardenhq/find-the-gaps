@@ -201,5 +201,10 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 	if err != nil {
 		return nil, nil, err
 	}
-	return client, counter, nil
+	// Wrap every constructed client in budgetedClient. Single-shot calls
+	// (Complete/CompleteJSON/CompleteJSONMultimodal) are gated against
+	// 0.9 × MaxInputTokens before any network attempt; multi-turn
+	// CompleteWithTools gets per-turn gating + per-tool-result clipping
+	// once the agent-loop hook lands.
+	return analyzer.NewBudgetedClient(client, fmt.Sprintf("%s/%s", provider, model)), counter, nil
 }

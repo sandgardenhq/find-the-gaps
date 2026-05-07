@@ -3,8 +3,6 @@ package cli
 import (
 	"strings"
 	"testing"
-
-	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
 func TestNewLLMTiering_DefaultsRequireAnthropicKey(t *testing.T) {
@@ -124,8 +122,8 @@ func TestBuildTierClient_Ollama_DefaultBaseURL(t *testing.T) {
 	if client == nil || counter == nil {
 		t.Fatal("ollama path must return non-nil client and counter")
 	}
-	if _, ok := client.(*analyzer.BifrostClient); !ok {
-		t.Fatalf("ollama must be served by *analyzer.BifrostClient, got %T", client)
+	if got := client.Capabilities().Provider; got != "ollama" {
+		t.Fatalf("ollama wiring must surface Capabilities().Provider == \"ollama\", got %q", got)
 	}
 }
 
@@ -138,8 +136,8 @@ func TestBuildTierClient_Ollama_CustomBaseURL(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected non-nil client")
 	}
-	if _, ok := client.(*analyzer.BifrostClient); !ok {
-		t.Fatalf("ollama must be served by *analyzer.BifrostClient, got %T", client)
+	if got := client.Capabilities().Provider; got != "ollama" {
+		t.Fatalf("ollama wiring must surface Capabilities().Provider == \"ollama\", got %q", got)
 	}
 }
 
@@ -152,8 +150,8 @@ func TestBuildTierClient_LMStudio(t *testing.T) {
 	if client == nil || counter == nil {
 		t.Fatal("lmstudio path must return non-nil client and counter")
 	}
-	if _, ok := client.(*analyzer.BifrostClient); !ok {
-		t.Fatalf("lmstudio must be served by *analyzer.BifrostClient, got %T", client)
+	if got := client.Capabilities().Provider; got != "lmstudio" {
+		t.Fatalf("lmstudio wiring must surface Capabilities().Provider == \"lmstudio\", got %q", got)
 	}
 }
 
@@ -190,8 +188,8 @@ func TestBuildTierClient_Groq_Success(t *testing.T) {
 	if client == nil || counter == nil {
 		t.Fatal("groq path must return non-nil client and counter")
 	}
-	if _, ok := client.(*analyzer.BifrostClient); !ok {
-		t.Fatalf("groq must be served by *analyzer.BifrostClient, got %T", client)
+	if got := client.Capabilities().Provider; got != "groq" {
+		t.Fatalf("groq wiring must surface Capabilities().Provider == \"groq\", got %q", got)
 	}
 }
 
@@ -211,7 +209,7 @@ func TestBuildTierClient_Groq_RespectsBaseURLOverride(t *testing.T) {
 	if client == nil || counter == nil {
 		t.Fatal("groq with custom base URL must return non-nil client and counter")
 	}
-	if _, ok := client.(*analyzer.BifrostClient); !ok {
-		t.Fatalf("groq with override must be served by *analyzer.BifrostClient, got %T", client)
+	if got := client.Capabilities().Provider; got != "groq" {
+		t.Fatalf("groq wiring must surface Capabilities().Provider == \"groq\", got %q", got)
 	}
 }
