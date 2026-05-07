@@ -439,6 +439,7 @@ func newAnalyzeCmd() *cobra.Command {
 				driftFindings, err = analyzer.DetectDrift(
 					ctx, tiering, featureMap, docsFeatureMap,
 					pageReader, repoPath,
+					workers,
 					cached, driftOnFinding, onFeatureDone,
 				)
 				// Always flush the writer before the function returns so a

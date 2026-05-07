@@ -24,6 +24,12 @@ func Run[T any](ctx context.Context, items []T, workers int, fn func(context.Con
 	g.SetLimit(workers)
 	for _, item := range items {
 		g.Go(func() error {
+			// Short-circuit any item whose worker slot opens after a sibling
+			// has already returned an error — gctx is cancelled at that
+			// moment, and re-running fn would be wasted work.
+			if err := gctx.Err(); err != nil {
+				return err
+			}
 			return fn(gctx, item)
 		})
 	}
