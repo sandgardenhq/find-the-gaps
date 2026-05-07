@@ -516,6 +516,7 @@ func newAnalyzeCmd() *cobra.Command {
 
 					screenshotResult, err = analyzer.DetectScreenshotGaps(
 						ctx, tiering.Small(), docPages,
+						workers,
 						cachedScreenshots, onPageDone, progress,
 					)
 					if err != nil {

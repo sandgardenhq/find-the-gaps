@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +74,7 @@ func TestDetectScreenshotGaps_cacheHitSkipsLLM(t *testing.T) {
 		},
 	}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, cached, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil)
 	require.NoError(t, err)
 
 	// Only 2 detection calls should have fired (pages 3 and 4).
@@ -116,7 +117,7 @@ func TestDetectScreenshotGaps_onPageDoneFiresPerFreshPage(t *testing.T) {
 		return nil
 	}
 
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil, onPageDone, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, onPageDone, nil)
 	require.NoError(t, err)
 
 	require.Len(t, seen, 5)
@@ -134,7 +135,7 @@ func TestDetectScreenshotGaps_nilCachedAndOnPageDone_PreservesBehavior(t *testin
 	}
 	pages := []DocPage{{URL: "https://x/p", Path: "/tmp/p.md", Content: "# Page\n\nSome text.\n"}}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, res.MissingGaps)
 	assert.Len(t, res.AuditStats, 1)
@@ -176,7 +177,7 @@ func TestDetectScreenshotGaps_cachedHitsContributeToResult(t *testing.T) {
 	}
 
 	client := &fakeLLMClient{}
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, cached, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, len(client.prompts), "fully cached run must not call the LLM")
@@ -198,9 +199,23 @@ func TestDetectScreenshotGaps_contentHashChangeDefeatsCacheHit(t *testing.T) {
 		},
 	}
 	client := &fakeLLMClient{responses: []string{`{"gaps":[]}`}}
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, cached, nil, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(client.prompts), "stale ContentHash must miss the cache and fire the LLM")
+}
+
+// TestDetectScreenshotGaps_runsPagesConcurrently pins the parallel-dispatch
+// guarantee. With 8 pages and workers=4, the per-page LLM call must observe
+// at least two concurrent in-flight calls (peak >= 2). Each Complete call
+// holds for 20ms via fakeLLMClient.hold so workers actually pile up under
+// the bounded semaphore.
+func TestDetectScreenshotGaps_runsPagesConcurrently(t *testing.T) {
+	pages := makeScreenshotPages(8)
+	client := &fakeLLMClient{hold: 20 * time.Millisecond}
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 4, nil, nil, nil)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, client.peak.Load(), int32(2),
+		"DetectScreenshotGaps with workers=4 must run pages concurrently; peak in-flight=%d", client.peak.Load())
 }
 
 // Compile-time assertion that ScreenshotsCachedPage matches the JSON shape of

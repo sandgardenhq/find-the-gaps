@@ -109,7 +109,7 @@ func TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats(t *testi
 	}
 	pages := []DocPage{{URL: "https://x/p", Path: "/tmp/p.md", Content: b.String()}}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Image issues from relevance pass were collected and tagged with the
@@ -175,7 +175,7 @@ func TestDetectScreenshotGaps_BudgetSkippedPageMarkedSkipped(t *testing.T) {
 		detectionResp: json.RawMessage(`{"gaps":[{"quoted_passage":"X","should_show":"Y","suggested_alt":"Z","insertion_hint":"W","priority":"medium","priority_reason":"test stub"}]}`),
 	}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.Len(t, res.AuditStats, 1)
@@ -194,7 +194,7 @@ func TestDetectScreenshotGaps_NonVisionBranchUnchanged(t *testing.T) {
 	pages := []DocPage{
 		{URL: "https://example.com/a", Path: "/tmp/a.md", Content: "# A\n\nRun the command.\n"},
 	}
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Non-vision branch: no image issues, no relevance batches.
@@ -241,7 +241,7 @@ func TestDetectScreenshotGaps_VisionPathContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel BEFORE the call so the vision pass sees ctx.Err() immediately
 
-	res, err := DetectScreenshotGaps(ctx, client, pages, nil, nil, nil)
+	res, err := DetectScreenshotGaps(ctx, client, pages, 1, nil, nil, nil)
 	require.Error(t, err, "cancelled context inside vision pass must surface as error")
 	assert.True(t, errors.Is(err, context.Canceled), "wrapped error must satisfy errors.Is(context.Canceled)")
 	assert.Empty(t, res.ImageIssues, "no partial image-issue state on cancellation")
@@ -271,7 +271,7 @@ func TestDetectScreenshotGaps_VisionPathFiltersUnsupportedImageFormats(t *testin
 			"![icon](favicon.ico)\n",
 	}}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Exactly one vision call (the 2 PNG/JPG fit in one batch of 5 after SVG/ICO are filtered).
@@ -318,7 +318,7 @@ func TestDetectScreenshotGaps_VisionPathResolvesRelativeURLs(t *testing.T) {
 			"![parent](../img/parent.png)\n",
 	}}
 
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.Len(t, client.multimodalMsgs, 1)
@@ -361,7 +361,7 @@ func TestDetectScreenshotGaps_VisionVerdictIndicesMatchUnfilteredRefs(t *testing
 			"![icon](favicon.ico)\n",
 	}}
 
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, nil, nil, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.Len(t, client.multimodalMsgs, 1)
