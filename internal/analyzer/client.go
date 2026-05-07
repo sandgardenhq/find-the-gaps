@@ -17,6 +17,12 @@ type ModelCapabilities struct {
 	// Groq's llama-4-scout) reject requests whose max_completion_tokens exceed
 	// the model's specific limit. Zero means "use the BifrostClient default".
 	MaxCompletionTokens int
+	// MaxInputTokens mirrors cli.ModelCapabilities.MaxInputTokens. Zero
+	// disables the per-model budget gate. The budgeted client decorator
+	// reads this via Capabilities() and refuses sends whose estimated input
+	// token count exceeds 0.9 × this value. See
+	// .plans/2026-05-07-token-budget-design.md.
+	MaxInputTokens int
 }
 
 // LLMClient sends a prompt and returns the completion text.

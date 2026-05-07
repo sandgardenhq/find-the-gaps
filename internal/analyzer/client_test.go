@@ -81,3 +81,13 @@ func TestFakeClient_CompleteJSON_ForcedError(t *testing.T) {
 		t.Fatal("expected forced error")
 	}
 }
+
+// TestModelCapabilities_HasMaxInputTokensField pins the analyzer-side mirror
+// of cli.ModelCapabilities.MaxInputTokens. Without the field, the budgeted
+// client decorator can't read the per-model budget through Capabilities().
+func TestModelCapabilities_HasMaxInputTokensField(t *testing.T) {
+	c := analyzer.ModelCapabilities{MaxInputTokens: 42}
+	if c.MaxInputTokens != 42 {
+		t.Fatalf("MaxInputTokens not stored: %d", c.MaxInputTokens)
+	}
+}
