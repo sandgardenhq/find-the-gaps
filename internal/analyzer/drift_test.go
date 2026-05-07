@@ -1061,6 +1061,123 @@ func TestInvestigateFeatureDrift_TokenBudgetHitWithZeroObs_ReturnsTypedError(t *
 	}
 }
 
+// chunkAwareJudgeStub is a non-tool LLMClient that mimics a budget-gated
+// judge: prompts whose tiktoken count exceeds budgetTokens get
+// ErrTokenBudgetExceeded; smaller prompts return a canned issues array
+// containing one issue per observation referenced in the prompt (matched
+// by quoting the docQuote substring). Used to verify chunked compaction
+// without a real LLM.
+type chunkAwareJudgeStub struct {
+	budgetTokens int
+	caps         analyzer.ModelCapabilities
+	calls        int
+	prompts      []string
+}
+
+func (s *chunkAwareJudgeStub) Complete(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (s *chunkAwareJudgeStub) CompleteJSON(_ context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	s.calls++
+	s.prompts = append(s.prompts, prompt)
+	if analyzer.CountTokensForTest(prompt) > s.budgetTokens {
+		return nil, analyzer.ErrTokenBudgetExceeded{
+			Provider: s.caps.Provider, Model: s.caps.Model,
+			Counted: analyzer.CountTokensForTest(prompt), Budget: s.budgetTokens,
+			Where: "judge",
+		}
+	}
+	// Echo one issue per "concern N" mention in the prompt so the test
+	// can verify every observation flowed through some chunk.
+	var issues []map[string]string
+	for i := 1; i <= 200; i++ {
+		marker := fmt.Sprintf("concern %d", i)
+		if strings.Contains(prompt, marker) {
+			issues = append(issues, map[string]string{
+				"page":            fmt.Sprintf("https://x/%d", i),
+				"issue":           fmt.Sprintf("issue for %s", marker),
+				"priority":        "medium",
+				"priority_reason": "test stub",
+			})
+		}
+	}
+	body := map[string]any{"issues": issues}
+	raw, _ := json.Marshal(body)
+	return raw, nil
+}
+func (s *chunkAwareJudgeStub) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *chunkAwareJudgeStub) Capabilities() analyzer.ModelCapabilities { return s.caps }
+
+// TestJudgeFeatureDrift_ChunksWhenOverBudget pins the compaction contract:
+// when the assembled judge prompt exceeds the budget, observations are
+// split into smaller chunks that each fit, the judge is called once per
+// chunk, and the per-chunk issue lists are concatenated. Every original
+// observation is seen by some chunk's prompt — the chunking is lossless
+// at the observation level.
+func TestJudgeFeatureDrift_ChunksWhenOverBudget(t *testing.T) {
+	// Build N=12 observations whose concatenated prompt clearly exceeds
+	// the stub's 1500-token budget but which each individually fit.
+	const n = 12
+	obs := make([]analyzer.DriftObservation, n)
+	for i := 0; i < n; i++ {
+		obs[i] = analyzer.DriftObservation{
+			Page:      fmt.Sprintf("https://x/%d", i+1),
+			DocQuote:  strings.Repeat("doc ", 80),  // ~80 tokens each
+			CodeQuote: strings.Repeat("code ", 80), // ~80 tokens each
+			Concern:   fmt.Sprintf("concern %d", i+1),
+		}
+	}
+	stub := &chunkAwareJudgeStub{
+		budgetTokens: 1500,
+		caps:         analyzer.ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 1500},
+	}
+
+	feat := analyzer.CodeFeature{Name: "F", Description: "x"}
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), stub, feat, obs)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, issues, "chunked judging must still produce issues")
+	if stub.calls < 2 {
+		t.Fatalf("expected multiple chunk calls (>=2), got %d", stub.calls)
+	}
+	// Every observation must appear in some chunk's prompt — lossless.
+	for i := 1; i <= n; i++ {
+		marker := fmt.Sprintf("concern %d", i)
+		seen := false
+		for _, p := range stub.prompts[1:] { // [0] is the failed one-shot try
+			if strings.Contains(p, marker) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			t.Fatalf("observation %d (%q) did not appear in any chunked prompt", i, marker)
+		}
+	}
+}
+
+// TestJudgeFeatureDrift_NoChunkingWhenWithinBudget pins that the fast path
+// (single-call judge with the existing retry loop) is untouched when the
+// prompt fits — no chunking overhead, identical behavior to before.
+func TestJudgeFeatureDrift_NoChunkingWhenWithinBudget(t *testing.T) {
+	obs := []analyzer.DriftObservation{{
+		Page: "https://x/1", DocQuote: "small", CodeQuote: "small", Concern: "concern 1",
+	}}
+	stub := &chunkAwareJudgeStub{
+		budgetTokens: 100000,
+		caps:         analyzer.ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 100000},
+	}
+	feat := analyzer.CodeFeature{Name: "F", Description: "x"}
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), stub, feat, obs)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	if stub.calls != 1 {
+		t.Fatalf("expected exactly 1 call when prompt fits, got %d", stub.calls)
+	}
+}
+
 // TestDetectDrift_SkipsUninvestigatedFeatureWithoutAborting pins that a
 // single feature whose investigator returned ErrTokenBudgetExceeded with
 // zero observations does NOT abort the whole run, and does NOT trigger
