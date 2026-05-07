@@ -1603,3 +1603,80 @@ func TestBudgetForFeature(t *testing.T) {
 		})
 	}
 }
+
+// TestJudgeFeatureDrift_RetriesOnMalformedJSON verifies that a transient
+// malformed-JSON response from the LLM does not abort the whole run — the
+// judge retries up to 3 times and returns the first successful parse. Covers
+// the "LLM returned a half-baked tool call" and "provider hiccup" cases.
+func TestJudgeFeatureDrift_RetriesOnMalformedJSON(t *testing.T) {
+	var calls int
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			calls++
+			if calls < 4 {
+				return `{"issues": [{not valid json`, nil
+			}
+			return `{"issues":[{"page":"https://docs/x","issue":"docs claim X but code does Y","priority":"medium","priority_reason":"test stub"}]}`, nil
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, obs)
+	require.NoError(t, err, "judge must retry malformed JSON up to 3 times")
+	require.Len(t, issues, 1)
+	assert.Equal(t, 4, calls, "judge should call the LLM 4 times: 1 initial + 3 retries before giving up")
+}
+
+// TestJudgeFeatureDrift_RetriesExhausted_ReturnsError verifies that after the
+// retry budget is exhausted the judge surfaces an error so the caller can
+// stop the run with a restart-friendly message.
+func TestJudgeFeatureDrift_RetriesExhausted_ReturnsError(t *testing.T) {
+	var calls int
+	client := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) {
+			calls++
+			return "", errors.New("provider unavailable")
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	_, err := analyzer.JudgeFeatureDrift(context.Background(), client, feature, obs)
+	require.Error(t, err, "judge must surface error after retries exhausted")
+	assert.Contains(t, err.Error(), "provider unavailable")
+	assert.Equal(t, 4, calls, "judge should attempt 4 times total before giving up")
+	assert.ErrorIs(t, err, analyzer.ErrLLMRetriesExhausted, "exhausted errors must be detectable via errors.Is so the CLI can show a restart-friendly message")
+}
+
+// TestJudgeFeatureDrift_ContextCanceled_NoRetries verifies that when the
+// caller's context is canceled (e.g. user Ctrl+C), the judge does NOT burn
+// retries on the dead context — it returns the context error immediately so
+// cancellation propagates cleanly and the CLI doesn't show a misleading
+// "LLM retries exhausted" restart hint for a user-initiated abort.
+func TestJudgeFeatureDrift_ContextCanceled_NoRetries(t *testing.T) {
+	var calls int
+	client := &driftStubClient{
+		completeFunc: func(ctx context.Context, _ string) (string, error) {
+			calls++
+			return "", ctx.Err()
+		},
+	}
+	feature := analyzer.CodeFeature{Name: "auth", Description: "login"}
+	obs := []analyzer.DriftObservation{
+		{Page: "https://docs/x", DocQuote: "doc says X", CodeQuote: "code does Y", Concern: "mismatch"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := analyzer.JudgeFeatureDrift(ctx, client, feature, obs)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled, "context cancellation must propagate so callers can distinguish user abort from provider failure")
+	assert.NotErrorIs(t, err, analyzer.ErrLLMRetriesExhausted, "user-initiated cancel must not be reported as an exhausted-retry failure")
+	assert.LessOrEqual(t, calls, 1, "cancellation must not burn the retry budget")
+}
