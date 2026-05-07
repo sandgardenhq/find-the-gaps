@@ -7,7 +7,7 @@ type = "docs"
 
 ## At a glance
 
-<div class="ftg-stats">
+<div class="ftg-stats ftg-stats--overview">
 {{ if .Expanded -}}
 <a class="ftg-stat-card ftg-stat-card--neutral" href="/features/">
 {{- else -}}
@@ -19,20 +19,47 @@ type = "docs"
 
 <a class="ftg-stat-card {{ if eq .UndocumentedUserCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--bad{{ end }}" href="/gaps/">
 <span class="ftg-stat-num">{{ .UndocumentedUserCount }}</span>
-<span class="ftg-stat-label">Undocumented user-facing</span>
+<span class="ftg-stat-label">Undocumented user-facing features</span>
 </a>
-
-<a class="ftg-stat-card {{ if eq .DriftCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--bad{{ end }}" href="/gaps/">
-<span class="ftg-stat-num">{{ .DriftCount }}</span>
-<span class="ftg-stat-label">Drift findings</span>
-</a>
-
-{{- if .ScreenshotsRan }}
-<a class="ftg-stat-card {{ if eq .ScreenshotGapCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--bad{{ end }}" href="/screenshots/">
-<span class="ftg-stat-num">{{ .ScreenshotGapCount }}</span>
-<span class="ftg-stat-label">Missing screenshots</span>
-</a>
-{{- end }}
 </div>
 
+### Drift findings ({{ .DriftCount }})
+
+<div class="ftg-stats ftg-stats--priority">
+<a class="ftg-stat-card {{ if eq .DriftLargeCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--large{{ end }}" href="/gaps/">
+<span class="ftg-stat-num">{{ .DriftLargeCount }}</span>
+<span class="ftg-stat-label">Large</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .DriftMediumCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--medium{{ end }}" href="/gaps/">
+<span class="ftg-stat-num">{{ .DriftMediumCount }}</span>
+<span class="ftg-stat-label">Medium</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .DriftSmallCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--small{{ end }}" href="/gaps/">
+<span class="ftg-stat-num">{{ .DriftSmallCount }}</span>
+<span class="ftg-stat-label">Small</span>
+</a>
+</div>
+
+{{ if .ScreenshotsRan -}}
+### Missing screenshots ({{ .ScreenshotGapCount }})
+
+<div class="ftg-stats ftg-stats--priority">
+<a class="ftg-stat-card {{ if eq .ScreenshotLargeCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--large{{ end }}" href="/screenshots/">
+<span class="ftg-stat-num">{{ .ScreenshotLargeCount }}</span>
+<span class="ftg-stat-label">Large</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .ScreenshotMediumCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--medium{{ end }}" href="/screenshots/">
+<span class="ftg-stat-num">{{ .ScreenshotMediumCount }}</span>
+<span class="ftg-stat-label">Medium</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .ScreenshotSmallCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--small{{ end }}" href="/screenshots/">
+<span class="ftg-stat-num">{{ .ScreenshotSmallCount }}</span>
+<span class="ftg-stat-label">Small</span>
+</a>
+</div>
+{{ end }}
 <p class="ftg-generated">Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}</p>

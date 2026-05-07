@@ -86,8 +86,14 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 		Summary:               "A small CLI demo.",
 		FeatureCount:          17,
 		UndocumentedUserCount: 4,
-		DriftCount:            2,
-		ScreenshotGapCount:    3,
+		DriftCount:            6,
+		DriftLargeCount:       1,
+		DriftMediumCount:      2,
+		DriftSmallCount:       3,
+		ScreenshotGapCount:    9,
+		ScreenshotLargeCount:  4,
+		ScreenshotMediumCount: 3,
+		ScreenshotSmallCount:  2,
 		ScreenshotsRan:        true,
 		Mode:                  ModeMirror,
 	}
@@ -98,21 +104,45 @@ func TestRenderHomeIncludesCounts(t *testing.T) {
 	for _, want := range []string{
 		"A small CLI demo.",
 		"2026-04-24",
-		`<div class="ftg-stats">`,
+		`class="ftg-stats ftg-stats--overview"`,
 		`class="ftg-stat-card ftg-stat-card--neutral" href="/mapping/"`,
 		`<span class="ftg-stat-num">17</span>`,
 		`<span class="ftg-stat-label">Features</span>`,
 		`ftg-stat-card--bad" href="/gaps/"`,
 		`<span class="ftg-stat-num">4</span>`,
-		`<span class="ftg-stat-label">Undocumented user-facing</span>`,
+		`<span class="ftg-stat-label">Undocumented user-facing features</span>`,
+		// Drift section: heading + three priority cards
+		"### Drift findings",
+		`class="ftg-stats ftg-stats--priority"`,
+		`ftg-stat-card--large" href="/gaps/"`,
+		`<span class="ftg-stat-num">1</span>`,
+		`<span class="ftg-stat-label">Large</span>`,
+		`ftg-stat-card--medium" href="/gaps/"`,
 		`<span class="ftg-stat-num">2</span>`,
-		`<span class="ftg-stat-label">Drift findings</span>`,
-		`href="/screenshots/"`,
+		`<span class="ftg-stat-label">Medium</span>`,
+		`ftg-stat-card--small" href="/gaps/"`,
 		`<span class="ftg-stat-num">3</span>`,
-		`<span class="ftg-stat-label">Missing screenshots</span>`,
+		`<span class="ftg-stat-label">Small</span>`,
+		// Screenshot section: heading + three priority cards
+		"### Missing screenshots",
+		`ftg-stat-card--large" href="/screenshots/"`,
+		`<span class="ftg-stat-num">4</span>`,
+		`ftg-stat-card--medium" href="/screenshots/"`,
+		`ftg-stat-card--small" href="/screenshots/"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// The single combined "Drift findings" / "Missing screenshots" cards
+	// were replaced by per-priority cards; the top-level labels must be
+	// gone from the at-a-glance card row.
+	for _, bad := range []string{
+		`<span class="ftg-stat-label">Drift findings</span>`,
+		`<span class="ftg-stat-label">Missing screenshots</span>`,
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("unexpected %q in:\n%s", bad, got)
 		}
 	}
 	if strings.Contains(got, "# demo") {
@@ -138,13 +168,22 @@ func TestRenderHomeZeroCountsAreGood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Every zero-count card should be --good; none should be --bad.
-	if strings.Contains(got, "ftg-stat-card--bad") {
-		t.Errorf("zero counts must not render --bad; got:\n%s", got)
+	// Every zero-count card should be --good; none should be --bad or
+	// carry a priority modifier.
+	for _, bad := range []string{
+		"ftg-stat-card--bad",
+		"ftg-stat-card--large",
+		"ftg-stat-card--medium",
+		"ftg-stat-card--small",
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("zero counts must not render %q; got:\n%s", bad, got)
+		}
 	}
-	// At least three --good cards: undocumented + drift + screenshots.
-	if c := strings.Count(got, "ftg-stat-card--good"); c < 3 {
-		t.Errorf("expected ≥3 --good cards for zero counts, got %d in:\n%s", c, got)
+	// At least seven --good cards: undocumented + 3 drift priorities +
+	// 3 screenshot priorities.
+	if c := strings.Count(got, "ftg-stat-card--good"); c < 7 {
+		t.Errorf("expected ≥7 --good cards for zero counts, got %d in:\n%s", c, got)
 	}
 }
 
@@ -164,7 +203,7 @@ func TestRenderHomeGeneratedAtAtBottom(t *testing.T) {
 		t.Fatal(err)
 	}
 	gen := strings.Index(got, "Generated 2026-04-24")
-	stats := strings.Index(got, `class="ftg-stats"`)
+	stats := strings.Index(got, `class="ftg-stats `)
 	sum := strings.Index(got, "A small CLI demo.")
 	if gen < 0 || sum < 0 || stats < 0 {
 		t.Fatalf("expected timestamp, stats block, and summary in output; got:\n%s", got)
