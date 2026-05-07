@@ -10,7 +10,7 @@ env FIND_THE_GAPS_UPDATE_VERSION=v0.0.1
 mkdir repo
 
 # First run: writes notice to stderr, populates the cache file.
-exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache
+! exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache --docs-url https://docs.example.invalid
 stderr 'A new version of ftg is available: v9.9.9'
 stderr 'v0.0.1'
 stderr 'Release notes: https://github.com/sandgardenhq/find-the-gaps/releases/tag/v9.9.9'
