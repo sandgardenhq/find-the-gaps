@@ -438,6 +438,23 @@ calling note_observation at all.`,
 			budget, entry.Feature.Name, len(entry.Files), len(pages), len(observations))
 		return observations, nil
 	}
+	if errors.Is(err, ErrTokenBudgetExceeded{}) {
+		// Two distinct shapes:
+		//   1. observations > 0 — earlier rounds recorded evidence before
+		//      the budget hook refused the next turn. Same shape as the
+		//      ErrMaxRounds path: log and hand the partial set to the judge.
+		//   2. observations == 0 — the very first turn was already over
+		//      budget (system prompt + tool defs alone). Return a typed
+		//      error so DetectDrift skips writing a "no drift" cache entry
+		//      for this feature — a re-run with a larger model retries
+		//      cleanly.
+		if len(observations) == 0 {
+			return nil, fmt.Errorf("investigateFeatureDrift %q: %w", entry.Feature.Name, err)
+		}
+		log.Warnf("drift investigator hit token budget for feature %q (%d files, %d pages); handing %d observations to judge",
+			entry.Feature.Name, len(entry.Files), len(pages), len(observations))
+		return observations, nil
+	}
 	if err != nil {
 		return nil, err
 	}

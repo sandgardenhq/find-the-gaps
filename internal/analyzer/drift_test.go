@@ -984,6 +984,83 @@ func TestJudgeFeatureDrift_ProducesIssues(t *testing.T) {
 	assert.Contains(t, issues[0].Issue, "docs claim X but code does Y")
 }
 
+// budgetErrToolStub is a ToolLLMClient stub that records the given
+// observations through the note_observation tool, then returns
+// ErrTokenBudgetExceeded — simulating the budgeted decorator's pre-turn
+// hook firing after some observations are already in.
+type budgetErrToolStub struct {
+	preRecord []analyzer.ChatMessage // assistant note_observation calls dispatched before the error
+}
+
+func (s *budgetErrToolStub) Complete(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (s *budgetErrToolStub) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *budgetErrToolStub) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *budgetErrToolStub) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+func (s *budgetErrToolStub) CompleteWithTools(ctx context.Context, _ []analyzer.ChatMessage, tools []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+	// Find note_observation in tools and dispatch each preRecord message
+	// through it so observations land in the investigator's accumulator.
+	var noteFn analyzer.ToolHandler
+	for _, t := range tools {
+		if t.Name == "note_observation" {
+			noteFn = t.Execute
+			break
+		}
+	}
+	for _, msg := range s.preRecord {
+		for _, tc := range msg.ToolCalls {
+			if tc.Name == "note_observation" && noteFn != nil {
+				_, _ = noteFn(ctx, tc.Arguments)
+			}
+		}
+	}
+	return analyzer.AgentResult{}, analyzer.ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "drift-investigator",
+	}
+}
+
+// TestInvestigateFeatureDrift_TokenBudgetHitWithObservations_HandsToJudge
+// pins the partial-handoff path: when the per-turn budget hook fires after
+// the investigator has already recorded observations, those observations
+// flow to the judge and the run continues — same shape as ErrMaxRounds.
+func TestInvestigateFeatureDrift_TokenBudgetHitWithObservations_HandsToJudge(t *testing.T) {
+	stub := &budgetErrToolStub{preRecord: []analyzer.ChatMessage{
+		noteObservation("p1", "d1", "c1", "concern 1"),
+		noteObservation("p2", "d2", "c2", "concern 2"),
+	}}
+	entry := analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"a.go"}}
+
+	obs, err := analyzer.InvestigateFeatureDrift(context.Background(), stub, entry, []string{"https://x"}, func(string) (string, error) { return "", nil }, t.TempDir())
+
+	require.NoError(t, err, "budget-hit with observations must not be a hard error")
+	require.Len(t, obs, 2, "every observation recorded before the gate must be returned")
+}
+
+// TestInvestigateFeatureDrift_TokenBudgetHitWithZeroObs_ReturnsTypedError
+// pins the un-investigated path: when the budget gate fires before any
+// observation is recorded (e.g. system prompt + tools alone exceed the
+// budget), the investigator returns a typed error so DetectDrift can skip
+// writing a "no drift" cache entry that would silently mask the problem.
+func TestInvestigateFeatureDrift_TokenBudgetHitWithZeroObs_ReturnsTypedError(t *testing.T) {
+	stub := &budgetErrToolStub{} // no preRecord — zero observations
+	entry := analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"s.go"}}
+
+	_, err := analyzer.InvestigateFeatureDrift(context.Background(), stub, entry, []string{"https://x"}, func(string) (string, error) { return "", nil }, t.TempDir())
+
+	if !errors.Is(err, analyzer.ErrTokenBudgetExceeded{}) {
+		t.Fatalf("expected ErrTokenBudgetExceeded, got %v", err)
+	}
+}
+
 func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
 	// Two observations recorded, then loop exhausts without "done". The
 	// stub reuses the last element when responses runs out, so we script
