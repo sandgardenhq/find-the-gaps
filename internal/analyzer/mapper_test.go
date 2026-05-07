@@ -98,6 +98,38 @@ func TestMapFeaturesToCode_ClientError_Propagates(t *testing.T) {
 	}
 }
 
+// TestMapFeaturesToCode_BudgetErrorSkipsBatch pins that ErrTokenBudgetExceeded
+// from a batch is logged + skipped — not propagated up. The batcher's
+// pre-send sizing should already keep batches under budget; if the
+// decorator's gate fires anyway, that's a regression in the batcher and
+// the run continues with whatever mappings the other batches produced
+// rather than aborting wholesale.
+func TestMapFeaturesToCode_BudgetErrorSkipsBatch(t *testing.T) {
+	c := &fakeClient{forcedErr: analyzer.ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "mapper",
+	}}
+	got, err := analyzer.MapFeaturesToCode(context.Background(),
+		&fakeTiering{large: c, largeCounter: analyzer.NewTiktokenCounter()},
+		[]analyzer.CodeFeature{{Name: "f1"}},
+		&scanner.ProjectScan{Files: []scanner.ScannedFile{
+			{Path: "a.go", Symbols: []scanner.Symbol{{Name: "Foo"}}},
+		}},
+		analyzer.MapperTokenBudget, false, nil)
+	if err != nil {
+		t.Fatalf("expected nil error (skip-and-continue), got %v", err)
+	}
+	// Mapper produces a FeatureMap entry per input feature; on a budget
+	// skip those entries carry empty Files/Symbols.
+	if len(got) != 1 {
+		t.Fatalf("expected one feature entry, got %d", len(got))
+	}
+	if len(got[0].Files) != 0 || len(got[0].Symbols) != 0 {
+		t.Fatalf("expected empty mapping after budget skip, got %+v", got[0])
+	}
+}
+
 func TestMapFeaturesToCode_InvalidJSON_ReturnsError(t *testing.T) {
 	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
 		"map_response": json.RawMessage("not json"),
