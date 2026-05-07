@@ -267,10 +267,14 @@ func writeGapBuckets(sb *strings.Builder, gaps []analyzer.ScreenshotGap, render 
 			byPage[g.PageURL] = append(byPage[g.PageURL], g)
 		}
 		for _, page := range order {
+			label := PageLabelFromURL(page)
+			if label == "" {
+				label = page
+			}
 			if emitAnchor {
-				fmt.Fprintf(sb, "#### %s {#%s}\n\n", page, urlAnchor(page))
+				fmt.Fprintf(sb, "#### %s {#%s}\n\n", label, urlAnchor(page))
 			} else {
-				fmt.Fprintf(sb, "#### %s\n\n", page)
+				fmt.Fprintf(sb, "#### %s\n\n", label)
 			}
 			for _, g := range byPage[page] {
 				render(sb, g, priorityClass(p))
@@ -333,7 +337,11 @@ func writeImageIssueBuckets(sb *strings.Builder, issues []analyzer.ImageIssue) {
 			byPage[ii.PageURL] = append(byPage[ii.PageURL], ii)
 		}
 		for _, page := range order {
-			fmt.Fprintf(sb, "#### %s\n\n", page)
+			label := PageLabelFromURL(page)
+			if label == "" {
+				label = page
+			}
+			fmt.Fprintf(sb, "#### %s\n\n", label)
 			for _, ii := range byPage[page] {
 				fmt.Fprintf(sb, `<div class="ftg-shot ftg-shot--%s">`+"\n", priorityClass(p))
 				fmt.Fprintf(sb, `<div class="ftg-shot-head"><a href="%s">%s</a></div>`+"\n", esc(ii.PageURL), esc(ii.PageURL))

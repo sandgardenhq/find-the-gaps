@@ -75,7 +75,13 @@ type homeData struct {
 	FeatureCount          int
 	UndocumentedUserCount int
 	DriftCount            int
+	DriftLargeCount       int
+	DriftMediumCount      int
+	DriftSmallCount       int
 	ScreenshotGapCount    int
+	ScreenshotLargeCount  int
+	ScreenshotMediumCount int
+	ScreenshotSmallCount  int
 	ScreenshotsRan        bool
 	Mode                  Mode
 }
@@ -89,7 +95,13 @@ type homeView struct {
 	FeatureCount          int
 	UndocumentedUserCount int
 	DriftCount            int
+	DriftLargeCount       int
+	DriftMediumCount      int
+	DriftSmallCount       int
 	ScreenshotGapCount    int
+	ScreenshotLargeCount  int
+	ScreenshotMediumCount int
+	ScreenshotSmallCount  int
 	ScreenshotsRan        bool
 	Expanded              bool
 }
@@ -102,7 +114,13 @@ func renderHome(d homeData) (string, error) {
 		FeatureCount:          d.FeatureCount,
 		UndocumentedUserCount: d.UndocumentedUserCount,
 		DriftCount:            d.DriftCount,
+		DriftLargeCount:       d.DriftLargeCount,
+		DriftMediumCount:      d.DriftMediumCount,
+		DriftSmallCount:       d.DriftSmallCount,
 		ScreenshotGapCount:    d.ScreenshotGapCount,
+		ScreenshotLargeCount:  d.ScreenshotLargeCount,
+		ScreenshotMediumCount: d.ScreenshotMediumCount,
+		ScreenshotSmallCount:  d.ScreenshotSmallCount,
 		ScreenshotsRan:        d.ScreenshotsRan,
 		Expanded:              d.Mode == ModeExpanded,
 	}
