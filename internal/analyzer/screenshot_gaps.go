@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +15,45 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
+
+// ScreenshotsCachedPage is the per-page payload persisted to screenshots.json
+// (and exposed to the cli persister). The shape mirrors the on-disk record
+// kept by the cli's screenshotsCacheEntry so the cli adapts at the persister
+// boundary without an internal conversion layer leaking analyzer types.
+//
+// ContentHash binds an entry to the exact page content it was computed
+// against; the lookup key is URL+ContentHash so a content change drops the
+// cached entry and forces re-analysis.
+type ScreenshotsCachedPage struct {
+	URL         string              `json:"url"`
+	ContentHash string              `json:"contentHash"`
+	Stats       ScreenshotPageStats `json:"stats"`
+	Missing     []ScreenshotGap     `json:"missing"`
+	Possibly    []ScreenshotGap     `json:"possiblyCovered"`
+	ImageIssues []ImageIssue        `json:"imageIssues"`
+}
+
+// screenshotsCacheKey is the composite map key for a screenshots cache
+// entry. The pipe separator is illegal in URLs and hex hashes so the
+// concatenation is unambiguous. Mirrors the cli helper of the same shape.
+func screenshotsCacheKey(url, contentHash string) string {
+	return url + "|" + contentHash
+}
+
+// hashScreenshotPageContent returns a hex SHA-256 of the page content. It
+// is the input to the URL+ContentHash composite cache key; identical bytes
+// in identical order yield identical hashes across runs and machines.
+func hashScreenshotPageContent(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
 
 // ScreenshotPromptBudget caps the per-page screenshot-detection prompt size,
 // measured by the local cl100k_base estimator. It must absorb two sources of
@@ -1142,22 +1179,93 @@ func unescapeLiteralWhitespace(s string) string {
 	return r.Replace(s)
 }
 
-// DetectScreenshotGaps iterates pages sequentially. For each page, when the
+// DetectScreenshotGaps dispatches per-page analysis under a bounded worker
+// pool sized by workers (<=0 falls back to serial). For each page, when the
 // model has Vision capability and the page has images, the relevance pass
 // runs first and its verdicts feed the verdict-enriched detection prompt;
 // otherwise the detection pass runs against the legacy prompt. Per-page parse
 // failures are logged and skipped (fail-open); context / network errors are
 // returned immediately. Returns a ScreenshotResult bundling missing-screenshot
 // gaps, vision image-issues, and per-page audit stats.
+//
+// The cached map (keyed by URL+ContentHash) lets a partial run from a prior
+// invocation short-circuit per-page LLM work — entries whose key matches the
+// freshly computed hash are appended to the result without issuing any LLM
+// call. Pass nil to disable. onPageDone, when non-nil, is invoked once per
+// freshly analyzed page (not on cache hits) with the entry suitable for
+// persistence; the caller owns the on-disk shape. Both parameters are
+// optional; nil values preserve pre-cache behavior.
+//
+// Concurrency: workers goroutines run page bodies concurrently. All appends
+// to the shared result.* slices happen under resultMu; LLM calls and the
+// onPageDone / onResultUpdated / progress callbacks are invoked outside the
+// lock. The progress callback receives a monotonically increasing completion
+// count via an atomic counter — the page argument identifies which page just
+// finished, not the dispatch order. onResultUpdated, when non-nil, fires
+// after each successful page completion (cache hit or fresh) with a deep-
+// enough copy of the accumulated ScreenshotResult that the caller can format
+// it without observing concurrent mutations. This is the streaming-snapshot
+// hook used by reporter.ScreenshotsWriter so screenshots.md can update mid-
+// run without serializing workers.
 func DetectScreenshotGaps(
 	ctx context.Context,
 	client LLMClient,
 	pages []DocPage,
+	workers int,
+	cached map[string]ScreenshotsCachedPage,
+	onPageDone func(url string, entry ScreenshotsCachedPage) error,
+	onResultUpdated func(snapshot ScreenshotResult),
 	progress ScreenshotProgressFunc,
 ) (ScreenshotResult, error) {
 	var result ScreenshotResult
 	total := len(pages)
-	for i, page := range pages {
+	var (
+		resultMu  sync.Mutex
+		doneCount atomic.Int32
+	)
+
+	// snapshotResult clones the accumulated result.* slices under resultMu so
+	// onResultUpdated can format the data without observing concurrent
+	// mutations from sibling workers. Returns the zero value when the
+	// callback is nil so callers don't pay the copy cost when it isn't used.
+	snapshotResult := func() (ScreenshotResult, bool) {
+		if onResultUpdated == nil {
+			return ScreenshotResult{}, false
+		}
+		resultMu.Lock()
+		defer resultMu.Unlock()
+		return ScreenshotResult{
+			MissingGaps:     append([]ScreenshotGap(nil), result.MissingGaps...),
+			PossiblyCovered: append([]ScreenshotGap(nil), result.PossiblyCovered...),
+			ImageIssues:     append([]ImageIssue(nil), result.ImageIssues...),
+			AuditStats:      append([]ScreenshotPageStats(nil), result.AuditStats...),
+		}, true
+	}
+
+	err := parallel.Run(ctx, pages, workers, func(ctx context.Context, page DocPage) error {
+		// Cache lookup: a hit short-circuits all per-page LLM work. The
+		// cached entry's shape mirrors the live result fields one-for-one,
+		// so we can append directly.
+		contentHash := hashScreenshotPageContent(page.Content)
+		if cached != nil {
+			if c, ok := cached[screenshotsCacheKey(page.URL, contentHash)]; ok {
+				resultMu.Lock()
+				result.MissingGaps = append(result.MissingGaps, c.Missing...)
+				result.PossiblyCovered = append(result.PossiblyCovered, c.Possibly...)
+				result.ImageIssues = append(result.ImageIssues, c.ImageIssues...)
+				result.AuditStats = append(result.AuditStats, c.Stats)
+				resultMu.Unlock()
+				if snap, ok := snapshotResult(); ok {
+					onResultUpdated(snap)
+				}
+				if progress != nil {
+					n := doneCount.Add(1)
+					progress(int(n), total, page.URL)
+				}
+				return nil
+			}
+		}
+
 		refs := extractImages(page.Content)
 		stats := ScreenshotPageStats{
 			PageURL:    page.URL,
@@ -1170,6 +1278,12 @@ func DetectScreenshotGaps(
 		// reliably render.
 		visionPathRefs, suppressionPathRefs := partitionRefsForVision(refs)
 
+		// Per-page accumulator for image issues. Building this locally
+		// (rather than slicing off result.ImageIssues' tail after the
+		// append) keeps the cache-entry build correct under concurrent
+		// dispatch — another worker's append could otherwise stomp the
+		// tail-slice between read points.
+		var pageIssues []ImageIssue
 		var verdicts []ImageVerdict
 		if client.Capabilities().Vision && len(visionPathRefs) > 0 {
 			stats.VisionEnabled = true
@@ -1186,11 +1300,11 @@ func DetectScreenshotGaps(
 			visionRefs := resolveVisionRefs(page.URL, visionPathRefs)
 			visionRefs = filterVisionSupportedImages(visionRefs)
 			stats.RelevanceBatches = len(splitImageBatches(visionRefs, 5))
-			issues, vs, err := relevancePass(ctx, client, page, visionRefs)
-			if err != nil {
-				return result, err
+			issues, vs, relErr := relevancePass(ctx, client, page, visionRefs)
+			if relErr != nil {
+				return relErr
 			}
-			result.ImageIssues = append(result.ImageIssues, issues...)
+			pageIssues = issues
 			stats.ImageIssues = len(issues)
 			verdicts = vs
 		}
@@ -1214,19 +1328,48 @@ func DetectScreenshotGaps(
 			cancel()
 		}
 
-		gaps, suppressed, skipped, err := detectionPass(ctx, client, page, refs, verdicts)
-		if err != nil {
-			return result, err
+		gaps, suppressed, skipped, detErr := detectionPass(ctx, client, page, refs, verdicts)
+		if detErr != nil {
+			return detErr
 		}
 		stats.MissingScreenshots = len(gaps)
 		stats.PossiblyCovered = len(suppressed)
 		stats.DetectionSkipped = skipped
+
+		// Single locked region: append everything this page contributed
+		// to the shared result accumulator. LLM calls and persister/
+		// progress callbacks stay outside the lock.
+		resultMu.Lock()
+		result.ImageIssues = append(result.ImageIssues, pageIssues...)
 		result.MissingGaps = append(result.MissingGaps, gaps...)
 		result.PossiblyCovered = append(result.PossiblyCovered, suppressed...)
 		result.AuditStats = append(result.AuditStats, stats)
-		if progress != nil {
-			progress(i+1, total, page.URL)
+		resultMu.Unlock()
+
+		if onPageDone != nil {
+			entry := ScreenshotsCachedPage{
+				URL:         page.URL,
+				ContentHash: contentHash,
+				Stats:       stats,
+				Missing:     append([]ScreenshotGap(nil), gaps...),
+				Possibly:    append([]ScreenshotGap(nil), suppressed...),
+				ImageIssues: append([]ImageIssue(nil), pageIssues...),
+			}
+			if err := onPageDone(page.URL, entry); err != nil {
+				return fmt.Errorf("persist screenshot cache for %s: %w", page.URL, err)
+			}
 		}
+		if snap, ok := snapshotResult(); ok {
+			onResultUpdated(snap)
+		}
+		if progress != nil {
+			n := doneCount.Add(1)
+			progress(int(n), total, page.URL)
+		}
+		return nil
+	})
+	if err != nil {
+		return result, err
 	}
 	return result, nil
 }

@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
@@ -182,8 +184,11 @@ func newAnalyzeCmd() *cobra.Command {
 			// Analyze each page; skip cached results.
 			log.Infof("analyzing %d pages...", len(pages))
 			var analyses []analyzer.PageAnalysis
-			freshCount := 0
-			pageNum := 0
+			type pageJob struct {
+				url      string
+				filePath string
+			}
+			jobs := make([]pageJob, 0, len(pages))
 			for url, filePath := range pages {
 				if summary, features, isDocs, ok := idx.Analysis(url); ok {
 					log.Debug("page cache hit", "url", url)
@@ -195,23 +200,34 @@ func newAnalyzeCmd() *cobra.Command {
 					})
 					continue
 				}
-				content, readErr := os.ReadFile(filePath)
+				jobs = append(jobs, pageJob{url: url, filePath: filePath})
+			}
+
+			var analysesMu sync.Mutex
+			cacheHitCount := len(analyses)
+			err = parallel.Run(ctx, jobs, workers, func(ctx context.Context, j pageJob) error {
+				content, readErr := os.ReadFile(j.filePath)
 				if readErr != nil {
-					continue
+					return nil
 				}
-				pageNum++
-				log.Infof("  [%d] %s", pageNum, url)
-				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, url, string(content))
+				log.Infof("  %s", j.url)
+				pa, analyzeErr := analyzer.AnalyzePage(ctx, tiering, j.url, string(content))
 				if analyzeErr != nil {
-					log.Warnf("skipping %s: %v", url, analyzeErr)
-					continue
+					log.Warnf("skipping %s: %v", j.url, analyzeErr)
+					return nil
 				}
-				if recErr := idx.RecordAnalysis(url, pa.Summary, pa.Features, pa.IsDocs); recErr != nil {
+				if recErr := idx.RecordAnalysis(j.url, pa.Summary, pa.Features, pa.IsDocs); recErr != nil {
 					return fmt.Errorf("record analysis: %w", recErr)
 				}
+				analysesMu.Lock()
 				analyses = append(analyses, pa)
-				freshCount++
+				analysesMu.Unlock()
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("analyze pages: %w", err)
 			}
+			freshCount := len(analyses) - cacheHitCount
 
 			if len(analyses) == 0 {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "scanned %d files, fetched %d pages, 0 pages analyzed\n",
@@ -393,8 +409,15 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			if !driftSkipped {
+				gapsPrefix := reporter.BuildGapsStaticPrefix(featureMap, docCoveredFeatures)
+				gapsWriter := reporter.NewGapsWriter(projectDir, gapsPrefix, 500*time.Millisecond)
+				// Seed the writer with an empty slice so a run that produces
+				// zero findings still emits a gaps.md (matches the prior
+				// unconditional WriteGaps behavior).
+				gapsWriter.Push(nil)
 				driftOnFinding := func(accumulated []analyzer.DriftFinding) error {
-					return reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, accumulated)
+					gapsWriter.Push(accumulated)
+					return nil
 				}
 
 				var cached map[string]analyzer.CachedDriftEntry
@@ -416,8 +439,16 @@ func newAnalyzeCmd() *cobra.Command {
 				driftFindings, err = analyzer.DetectDrift(
 					ctx, tiering, featureMap, docsFeatureMap,
 					pageReader, repoPath,
+					workers,
 					cached, driftOnFinding, onFeatureDone,
 				)
+				// Always flush the writer before the function returns so a
+				// detection error still produces the most-recent gaps.md state
+				// on disk. Close is the source of truth for the live path; the
+				// trailing WriteGaps call only fires on the cache-skipped path.
+				if closeErr := gapsWriter.Close(); closeErr != nil && err == nil {
+					return fmt.Errorf("close gaps writer: %w", closeErr)
+				}
 				if err != nil {
 					return fmt.Errorf("detect drift: %w", err)
 				}
@@ -436,40 +467,116 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			var screenshotResult analyzer.ScreenshotResult
+			screenshotsSkipped := false
 			if experimentalCheckScreenshots {
-				log.Infof("detecting missing screenshots...")
+				// The cache lives at a separate path from the user-visible
+				// screenshots.json artifact (which is rewritten by
+				// reporter.WriteScreenshotsJSON in a flatter shape). Mixing the
+				// two filenames would cause the reporter to clobber the cache
+				// file's completion sentinel mid-run.
+				screenshotsCachePath := filepath.Join(projectDir, "screenshots-cache.json")
+				screenshotsMdPath := filepath.Join(projectDir, "screenshots.md")
 				docPages := buildScreenshotDocPages(pages, analyses)
-				progress := func(done, total int, page string) {
-					log.Infof("  [%d/%d] %s", done, total, page)
+				wantScreenshotsHash := computeScreenshotsInputHash(docPages, llmSmall)
+
+				if !noCache {
+					if file, ok := loadScreenshotsCacheFile(screenshotsCachePath); ok &&
+						file.Complete != nil && file.Complete.Hash == wantScreenshotsHash {
+						if _, statErr := os.Stat(screenshotsMdPath); statErr == nil {
+							cachedMap := screenshotsCacheEntriesToMap(file.Entries)
+							screenshotResult = screenshotResultFromCache(cachedMap, docPages)
+							screenshotsSkipped = true
+							log.Infof("screenshots: cache complete, skipping (hash %s…)", wantScreenshotsHash[:8])
+						}
+					}
 				}
-				screenshotResult, err = analyzer.DetectScreenshotGaps(ctx, tiering.Small(), docPages, progress)
-				if err != nil {
-					return fmt.Errorf("detect screenshots: %w", err)
+
+				if !screenshotsSkipped {
+					log.Infof("detecting missing screenshots...")
+					progress := func(done, total int, page string) {
+						log.Infof("  [%d/%d] %s", done, total, page)
+					}
+
+					var cachedScreenshots map[string]analyzer.ScreenshotsCachedPage
+					var liveScreenshotsMap map[string]screenshotsCacheEntry
+					if !noCache {
+						if loaded, ok := loadScreenshotsCache(screenshotsCachePath); ok {
+							liveScreenshotsMap = loaded
+							cachedScreenshots = screenshotsCachedFromCli(loaded)
+							log.Infof("using cached screenshot results (%d pages)", len(loaded))
+						}
+					}
+					if liveScreenshotsMap == nil {
+						liveScreenshotsMap = map[string]screenshotsCacheEntry{}
+					}
+					persist := newScreenshotsCachePersister(liveScreenshotsMap, screenshotsCachePath)
+					onPageDone := func(_ string, entry analyzer.ScreenshotsCachedPage) error {
+						return persist(screenshotsCacheEntryFromAnalyzer(entry))
+					}
+
+					// Stream snapshots to a debounced single-writer goroutine
+					// so screenshots.md updates mid-run rather than only at
+					// the end. The analyzer hands us deep-enough copies so
+					// the writer can format without serializing workers.
+					screenshotsWriter := reporter.NewScreenshotsWriter(projectDir, 500*time.Millisecond)
+					// Seed the writer with an empty result so a run that
+					// produces zero gaps still emits a screenshots.md
+					// (matches the prior unconditional WriteScreenshots
+					// behavior on the live path).
+					screenshotsWriter.Push(analyzer.ScreenshotResult{})
+					onResultUpdated := func(snap analyzer.ScreenshotResult) {
+						screenshotsWriter.Push(snap)
+					}
+
+					screenshotResult, err = analyzer.DetectScreenshotGaps(
+						ctx, tiering.Small(), docPages,
+						workers,
+						cachedScreenshots, onPageDone, onResultUpdated, progress,
+					)
+					// Always flush the writer before downstream readers
+					// (site.Build) consume screenshots.md. Close is the
+					// source of truth for the live path; the trailing
+					// WriteScreenshots call is gone.
+					if closeErr := screenshotsWriter.Close(); closeErr != nil && err == nil {
+						return fmt.Errorf("close screenshots writer: %w", closeErr)
+					}
+					if err != nil {
+						return fmt.Errorf("detect screenshots: %w", err)
+					}
+					log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotResult.MissingGaps))
+					emitScreenshotAuditLog(screenshotResult.AuditStats)
+
+					// Stamp the completion sentinel so the next no-op re-run
+					// can short-circuit. UTC for byte-stable JSON.
+					if err := saveScreenshotsCacheComplete(screenshotsCachePath, liveScreenshotsMap, &screenshotsComplete{
+						Hash:        wantScreenshotsHash,
+						CompletedAt: time.Now().UTC(),
+					}); err != nil {
+						return fmt.Errorf("save screenshots completion: %w", err)
+					}
 				}
-				log.Debugf("screenshot-gap detection complete: %d gaps", len(screenshotResult.MissingGaps))
-				emitScreenshotAuditLog(screenshotResult.AuditStats)
 			}
 
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
 			}
-			// driftSkipped is load-bearing here: driftFindingsFromCache returns
-			// findings sorted by feature name, while a live DetectDrift run
-			// returns them in featureMap insertion order. Re-running WriteGaps
-			// with the cache-rebuilt slice would reorder gaps.md on every
-			// no-op re-run, churning the file's bytes for external tooling
-			// (git diffs, hash-based watchers) that reads gaps.md directly.
-			// site.Build keys drift by feature name in a map and is order-
-			// insensitive, so it does not need this gate — gaps.md does.
-			if !driftSkipped {
-				if err := reporter.WriteGaps(projectDir, featureMap, docCoveredFeatures, driftFindings); err != nil {
-					return fmt.Errorf("write gaps: %w", err)
-				}
-			}
-			if experimentalCheckScreenshots {
-				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
-					return fmt.Errorf("write screenshots: %w", err)
-				}
+			// gaps.md was written by GapsWriter.Close() on the live drift
+			// path above. On the cache-skipped path the existing gaps.md is
+			// reused as-is — re-running WriteGaps with cache-rebuilt findings
+			// would reorder the bytes (driftFindingsFromCache sorts by feature
+			// name; the live path uses featureMap insertion order) and churn
+			// the file for external tooling reading gaps.md (git diffs,
+			// hash-based watchers). site.Build keys drift by feature name in
+			// a map and is order-insensitive, so it does not need this gate —
+			// gaps.md does.
+			// screenshots.md was written by ScreenshotsWriter.Close() on the
+			// live screenshot path above. On the cache-skipped path the
+			// existing screenshots.md is reused as-is. screenshots.json (the
+			// flat JSON artifact) is still written here because no
+			// streaming-writer covers it — the cache file at
+			// screenshots-cache.json is a different shape and serves a
+			// different purpose (resume-from-crash).
+			if experimentalCheckScreenshots && !screenshotsSkipped {
 				if err := reporter.WriteScreenshotsJSON(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots.json: %w", err)
 				}

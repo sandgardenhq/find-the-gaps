@@ -335,7 +335,40 @@ Before any scenario runs:
 
 ---
 
-### Scenario 15: Update Check on Startup
+### Scenario 15: Parallel Execution
+
+**Context**: Verifies that `find-the-gaps analyze` runs the three LLM-heavy phases (page analysis, drift detection, screenshot detection) under a bounded worker pool without altering report content or shape, and that the new per-page `screenshots-cache.json` survives a SIGINT mid-run so a re-run resumes from where the killed run stopped. Two halves: (a) parallel speedup vs a serial baseline; (b) crash-recover via the cache.
+
+NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. It is distinct from the reporter's user-visible flat-findings file `<projectDir>/screenshots.json` — they cannot share a filename without clobbering each other's shape. (See commit `c8f6713` for the rename.)
+
+**Steps**:
+1. From a clean fixture state (`rm -rf <projectDir>`), run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs> --workers=8 -v` and time it (e.g., `time ftg analyze ...` or capture `$SECONDS`). Save reports to `<projectDir>-parallel/`.
+2. From a clean fixture state again (`rm -rf <projectDir>`), run the same command with `--workers=1` and time it. Save reports to `<projectDir>-serial/`.
+3. Compare timings. The parallel run should be meaningfully faster than the serial run on a fixture with at least a handful of feature mappings + drift candidates.
+4. Sort findings within each report by feature name / page URL, then byte-compare across the two runs:
+   - `gaps.md` (drift section sorted by page URL within each priority bucket)
+   - `screenshots.md` (sorted by page URL within each priority bucket)
+   - `mapping.md` (sorted by feature name)
+   - `drift.json` (sorted by `feature_id`, then `page_url`)
+   - `screenshots.json` (sorted by `page_url` within each bucket)
+   - `screenshots-cache.json` (sorted by page URL key)
+
+   Content must match modulo within-bucket ordering. Priority bucketing is deterministic; ordering inside a single priority bucket may shift under parallel dispatch, which is why the comparison sorts before diffing.
+5. Start a fresh parallel run on a clean fixture: `find-the-gaps analyze --repo <fixture> --docs-url <url> --workers=8 -v`. Wait until the screenshot pass starts emitting `screenshot cache miss:` log lines, then send SIGINT (`Ctrl-C` or `kill -INT`). Confirm `<projectDir>/screenshots-cache.json` exists and contains entries for the pages that finished before the signal.
+6. Re-run the same command (no `--no-cache`). Count fresh LLM calls in the screenshot phase via the `-v` audit log lines (look for `screenshot cache miss:` vs `screenshot cache hit:` markers). Only un-cached pages should re-run.
+
+**Success Criteria**:
+- [ ] Step 1 and step 2 both exit `0` and write the full report set.
+- [ ] Step 3: parallel wall-clock time is meaningfully shorter than serial. As a coarse target, `--workers=8` should beat `--workers=1` by at least 2x on a fixture with >= 10 docs pages and >= 5 drift candidates. Smaller fixtures may show smaller speedups; the gate is "meaningfully faster," not a hard ratio.
+- [ ] Step 4: after sorting, every paired report (gaps.md, screenshots.md, mapping.md, drift.json, screenshots.json, screenshots-cache.json) is byte-identical across the parallel and serial runs.
+- [ ] Step 5: SIGINT terminates the run; `<projectDir>/screenshots-cache.json` contains a non-empty subset of pages (partial-progress proof). The completion sentinel for screenshots is NOT written.
+- [ ] Step 6: the re-run logs `screenshot cache hit:` for every page that finished before the SIGINT and `screenshot cache miss:` only for pages that had not. Total fresh LLM calls in the second screenshot pass is strictly less than the page count of the original cold run.
+
+**If Blocked**: If step 4 produces a non-empty diff after sorting, the parallel path is producing different content (not just different ordering) — capture the unified diff and re-run with `-race -count=1 ./...` to look for race-detector evidence; the most likely culprits are an unguarded shared accumulator or a hash-skip bug where parallel dispatch passes a different cache key than the serial path. If step 6 shows the re-run treating cached pages as misses, the persister is failing to flush before SIGINT lands — inspect `screenshots-cache.json` mtime vs the SIGINT timestamp and the cache loader's hash-equality logic.
+
+---
+
+### Scenario 16: Update Check on Startup
 
 **Context**: Verify that `ftg` checks the GitHub Releases API on startup, prints a platform-aware upgrade notice when behind, caches the result for 24h, and respects every documented opt-out.
 

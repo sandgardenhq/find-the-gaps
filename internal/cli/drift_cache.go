@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
@@ -77,12 +78,19 @@ func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, f
 // drift detection. On a cache hit the on-disk drift.json already contains the
 // matching entry, so it skips the save entirely; only fresh results trigger a
 // write. *hits and *fresh are incremented to track cache effectiveness.
+//
+// The closure captures a sync.Mutex so parallel drift workers can call the
+// returned function concurrently without racing on liveCache, the *hits /
+// *fresh counters, or the on-disk save.
 func newDriftCachePersister(
 	cached, liveCache map[string]analyzer.CachedDriftEntry,
 	driftCachePath string,
 	hits, fresh *int,
 ) analyzer.DriftFeatureDoneFunc {
+	var mu sync.Mutex
 	return func(name string, files, filteredPages, pages []string, issues []analyzer.DriftIssue) error {
+		mu.Lock()
+		defer mu.Unlock()
 		if isDriftCacheHit(cached, name, files, filteredPages) {
 			*hits++
 			return nil

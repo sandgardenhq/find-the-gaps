@@ -94,6 +94,19 @@ func WriteGaps(
 	allDocFeatures []string,
 	drift []analyzer.DriftFinding,
 ) error {
+	body := BuildGapsStaticPrefix(mapping, allDocFeatures) +
+		"\n## Stale Documentation\n\n" +
+		BuildGapsStaleSection(drift)
+	return os.WriteFile(filepath.Join(dir, "gaps.md"), []byte(body), 0o644)
+}
+
+// BuildGapsStaticPrefix renders the portion of gaps.md whose contents do not
+// change as drift findings stream in: the document title and the Undocumented
+// Features section. The returned string ends with the trailing newline of the
+// Undocumented Features body, so the caller composes the Stale Documentation
+// section by appending "\n## Stale Documentation\n\n" followed by
+// BuildGapsStaleSection.
+func BuildGapsStaticPrefix(mapping analyzer.FeatureMap, allDocFeatures []string) string {
 	docFeatures := make(map[string]bool)
 	for _, f := range allDocFeatures {
 		docFeatures[f] = true
@@ -123,41 +136,44 @@ func WriteGaps(
 		sb.WriteString("</div>\n")
 	}
 
-	// Stale documentation: inaccuracies found in pages that DO cover a feature,
-	// grouped by priority (Large → Medium → Small). Empty buckets are omitted.
-	// Each finding renders as a card via .ftg-stale; priority sub-headings are
-	// wrapped in .ftg-priority--{large,medium,small} so custom.css can color
-	// them. Within a bucket, findings appear in stable original order
-	// (feature first, then issue position within that feature).
-	sb.WriteString("\n## Stale Documentation\n\n")
+	return sb.String()
+}
+
+// BuildGapsStaleSection renders the Stale Documentation section body in
+// priority order (Large → Medium → Small). Empty buckets are omitted; within a
+// bucket, findings appear in stable original order (feature first, then issue
+// position within that feature). The returned string does NOT include the
+// "## Stale Documentation" header — the composing call owns that so the writer
+// can render the static prefix once and re-render only the stale body as new
+// findings stream in.
+func BuildGapsStaleSection(drift []analyzer.DriftFinding) string {
 	flat := flattenDrift(drift)
 	if len(flat) == 0 {
-		sb.WriteString("_None found._\n")
-	} else {
-		for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
-			bucket := filterDriftByPriority(flat, p)
-			if len(bucket) == 0 {
-				continue
+		return "_None found._\n"
+	}
+	var sb strings.Builder
+	for _, p := range []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall} {
+		bucket := filterDriftByPriority(flat, p)
+		if len(bucket) == 0 {
+			continue
+		}
+		fmt.Fprintf(&sb, "<div class=\"ftg-priority ftg-priority--%s\">\n\n### %s\n\n</div>\n\n", priorityClass(p), priorityHeading(p))
+		fmt.Fprintf(&sb, `<div class="ftg-stale-list">`+"\n\n")
+		for _, item := range bucket {
+			fmt.Fprintf(&sb, `<div class="ftg-stale ftg-stale--%s">`+"\n", priorityClass(p))
+			fmt.Fprintf(&sb, `<span class="ftg-stale-feature">%s</span>`+"\n", esc(item.Feature))
+			if item.Issue.Page != "" {
+				fmt.Fprintf(&sb, `<a class="ftg-stale-page" href="%s">%s</a>`+"\n", esc(item.Issue.Page), esc(item.Issue.Page))
 			}
-			fmt.Fprintf(&sb, "<div class=\"ftg-priority ftg-priority--%s\">\n\n### %s\n\n</div>\n\n", priorityClass(p), priorityHeading(p))
-			fmt.Fprintf(&sb, `<div class="ftg-stale-list">`+"\n\n")
-			for _, item := range bucket {
-				fmt.Fprintf(&sb, `<div class="ftg-stale ftg-stale--%s">`+"\n", priorityClass(p))
-				fmt.Fprintf(&sb, `<span class="ftg-stale-feature">%s</span>`+"\n", esc(item.Feature))
-				if item.Issue.Page != "" {
-					fmt.Fprintf(&sb, `<a class="ftg-stale-page" href="%s">%s</a>`+"\n", esc(item.Issue.Page), esc(item.Issue.Page))
-				}
-				fmt.Fprintf(&sb, `<span class="ftg-stale-issue">%s</span>`+"\n", esc(item.Issue.Issue))
-				if item.Issue.PriorityReason != "" {
-					fmt.Fprintf(&sb, `<span class="ftg-stale-why">why: %s</span>`+"\n", esc(item.Issue.PriorityReason))
-				}
-				sb.WriteString("</div>\n\n")
+			fmt.Fprintf(&sb, `<span class="ftg-stale-issue">%s</span>`+"\n", esc(item.Issue.Issue))
+			if item.Issue.PriorityReason != "" {
+				fmt.Fprintf(&sb, `<span class="ftg-stale-why">why: %s</span>`+"\n", esc(item.Issue.PriorityReason))
 			}
 			sb.WriteString("</div>\n\n")
 		}
+		sb.WriteString("</div>\n\n")
 	}
-
-	return os.WriteFile(filepath.Join(dir, "gaps.md"), []byte(sb.String()), 0o644)
+	return sb.String()
 }
 
 // WriteScreenshots writes screenshots.md to dir. Call ONLY when the screenshot
@@ -171,6 +187,14 @@ func WriteGaps(
 // so users can see the pass actually ran. When vision did not run on any
 // page, the header is omitted entirely.
 func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
+	return os.WriteFile(filepath.Join(dir, "screenshots.md"), BuildScreenshotsBytes(res), 0o644)
+}
+
+// BuildScreenshotsBytes renders the screenshots.md body for res. Mirrors what
+// WriteScreenshots emits and is the byte source for ScreenshotsWriter. The
+// reporter golden tests for WriteScreenshots also exercise this function via
+// WriteScreenshots, so the two paths can never drift out of sync.
+func BuildScreenshotsBytes(res analyzer.ScreenshotResult) []byte {
 	var sb strings.Builder
 	sb.WriteString("# Missing Screenshots\n\n")
 
@@ -202,7 +226,7 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 		}
 	}
 
-	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+	return []byte(sb.String())
 }
 
 // gapRenderer renders one ScreenshotGap into the builder. The third argument
