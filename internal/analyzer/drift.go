@@ -185,7 +185,19 @@ func DetectDrift(
 		}
 		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)
 		if err != nil {
-			return nil, fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
+			// A single transient judge failure (e.g. malformed JSON the
+			// CompleteJSON retry-with-correction couldn't recover) must not
+			// abort the run — work on every other feature would be lost.
+			// Log a warning and continue. We deliberately do NOT call
+			// onFeatureDone for this feature: the cache write is skipped so
+			// the next run re-investigates from scratch instead of inheriting
+			// a permanent silent zero-finding cache that would mask a
+			// recurring model regression. Investigator errors above keep
+			// their hard-fail behavior — those signal something more serious
+			// than a single bad judge response.
+			log.Warnf("drift judge failed for feature %q: %v; skipping feature, no cache entry written",
+				entry.Feature.Name, err)
+			continue
 		}
 
 		if len(issues) > 0 {

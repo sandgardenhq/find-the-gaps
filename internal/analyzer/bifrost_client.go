@@ -406,7 +406,43 @@ func (c *BifrostClient) completeJSONMessages(ctx context.Context, messages []Cha
 // response_format={"type":"json_schema","json_schema":{"name":..., "strict":true,
 // "schema": schema.Doc}}. The assistant message content is a JSON string
 // conforming to the schema.
+//
+// On schema validation failure (rare: the model defied strict mode, or our
+// schema declaration drifted from what the provider actually accepts), retry
+// once with a corrective follow-up appended to the messages slice. See
+// schemaCorrectionMessage for the retry contract.
 func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
+	raw, err := c.completeJSONOpenAIOnce(ctx, messages, schema)
+	if err != nil {
+		return nil, err
+	}
+	cleaned, validationErr := schema.ValidateResponse(raw)
+	if validationErr == nil {
+		return cleaned, nil
+	}
+
+	log.Warnf("bifrost CompleteJSON: schema %q validation failed (will retry once): %v", schema.Name, validationErr)
+	retryMessages := append([]ChatMessage(nil), messages...)
+	retryMessages = append(retryMessages, ChatMessage{
+		Role:    "user",
+		Content: schemaCorrectionMessage(schema, raw, validationErr),
+	})
+	raw2, err := c.completeJSONOpenAIOnce(ctx, retryMessages, schema)
+	if err != nil {
+		return nil, err
+	}
+	cleaned2, err := schema.ValidateResponse(raw2)
+	if err != nil {
+		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
+	}
+	return cleaned2, nil
+}
+
+// completeJSONOpenAIOnce issues one OpenAI structured-outputs call and returns
+// the raw JSON content without validating it. The validation step lives in the
+// caller so the retry layer can decide whether to re-prompt. Network/protocol
+// errors surface here unchanged — only schema validation is retryable.
+func (c *BifrostClient) completeJSONOpenAIOnce(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	rf := map[string]any{
 		"type": "json_schema",
 		"json_schema": map[string]any{
@@ -443,19 +479,54 @@ func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages
 	if msg == nil || msg.Content == nil || msg.Content.ContentStr == nil {
 		return nil, fmt.Errorf("bifrost CompleteJSON: nil content; schema=%q", schema.Name)
 	}
-	raw := json.RawMessage(*msg.Content.ContentStr)
-	cleaned, err := schema.ValidateResponse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
-	}
-	return cleaned, nil
+	return json.RawMessage(*msg.Content.ContentStr), nil
 }
 
 // completeJSONAnthropicMessages forces the model to emit structured output by
 // registering a single tool named "respond" whose parameters schema equals
 // schema.Doc and setting tool_choice to require that tool. The tool's call
 // arguments are the parse-guaranteed JSON response.
+//
+// On schema validation failure — Anthropic's tool input_schema is documented
+// as advisory, and we have observed the model occasionally emit arguments
+// whose types don't match (e.g. issues:"foo" instead of issues:[…]) — retry
+// once with a corrective follow-up message appended. The retry quotes the bad
+// output and the validator error so the model can self-correct. If the second
+// attempt also fails, the validation error bubbles up unchanged.
 func (c *BifrostClient) completeJSONAnthropicMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
+	raw, err := c.completeJSONAnthropicOnce(ctx, messages, schema)
+	if err != nil {
+		return nil, err
+	}
+	cleaned, validationErr := schema.ValidateResponse(raw)
+	if validationErr == nil {
+		return cleaned, nil
+	}
+
+	log.Warnf("bifrost CompleteJSON: schema %q validation failed (will retry once): %v", schema.Name, validationErr)
+	retryMessages := append([]ChatMessage(nil), messages...)
+	retryMessages = append(retryMessages, ChatMessage{
+		Role:    "user",
+		Content: schemaCorrectionMessage(schema, raw, validationErr),
+	})
+	raw2, err := c.completeJSONAnthropicOnce(ctx, retryMessages, schema)
+	if err != nil {
+		return nil, err
+	}
+	cleaned2, err := schema.ValidateResponse(raw2)
+	if err != nil {
+		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
+	}
+	return cleaned2, nil
+}
+
+// completeJSONAnthropicOnce issues one forced-tool call and returns the raw
+// tool-call arguments without validating them against the schema. The
+// validation step lives in the caller so the retry layer can decide whether
+// to re-prompt. Network/protocol errors and obvious tool-call shape failures
+// (no tool call, wrong tool name) surface here unchanged — only schema
+// validation is retryable.
+func (c *BifrostClient) completeJSONAnthropicOnce(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	const respondToolName = "respond"
 
 	var params schemas.ToolFunctionParameters
@@ -514,12 +585,30 @@ func (c *BifrostClient) completeJSONAnthropicMessages(ctx context.Context, messa
 		}
 		return nil, fmt.Errorf("bifrost CompleteJSON: expected tool %q, got %q", respondToolName, got)
 	}
-	raw := json.RawMessage(tc.Function.Arguments)
-	cleaned, err := schema.ValidateResponse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("bifrost CompleteJSON: %w", err)
+	return json.RawMessage(tc.Function.Arguments), nil
+}
+
+// schemaCorrectionMessage builds the corrective user message used to retry a
+// CompleteJSON call after schema validation failed. It quotes the bad
+// response inline (capped at maxCorrectionRawLen so a runaway output can't
+// blow past the model's window) and the validator error, then asks the model
+// to respond again with output that matches the schema. The "every array
+// field must be a JSON array, not a string" hint targets the production
+// failure mode that motivated this retry layer (drift judge returning
+// issues:"<string>" instead of issues:[…]).
+const maxCorrectionRawLen = 2048
+
+func schemaCorrectionMessage(schema JSONSchema, raw json.RawMessage, validationErr error) string {
+	excerpt := string(raw)
+	if len(excerpt) > maxCorrectionRawLen {
+		excerpt = excerpt[:maxCorrectionRawLen] + "...[truncated]"
 	}
-	return cleaned, nil
+	return fmt.Sprintf(
+		"Your previous response did not match the required JSON schema %q. "+
+			"Validator error: %v. Your previous output was:\n\n%s\n\n"+
+			"Please respond again with output that strictly matches the schema. "+
+			"Pay particular attention to field types: every array field must be a JSON array, not a string.",
+		schema.Name, validationErr, excerpt)
 }
 
 // Complete sends a user prompt and returns the first completion text.
