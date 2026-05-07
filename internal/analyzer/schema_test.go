@@ -237,3 +237,47 @@ func TestJSONSchema_ValidateResponse_InvalidSchemaDoc_ReturnsError(t *testing.T)
 		t.Fatal("expected error when schema doc is malformed")
 	}
 }
+
+// OpenAI's structured-outputs `strict: true` mode rejects any object node
+// where a key in `properties` is not also listed in `required`. Bifrost
+// surfaces this as: "'required' is required to be supplied and to be an
+// array including every key in properties. Missing '<field>'." Walk every
+// package-level schema and assert this invariant up front so we catch new
+// schemas (or edits) before they fail in production against OpenAI.
+func TestAllSchemas_StrictModeCompatible(t *testing.T) {
+	for _, s := range analyzer.AllSchemasForTest() {
+		var doc map[string]any
+		if err := json.Unmarshal(s.Doc, &doc); err != nil {
+			t.Fatalf("schema %q: invalid JSON: %v", s.Name, err)
+		}
+		assertStrictModeNode(t, s.Name, "$", doc)
+	}
+}
+
+func assertStrictModeNode(t *testing.T, schemaName, path string, node map[string]any) {
+	t.Helper()
+	if node["type"] == "object" {
+		props, _ := node["properties"].(map[string]any)
+		reqRaw, _ := node["required"].([]any)
+		required := make(map[string]struct{}, len(reqRaw))
+		for _, r := range reqRaw {
+			if s, ok := r.(string); ok {
+				required[s] = struct{}{}
+			}
+		}
+		for key, child := range props {
+			if _, ok := required[key]; !ok {
+				t.Errorf("schema %q: %s.properties.%s is not in required[] — OpenAI strict mode will reject this schema",
+					schemaName, path, key)
+			}
+			if childMap, ok := child.(map[string]any); ok {
+				assertStrictModeNode(t, schemaName, path+".properties."+key, childMap)
+			}
+		}
+	}
+	if node["type"] == "array" {
+		if items, ok := node["items"].(map[string]any); ok {
+			assertStrictModeNode(t, schemaName, path+".items", items)
+		}
+	}
+}

@@ -838,7 +838,7 @@ var screenshotGapsSchema = JSONSchema{
           }
         }
       },
-      "required": ["gaps"],
+      "required": ["gaps", "suppressed_by_image"],
       "additionalProperties": false
     }`),
 }

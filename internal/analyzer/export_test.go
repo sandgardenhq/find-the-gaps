@@ -25,3 +25,18 @@ func ExportedBudgetForFeature(files, pages int) int {
 
 // AnalyzePageSchemaForTest exposes analyzePageSchema for black-box tests.
 func AnalyzePageSchemaForTest() JSONSchema { return analyzePageSchema }
+
+// AllSchemasForTest returns every package-level JSONSchema so cross-cutting
+// invariants (e.g. OpenAI strict-mode compatibility) can be asserted in tests.
+func AllSchemasForTest() []JSONSchema {
+	return []JSONSchema{
+		analyzePageSchema,
+		synthesizeSchema,
+		codeFeaturesSchema,
+		mapSchema,
+		mapPageSchema,
+		screenshotGapsSchema,
+		relevancePassSchema,
+		judgeSchema,
+	}
+}

@@ -31,8 +31,12 @@ type mapResponse struct {
 	Entries []mapEntry `json:"entries"`
 }
 
-// PROMPT SCHEMA: output shape for MapFeaturesToCode (symbols optional so the
-// same schema serves both filesOnly and full modes).
+// PROMPT SCHEMA: output shape for MapFeaturesToCode. The same schema serves
+// both filesOnly and full modes; in filesOnly mode the LLM is expected to
+// return symbols=[] (the prompt tells it so) and the accumulator discards
+// those entries. `symbols` is in required because OpenAI's strict
+// structured-outputs mode rejects any object whose properties aren't all
+// also listed in required.
 var mapSchema = JSONSchema{
 	Name: "map_response",
 	Doc: json.RawMessage(`{
@@ -47,7 +51,7 @@ var mapSchema = JSONSchema{
               "files":   {"type": "array", "items": {"type": "string"}},
               "symbols": {"type": "array", "items": {"type": "string"}}
             },
-            "required": ["feature", "files"],
+            "required": ["feature", "files", "symbols"],
             "additionalProperties": false
           }
         }
