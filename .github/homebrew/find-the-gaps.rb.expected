@@ -33,18 +33,6 @@ class FindTheGaps < Formula
     bin.install "ftg"
   end
 
-  def caveats
-    <<~EOS
-      find-the-gaps shells out to two external tools, both installed as Homebrew dependencies:
-        • mdfetch (sandgardenhq/tap/mdfetch)
-        • hugo
-      `brew uninstall find-the-gaps` will NOT remove either. To clean up:
-        brew uninstall sandgardenhq/tap/mdfetch
-        brew uninstall hugo
-      Verify with: ftg doctor
-    EOS
-  end
-
   test do
     assert_match version.to_s, shell_output("#{bin}/ftg --version")
   end
