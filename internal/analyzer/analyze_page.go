@@ -3,7 +3,10 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+
+	"github.com/charmbracelet/log"
 )
 
 type analyzePageResponse struct {
@@ -68,6 +71,15 @@ Set is_docs=false when the page is one of the not-docs categories above. Default
 
 	raw, err := client.CompleteJSON(ctx, prompt, analyzePageSchema)
 	if err != nil {
+		// Oversize page hit the per-model budget gate. Log + skip the
+		// page so the rest of the run continues. The caller sees a
+		// zero-value PageAnalysis with no error; the page contributes
+		// nothing this run, and a re-run with --llm-small=<bigger-model>
+		// or a smaller page reaches the analyzer.
+		if errors.Is(err, ErrTokenBudgetExceeded{}) {
+			log.Warnf("AnalyzePage: skipping %s: %v", pageURL, err)
+			return PageAnalysis{}, nil
+		}
 		return PageAnalysis{}, fmt.Errorf("AnalyzePage %s: %w", pageURL, err)
 	}
 

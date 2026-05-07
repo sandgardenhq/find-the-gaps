@@ -184,3 +184,28 @@ func TestAnalyzePage_PromptExcludesMarketingAndBlogPosts(t *testing.T) {
 		t.Error("prompt must list blog posts as not-docs")
 	}
 }
+
+// TestAnalyzePage_SkipsOnTokenBudgetError pins that an oversize page
+// (budget gate fires before any wire call) is logged + skipped rather
+// than aborting the whole analyze run. The caller sees an empty
+// PageAnalysis with nil error and continues to the next page.
+func TestAnalyzePage_SkipsOnTokenBudgetError(t *testing.T) {
+	c := &fakeClient{forcedErr: analyzer.ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "page-analyzer",
+	}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/big", strings.Repeat("y", 10_000))
+	if err != nil {
+		t.Fatalf("expected nil error (skip-and-continue), got %v", err)
+	}
+	if got.URL != "" || got.Summary != "" || len(got.Features) != 0 {
+		t.Fatalf("expected zero-value PageAnalysis on skip, got %+v", got)
+	}
+	// Confirm the helper *did* return the typed error to AnalyzePage —
+	// that's what the skip path is meant to swallow.
+	if !errors.Is(c.forcedErr, analyzer.ErrTokenBudgetExceeded{}) {
+		t.Fatal("test stub misconfigured: forcedErr should be ErrTokenBudgetExceeded")
+	}
+}
