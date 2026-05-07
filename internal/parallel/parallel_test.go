@@ -97,6 +97,30 @@ func TestRun_zeroWorkersDefaultsToOne(t *testing.T) {
 	assert.Equal(t, int32(1), peak)
 }
 
+// TestRun_queuedItemsSkipFnAfterError exercises the gctx.Err() pre-check inside
+// the goroutine wrapper. With workers=1 and 5 items, the first item errors;
+// without the pre-check, the four queued goroutines would each invoke fn even
+// after gctx is cancelled. With the pre-check they exit early.
+//
+// drift detection's TestDetectDrift_OnFeatureDoneError_Aborts depends on this
+// behavior end-to-end; this test pins the contract at the package boundary so
+// future callers can rely on it without reading the analyzer-level test.
+func TestRun_queuedItemsSkipFnAfterError(t *testing.T) {
+	items := []int{0, 1, 2, 3, 4}
+	var fnCalls int32
+	sentinel := errors.New("boom")
+	err := parallel.Run(context.Background(), items, 1, func(ctx context.Context, n int) error {
+		atomic.AddInt32(&fnCalls, 1)
+		if n == 0 {
+			return sentinel
+		}
+		return nil
+	})
+	require.ErrorIs(t, err, sentinel)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fnCalls),
+		"only the first item should have entered fn; the four queued goroutines must short-circuit on cancelled gctx")
+}
+
 func TestRun_emptySliceIsNoop(t *testing.T) {
 	var ran int32
 	err := parallel.Run(context.Background(), []int{}, 4, func(_ context.Context, _ int) error {
