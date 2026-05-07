@@ -471,6 +471,26 @@ func TestResolveImageSrc_RelativeButPageHasNoHost(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestDetectScreenshotGaps_SkipsOnTokenBudgetError pins that an oversize
+// page (budget gate fires before any wire call) is skipped — same shape
+// as the existing in-process budget skip — and the run continues without
+// returning an error.
+func TestDetectScreenshotGaps_SkipsOnTokenBudgetError(t *testing.T) {
+	client := &fakeLLMClient{errs: []error{ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "screenshot-gaps",
+	}}}
+	pages := []DocPage{{URL: "https://x", Path: "/x", Content: "# x\nimage of foo: ![](a.png)"}}
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("expected nil error (skip-and-continue), got %v", err)
+	}
+	if len(res.MissingGaps) != 0 {
+		t.Fatalf("expected zero MissingGaps from a skipped page, got %d", len(res.MissingGaps))
+	}
+}
+
 func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

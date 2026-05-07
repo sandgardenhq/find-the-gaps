@@ -1122,6 +1122,15 @@ func detectionPass(
 	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
+		// Per-model budget gate fired before any wire send. Treat this
+		// as a per-page skip — same shape as the in-process budget
+		// skip above. The run continues; the page contributes no
+		// screenshot findings. A re-run with a larger model picks
+		// it up.
+		if errors.Is(err, ErrTokenBudgetExceeded{}) {
+			log.Warnf("screenshot-gaps: skipping %s: %v", page.URL, err)
+			return nil, nil, true, nil
+		}
 		return nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 	}
 	var resp screenshotGapsResponse
