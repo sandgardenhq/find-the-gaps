@@ -179,6 +179,87 @@ func TestBudgetedClient_NoBudgetMeansNoGate(t *testing.T) {
 	}
 }
 
+// fakeInnerToolLLM extends fakeInnerLLM with a CompleteWithTools that
+// drives an in-process agent loop using a caller-supplied turn function.
+// Used to exercise budgetedClient.CompleteWithTools end-to-end without a
+// real BifrostClient. The agent loop runs inside the fake so opts (incl.
+// WithPreTurnHook and WithMaxToolResultTokens) reach a real runAgentLoop.
+type fakeInnerToolLLM struct {
+	*fakeInnerLLM
+	turn turnFunc
+}
+
+func (f *fakeInnerToolLLM) CompleteWithTools(ctx context.Context, msgs []ChatMessage, tools []Tool, opts ...AgentOption) (AgentResult, error) {
+	return runAgentLoop(ctx, f.turn, msgs, tools, opts...)
+}
+
+// TestBudgetedClient_CompleteWithToolsGatesEachTurn pins the multi-turn
+// fix for the original 294k-token incident. After two successful tool
+// roundtrips the accumulated history would push past the budget; the
+// pre-turn hook detects this on round 3 and the loop terminates cleanly
+// with ErrTokenBudgetExceeded — partial state captured by tool handlers
+// is preserved (the existing ErrMaxRounds shape).
+func TestBudgetedClient_CompleteWithToolsGatesEachTurn(t *testing.T) {
+	round := 0
+	turn := func(_ context.Context, _ []ChatMessage, _ []Tool) (ChatMessage, error) {
+		round++
+		// Every turn requests one tool call so messages keep growing.
+		return ChatMessage{
+			Role:      "assistant",
+			ToolCalls: []ToolCall{{ID: "1", Name: "noop", Arguments: "{}"}},
+		}, nil
+	}
+	noop := Tool{
+		Name: "noop",
+		Execute: func(_ context.Context, _ string) (string, error) {
+			// Return a chunk of "filler" text that will balloon the
+			// accumulated history past a tiny budget after a couple
+			// rounds.
+			return strings.Repeat("filler text ", 500), nil
+		},
+	}
+	inner := &fakeInnerToolLLM{
+		fakeInnerLLM: &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 5000}},
+		turn:         turn,
+	}
+	bc := newBudgetedClient(inner, "drift-investigator")
+
+	res, err := bc.CompleteWithTools(context.Background(),
+		[]ChatMessage{{Role: "user", Content: "go"}},
+		[]Tool{noop}, WithMaxRounds(20))
+
+	if !errors.Is(err, ErrTokenBudgetExceeded{}) {
+		t.Fatalf("expected ErrTokenBudgetExceeded after history grows, got %v", err)
+	}
+	if res.Rounds < 1 {
+		t.Fatalf("expected at least one successful turn before the gate fired; got Rounds=%d", res.Rounds)
+	}
+	if res.Rounds >= 20 {
+		t.Fatalf("expected gate to fire before 20 rounds; got Rounds=%d", res.Rounds)
+	}
+}
+
+// TestBudgetedClient_NoBudgetMeansNoToolGate pins that ollama/lmstudio
+// (MaxInputTokens=0) bypass per-turn gating just as they bypass single-shot.
+func TestBudgetedClient_NoBudgetMeansNoToolGate(t *testing.T) {
+	turn := func(_ context.Context, _ []ChatMessage, _ []Tool) (ChatMessage, error) {
+		return ChatMessage{Role: "assistant", Content: "done"}, nil
+	}
+	inner := &fakeInnerToolLLM{
+		fakeInnerLLM: &fakeInnerLLM{caps: ModelCapabilities{Provider: "ollama", Model: "*", MaxInputTokens: 0}},
+		turn:         turn,
+	}
+	bc := newBudgetedClient(inner, "x")
+	huge := []ChatMessage{{Role: "user", Content: strings.Repeat("xx ", 100000)}}
+	res, err := bc.CompleteWithTools(context.Background(), huge, nil)
+	if err != nil {
+		t.Fatalf("expected no error when budget=0, got %v", err)
+	}
+	if res.Rounds != 1 {
+		t.Fatalf("expected one turn, got %d", res.Rounds)
+	}
+}
+
 // TestBudgetedClient_GatesAllSingleShotMethods pins that Complete,
 // CompleteJSON, and CompleteJSONMultimodal each go through the gate.
 func TestBudgetedClient_GatesAllSingleShotMethods(t *testing.T) {

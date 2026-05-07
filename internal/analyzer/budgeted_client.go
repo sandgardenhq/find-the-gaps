@@ -133,14 +133,51 @@ func (b *budgetedClient) CompleteJSONMultimodal(ctx context.Context, msgs []Chat
 	return b.inner.CompleteJSONMultimodal(ctx, msgs, schema)
 }
 
-// CompleteWithTools delegates to the inner ToolLLMClient. The per-turn
-// budget hook and per-tool-result clip land in the agent-loop integration
-// task; this method exists today so *budgetedClient satisfies
-// ToolLLMClient and tier wiring can land before the loop hook is in.
+// CompleteWithTools delegates to the inner ToolLLMClient with two budget
+// hooks attached:
+//
+//   - WithPreTurnHook checks the accumulated payload size before each
+//     LLM round-trip. When it would exceed 0.9 × MaxInputTokens, the loop
+//     terminates with ErrTokenBudgetExceeded — the drift investigator's
+//     existing recovery path (mirroring ErrMaxRounds) hands partial
+//     observations to the judge.
+//
+//   - WithMaxToolResultTokens caps any single tool result at half the
+//     gated budget. One giant file/page read can no longer single-handedly
+//     bust the next turn's budget.
+//
+// When MaxInputTokens == 0 (self-hosted ollama/lmstudio), neither hook is
+// attached and behavior is unchanged.
 func (b *budgetedClient) CompleteWithTools(ctx context.Context, msgs []ChatMessage, tools []Tool, opts ...AgentOption) (AgentResult, error) {
 	if b.tool == nil {
 		return AgentResult{}, fmt.Errorf("CompleteWithTools: inner client does not support tool use")
 	}
+	caps := b.inner.Capabilities()
+	if caps.MaxInputTokens <= 0 {
+		return b.tool.CompleteWithTools(ctx, msgs, tools, opts...)
+	}
+
+	gated := int(0.9 * float64(caps.MaxInputTokens))
+	clipMax := gated / 2
+
+	hook := func(messages []ChatMessage, t []Tool) error {
+		// Schema is empty here — multi-turn calls don't carry a JSON
+		// schema. Tool definitions, system prompt (already in messages),
+		// and accumulated history all contribute.
+		n := countPayloadTokens("", messages, t, JSONSchema{})
+		if n > gated {
+			return ErrTokenBudgetExceeded{
+				Provider: caps.Provider,
+				Model:    caps.Model,
+				Counted:  n,
+				Budget:   gated,
+				Where:    b.where,
+			}
+		}
+		return nil
+	}
+
+	opts = append(opts, WithPreTurnHook(hook), WithMaxToolResultTokens(clipMax))
 	return b.tool.CompleteWithTools(ctx, msgs, tools, opts...)
 }
 

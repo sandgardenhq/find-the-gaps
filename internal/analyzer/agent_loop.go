@@ -25,6 +25,16 @@ type AgentOption func(*agentConfig)
 type agentConfig struct {
 	maxRounds int
 	onTurn    func()
+	// preTurnHook fires immediately before each next() call. Returning a
+	// non-nil error terminates the loop with that error and the rounds
+	// completed so far. budgetedClient uses this to translate
+	// "next turn would exceed input budget" into ErrTokenBudgetExceeded.
+	preTurnHook func(messages []ChatMessage, tools []Tool) error
+	// maxToolResultTokens caps the cl100k_base token count of a single
+	// tool result before it's appended to the message history. Results
+	// over the cap are truncated with a "[truncated: ~N tokens omitted]"
+	// marker. Zero (the default) disables clipping.
+	maxToolResultTokens int
 }
 
 // WithMaxRounds sets the maximum number of LLM round-trips the agent loop will
@@ -40,6 +50,28 @@ func WithMaxRounds(n int) AgentOption {
 // the goroutine driving the loop; pass nil to opt out.
 func WithTurnCallback(fn func()) AgentOption {
 	return func(cfg *agentConfig) { cfg.onTurn = fn }
+}
+
+// WithPreTurnHook registers a function called immediately before each LLM
+// turn. If the hook returns a non-nil error, runAgentLoop terminates and
+// returns that error along with the rounds completed so far. budgetedClient
+// uses this to gate per-turn input size before the request goes out.
+func WithPreTurnHook(fn func(messages []ChatMessage, tools []Tool) error) AgentOption {
+	return func(cfg *agentConfig) { cfg.preTurnHook = fn }
+}
+
+// WithMaxToolResultTokens caps the cl100k_base token count of any single
+// tool result before it is appended to the message history. Oversized
+// results are truncated and a "[truncated: ~N tokens omitted]" marker is
+// appended so the LLM can choose to call again with a narrower argument.
+// n <= 0 disables clipping (the default).
+//
+// The cap is preventative: it stops one giant file/page read from
+// single-handedly busting the next turn's input budget. budgetedClient
+// sets this to roughly 0.5 × the gated budget when the model has a
+// non-zero MaxInputTokens.
+func WithMaxToolResultTokens(n int) AgentOption {
+	return func(cfg *agentConfig) { cfg.maxToolResultTokens = n }
 }
 
 // OnTurnFromOptionsForTesting applies opts to a fresh agentConfig and returns
@@ -91,6 +123,15 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 
 	var lastAssistant ChatMessage
 	for round := 1; round <= cfg.maxRounds; round++ {
+		// Pre-turn hook: budgetedClient uses this to translate "next turn
+		// would exceed input budget" into ErrTokenBudgetExceeded. Returning
+		// here preserves any partial state captured by tool handlers in
+		// earlier rounds — same shape as the ErrMaxRounds termination path.
+		if cfg.preTurnHook != nil {
+			if err := cfg.preTurnHook(messages, tools); err != nil {
+				return AgentResult{FinalMessage: lastAssistant, Rounds: round - 1}, err
+			}
+		}
 		resp, err := next(ctx, messages, tools)
 		if err != nil {
 			return AgentResult{}, err
@@ -118,6 +159,9 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 				}
 				result = r
 			}
+			if cfg.maxToolResultTokens > 0 {
+				result = clipToolResult(result, cfg.maxToolResultTokens)
+			}
 			messages = append(messages, ChatMessage{
 				Role:       "tool",
 				Content:    result,
@@ -127,6 +171,36 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 		rotateCacheBreakpoint(messages)
 	}
 	return AgentResult{FinalMessage: lastAssistant, Rounds: cfg.maxRounds}, ErrMaxRounds
+}
+
+// clipToolResult returns result truncated so its tiktoken count does not
+// exceed max, with a "[truncated: ~N tokens omitted from this tool result]"
+// marker appended. Returns result unchanged when it already fits.
+//
+// The marker is plain text the LLM sees, so it can decide to call the tool
+// again with a narrower argument or simply move on. cl100k_base averages
+// ~4 chars per token on English text; the byte-based first cut is
+// followed by a re-count + halving fallback to handle dense bytes (code,
+// minified JSON, base64) where the average is much lower.
+func clipToolResult(result string, max int) string {
+	n := countTokens(result)
+	if n <= max {
+		return result
+	}
+	cut := max * 4
+	if cut > len(result) {
+		cut = len(result)
+	}
+	trimmed := result[:cut]
+	for countTokens(trimmed) > max && len(trimmed) > 1 {
+		half := len(trimmed) / 2
+		if half == 0 {
+			break
+		}
+		trimmed = trimmed[:half]
+	}
+	omitted := n - countTokens(trimmed)
+	return trimmed + fmt.Sprintf("\n\n[truncated: ~%d tokens omitted from this tool result]", omitted)
 }
 
 // rotateCacheBreakpoint clears the rotating breakpoint on every message
