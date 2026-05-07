@@ -1198,10 +1198,15 @@ func unescapeLiteralWhitespace(s string) string {
 //
 // Concurrency: workers goroutines run page bodies concurrently. All appends
 // to the shared result.* slices happen under resultMu; LLM calls and the
-// onPageDone / progress callbacks are invoked outside the lock. The progress
-// callback receives a monotonically increasing completion count via an
-// atomic counter — the page argument identifies which page just finished,
-// not the dispatch order.
+// onPageDone / onResultUpdated / progress callbacks are invoked outside the
+// lock. The progress callback receives a monotonically increasing completion
+// count via an atomic counter — the page argument identifies which page just
+// finished, not the dispatch order. onResultUpdated, when non-nil, fires
+// after each successful page completion (cache hit or fresh) with a deep-
+// enough copy of the accumulated ScreenshotResult that the caller can format
+// it without observing concurrent mutations. This is the streaming-snapshot
+// hook used by reporter.ScreenshotsWriter so screenshots.md can update mid-
+// run without serializing workers.
 func DetectScreenshotGaps(
 	ctx context.Context,
 	client LLMClient,
@@ -1209,6 +1214,7 @@ func DetectScreenshotGaps(
 	workers int,
 	cached map[string]ScreenshotsCachedPage,
 	onPageDone func(url string, entry ScreenshotsCachedPage) error,
+	onResultUpdated func(snapshot ScreenshotResult),
 	progress ScreenshotProgressFunc,
 ) (ScreenshotResult, error) {
 	var result ScreenshotResult
@@ -1217,6 +1223,24 @@ func DetectScreenshotGaps(
 		resultMu  sync.Mutex
 		doneCount atomic.Int32
 	)
+
+	// snapshotResult clones the accumulated result.* slices under resultMu so
+	// onResultUpdated can format the data without observing concurrent
+	// mutations from sibling workers. Returns the zero value when the
+	// callback is nil so callers don't pay the copy cost when it isn't used.
+	snapshotResult := func() (ScreenshotResult, bool) {
+		if onResultUpdated == nil {
+			return ScreenshotResult{}, false
+		}
+		resultMu.Lock()
+		defer resultMu.Unlock()
+		return ScreenshotResult{
+			MissingGaps:     append([]ScreenshotGap(nil), result.MissingGaps...),
+			PossiblyCovered: append([]ScreenshotGap(nil), result.PossiblyCovered...),
+			ImageIssues:     append([]ImageIssue(nil), result.ImageIssues...),
+			AuditStats:      append([]ScreenshotPageStats(nil), result.AuditStats...),
+		}, true
+	}
 
 	err := parallel.Run(ctx, pages, workers, func(ctx context.Context, page DocPage) error {
 		// Cache lookup: a hit short-circuits all per-page LLM work. The
@@ -1231,6 +1255,9 @@ func DetectScreenshotGaps(
 				result.ImageIssues = append(result.ImageIssues, c.ImageIssues...)
 				result.AuditStats = append(result.AuditStats, c.Stats)
 				resultMu.Unlock()
+				if snap, ok := snapshotResult(); ok {
+					onResultUpdated(snap)
+				}
 				if progress != nil {
 					n := doneCount.Add(1)
 					progress(int(n), total, page.URL)
@@ -1331,6 +1358,9 @@ func DetectScreenshotGaps(
 			if err := onPageDone(page.URL, entry); err != nil {
 				return fmt.Errorf("persist screenshot cache for %s: %w", page.URL, err)
 			}
+		}
+		if snap, ok := snapshotResult(); ok {
+			onResultUpdated(snap)
 		}
 		if progress != nil {
 			n := doneCount.Add(1)

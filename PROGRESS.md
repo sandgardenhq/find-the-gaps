@@ -1373,3 +1373,16 @@ See commit history on `feat/mdfetch-spider` for per-task detail.
   - OpenAI defaults refreshed to the 2026 lineup per a fresh web search: small=`gpt-5.4-nano`, typical=`gpt-5.4-mini`, large=`gpt-5.5`. New rows added to the capability registry for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano` (all `tool_use=true vision=true`); legacy `gpt-5`/`gpt-5-mini`/`gpt-4o`/`gpt-4o-mini` rows kept for backwards compatibility.
   - Fix #2: Added `ImageIssues []analyzer.ImageIssue` to `site.Inputs` and threaded `screenshotResult.ImageIssues` from `analyze.go`. `materializeExpanded` now renders the `## Image Issues` section into `content/screenshots/_index.md` so expanded-mode sites match mirror mode (which picks up the section transitively from screenshots.md). Two new tests pin both the populated and absent cases.
   - README updated: Configuration section's OpenAI fallback list and the "vision-capable small-tier models" table.
+
+## Task 11: ScreenshotsWriter goroutine + wiring — COMPLETE
+- Started: 2026-05-06
+- Tests: 8 new ScreenshotsWriter tests + 1 new analyzer onResultUpdated test, all passing under -race
+- Build: ✅ Successful
+- Linting: ✅ Clean (0 issues)
+- Coverage: reporter 98.4%, analyzer 93.2%, cli 91.5%
+- Completed: 2026-05-06
+- Notes:
+  - Mirrored GapsWriter shape into new `reporter.ScreenshotsWriter` (debounce, single-writer goroutine, atomic temp+rename, Close-propagates-flush-error).
+  - Extracted `BuildScreenshotsBytes` from `WriteScreenshots`; existing reporter golden tests still drive the byte-identical contract.
+  - Added analyzer-level `onResultUpdated func(snapshot ScreenshotResult)` to `DetectScreenshotGaps`. Snapshot is built outside the result-mu lock by cloning the four result slices; sibling workers are not serialized.
+  - `analyze.go` constructs the writer before dispatch, seeds it with an empty result so a zero-finding live run still emits the file, calls `Close()` inline (not deferred) before site.Build, and removes the trailing `WriteScreenshots`. Cache-skipped path is untouched.

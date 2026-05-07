@@ -514,11 +514,32 @@ func newAnalyzeCmd() *cobra.Command {
 						return persist(screenshotsCacheEntryFromAnalyzer(entry))
 					}
 
+					// Stream snapshots to a debounced single-writer goroutine
+					// so screenshots.md updates mid-run rather than only at
+					// the end. The analyzer hands us deep-enough copies so
+					// the writer can format without serializing workers.
+					screenshotsWriter := reporter.NewScreenshotsWriter(projectDir, 500*time.Millisecond)
+					// Seed the writer with an empty result so a run that
+					// produces zero gaps still emits a screenshots.md
+					// (matches the prior unconditional WriteScreenshots
+					// behavior on the live path).
+					screenshotsWriter.Push(analyzer.ScreenshotResult{})
+					onResultUpdated := func(snap analyzer.ScreenshotResult) {
+						screenshotsWriter.Push(snap)
+					}
+
 					screenshotResult, err = analyzer.DetectScreenshotGaps(
 						ctx, tiering.Small(), docPages,
 						workers,
-						cachedScreenshots, onPageDone, progress,
+						cachedScreenshots, onPageDone, onResultUpdated, progress,
 					)
+					// Always flush the writer before downstream readers
+					// (site.Build) consume screenshots.md. Close is the
+					// source of truth for the live path; the trailing
+					// WriteScreenshots call is gone.
+					if closeErr := screenshotsWriter.Close(); closeErr != nil && err == nil {
+						return fmt.Errorf("close screenshots writer: %w", closeErr)
+					}
 					if err != nil {
 						return fmt.Errorf("detect screenshots: %w", err)
 					}
@@ -548,10 +569,14 @@ func newAnalyzeCmd() *cobra.Command {
 			// hash-based watchers). site.Build keys drift by feature name in
 			// a map and is order-insensitive, so it does not need this gate —
 			// gaps.md does.
+			// screenshots.md was written by ScreenshotsWriter.Close() on the
+			// live screenshot path above. On the cache-skipped path the
+			// existing screenshots.md is reused as-is. screenshots.json (the
+			// flat JSON artifact) is still written here because no
+			// streaming-writer covers it — the cache file at
+			// screenshots-cache.json is a different shape and serves a
+			// different purpose (resume-from-crash).
 			if experimentalCheckScreenshots && !screenshotsSkipped {
-				if err := reporter.WriteScreenshots(projectDir, screenshotResult); err != nil {
-					return fmt.Errorf("write screenshots: %w", err)
-				}
 				if err := reporter.WriteScreenshotsJSON(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots.json: %w", err)
 				}

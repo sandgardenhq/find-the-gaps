@@ -74,7 +74,7 @@ func TestDetectScreenshotGaps_cacheHitSkipsLLM(t *testing.T) {
 		},
 	}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Only 2 detection calls should have fired (pages 3 and 4).
@@ -117,7 +117,7 @@ func TestDetectScreenshotGaps_onPageDoneFiresPerFreshPage(t *testing.T) {
 		return nil
 	}
 
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, onPageDone, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, onPageDone, nil, nil)
 	require.NoError(t, err)
 
 	require.Len(t, seen, 5)
@@ -135,7 +135,7 @@ func TestDetectScreenshotGaps_nilCachedAndOnPageDone_PreservesBehavior(t *testin
 	}
 	pages := []DocPage{{URL: "https://x/p", Path: "/tmp/p.md", Content: "# Page\n\nSome text.\n"}}
 
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, res.MissingGaps)
 	assert.Len(t, res.AuditStats, 1)
@@ -177,7 +177,7 @@ func TestDetectScreenshotGaps_cachedHitsContributeToResult(t *testing.T) {
 	}
 
 	client := &fakeLLMClient{}
-	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil)
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, len(client.prompts), "fully cached run must not call the LLM")
@@ -199,9 +199,62 @@ func TestDetectScreenshotGaps_contentHashChangeDefeatsCacheHit(t *testing.T) {
 		},
 	}
 	client := &fakeLLMClient{responses: []string{`{"gaps":[]}`}}
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, cached, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(client.prompts), "stale ContentHash must miss the cache and fire the LLM")
+}
+
+// TestDetectScreenshotGaps_onResultUpdatedReceivesIndependentSnapshots pins
+// the streaming-snapshot contract used by ScreenshotsWriter. Each invocation
+// of onResultUpdated MUST receive a deep-enough copy of the result that the
+// writer can format it without observing concurrent mutations from sibling
+// workers. This is the analyzer-side guarantee that backs the writer's
+// debounced flush.
+func TestDetectScreenshotGaps_onResultUpdatedReceivesIndependentSnapshots(t *testing.T) {
+	pages := makeScreenshotPages(5)
+	client := &fakeLLMClient{
+		responses: []string{
+			`{"gaps":[{"quoted_passage":"p0","should_show":"X","suggested_alt":"Y","insertion_hint":"Z","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"p1","should_show":"X","suggested_alt":"Y","insertion_hint":"Z","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"p2","should_show":"X","suggested_alt":"Y","insertion_hint":"Z","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"p3","should_show":"X","suggested_alt":"Y","insertion_hint":"Z","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"p4","should_show":"X","suggested_alt":"Y","insertion_hint":"Z","priority":"medium","priority_reason":"r"}]}`,
+		},
+	}
+
+	var (
+		mu       sync.Mutex
+		captured []ScreenshotResult
+	)
+	onResultUpdated := func(snap ScreenshotResult) {
+		mu.Lock()
+		captured = append(captured, snap)
+		mu.Unlock()
+	}
+
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 4, nil, nil, onResultUpdated, nil)
+	require.NoError(t, err)
+	assert.Len(t, res.MissingGaps, 5)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, captured, "onResultUpdated must fire at least once")
+
+	// Final captured snapshot must hold all 5 findings — proves the callback
+	// observed the fully accumulated state on the final invocation.
+	last := captured[len(captured)-1]
+	assert.Len(t, last.MissingGaps, 5)
+
+	// Independent slices: mutating an early snapshot must not bleed into
+	// later snapshots or the returned result. This guards against passing
+	// the live shared slice to onResultUpdated.
+	if len(captured[0].MissingGaps) > 0 {
+		captured[0].MissingGaps[0].QuotedPassage = "MUTATED"
+		for _, g := range res.MissingGaps {
+			assert.NotEqual(t, "MUTATED", g.QuotedPassage,
+				"snapshot mutation must not affect returned result")
+		}
+	}
 }
 
 // TestDetectScreenshotGaps_runsPagesConcurrently pins the parallel-dispatch
@@ -212,7 +265,7 @@ func TestDetectScreenshotGaps_contentHashChangeDefeatsCacheHit(t *testing.T) {
 func TestDetectScreenshotGaps_runsPagesConcurrently(t *testing.T) {
 	pages := makeScreenshotPages(8)
 	client := &fakeLLMClient{hold: 20 * time.Millisecond}
-	_, err := DetectScreenshotGaps(context.Background(), client, pages, 4, nil, nil, nil)
+	_, err := DetectScreenshotGaps(context.Background(), client, pages, 4, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, client.peak.Load(), int32(2),
 		"DetectScreenshotGaps with workers=4 must run pages concurrently; peak in-flight=%d", client.peak.Load())

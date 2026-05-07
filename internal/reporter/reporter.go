@@ -193,6 +193,14 @@ func BuildGapsStaleSection(drift []analyzer.DriftFinding) string {
 // so users can see the pass actually ran. When vision did not run on any
 // page, the header is omitted entirely.
 func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
+	return os.WriteFile(filepath.Join(dir, "screenshots.md"), BuildScreenshotsBytes(res), 0o644)
+}
+
+// BuildScreenshotsBytes renders the screenshots.md body for res. Mirrors what
+// WriteScreenshots emits and is the byte source for ScreenshotsWriter. The
+// reporter golden tests for WriteScreenshots also exercise this function via
+// WriteScreenshots, so the two paths can never drift out of sync.
+func BuildScreenshotsBytes(res analyzer.ScreenshotResult) []byte {
 	var sb strings.Builder
 	sb.WriteString("# Missing Screenshots\n\n")
 
@@ -224,7 +232,7 @@ func WriteScreenshots(dir string, res analyzer.ScreenshotResult) error {
 		}
 	}
 
-	return os.WriteFile(filepath.Join(dir, "screenshots.md"), []byte(sb.String()), 0o644)
+	return []byte(sb.String())
 }
 
 // gapRenderer renders one ScreenshotGap into the builder. Used to differentiate
