@@ -1,4 +1,6 @@
 # analyze subcommand accepts --repo flag and scans an empty directory.
+# --docs-url is required, so the run fails after scanning; the scan summary is
+# still printed before the docs path runs.
 mkdir repo
-exec ftg analyze --repo repo --cache-dir $WORK/cache
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid
 stdout 'scanned 0 files'

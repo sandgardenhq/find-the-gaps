@@ -3,10 +3,28 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
+
+// llmKeySetupHint is appended to errors raised when a tier falls back to its
+// default provider (Anthropic or OpenAI) and the corresponding API key isn't
+// set. Listing both supported default providers means a first-run user with
+// neither key configured can pick whichever they have access to without
+// hunting through docs.
+const llmKeySetupHint = `Find the Gaps needs an LLM API key. Set one of:
+
+  • Anthropic (default): export ANTHROPIC_API_KEY="sk-ant-..."
+    Get a key: https://console.anthropic.com/settings/keys
+
+  • OpenAI:              export OPENAI_API_KEY="sk-..."
+    Get a key: https://platform.openai.com/api-keys
+
+If only OPENAI_API_KEY is set, the default tiers automatically switch to
+OpenAI models. To use a different provider (Groq, Ollama, LM Studio), pass
+--llm-small / --llm-typical / --llm-large explicitly.`
 
 // Compile-time assertion: *llmTiering must satisfy analyzer.LLMTiering.
 var _ analyzer.LLMTiering = (*llmTiering)(nil)
@@ -72,6 +90,13 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 		provider, model, _ := parseTierString(raw) // already validated
 		client, counter, err := buildTierClient(provider, model)
 		if err != nil {
+			// The user didn't pick a provider for this tier (raw == "")
+			// and the default provider's key is missing — surface the
+			// full setup hint so they can recover without reading the
+			// README.
+			if tc.raw == "" && isMissingDefaultKeyErr(err) {
+				return nil, fmt.Errorf("tier %q: %w\n\n%s", tc.name, err, llmKeySetupHint)
+			}
 			return nil, fmt.Errorf("tier %q: %w", tc.name, err)
 		}
 		built[i] = client
@@ -84,6 +109,12 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 	tg.typical = wrapWithCounter(built[1], &tg.typicalCalls)
 	tg.large = wrapWithCounter(built[2], &tg.largeCalls)
 	return tg, nil
+}
+
+func isMissingDefaultKeyErr(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "ANTHROPIC_API_KEY not set") ||
+		strings.Contains(msg, "OPENAI_API_KEY not set")
 }
 
 // buildTierClient constructs a single (LLMClient, TokenCounter) for one (provider, model).

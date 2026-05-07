@@ -72,20 +72,21 @@ func TestAnalyze_cacheUsesProjectSubdir(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Scan runs (and writes scan.json) before --docs-url is consulted, so we
+	// don't need a real docs path here — any value satisfies the required-flag
+	// check, and we ignore the eventual non-zero exit.
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{
+	_ = run(&stdout, &stderr, []string{
 		"analyze",
 		"--repo", dir,
 		"--cache-dir", cacheBase,
+		"--docs-url", "https://docs.example.invalid",
 	})
-	if code != 0 {
-		t.Fatalf("analyze failed (code=%d): stderr=%q", code, stderr.String())
-	}
 
 	projectName := filepath.Base(dir)
 	scanDir := filepath.Join(cacheBase, projectName, "scan")
 	if _, err := os.Stat(filepath.Join(scanDir, "scan.json")); err != nil {
-		t.Errorf("expected scan.json under %s: %v", scanDir, err)
+		t.Errorf("expected scan.json under %s: %v\nstderr=%q", scanDir, err, stderr.String())
 	}
 }
 
@@ -114,14 +115,12 @@ func TestAnalyze_relativeRepoDot_usesAbsoluteBasenameForProjectDir(t *testing.T)
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{
+	_ = run(&stdout, &stderr, []string{
 		"analyze",
 		"--repo", ".",
 		"--cache-dir", cacheBase,
+		"--docs-url", "https://docs.example.invalid",
 	})
-	if code != 0 {
-		t.Fatalf("analyze failed (code=%d): stderr=%q", code, stderr.String())
-	}
 
 	wantScan := filepath.Join(cacheBase, "myrelrepo", "scan", "scan.json")
 	if _, err := os.Stat(wantScan); err != nil {
@@ -145,6 +144,25 @@ func TestAnalyze_docsURLFlag_appearsInHelp(t *testing.T) {
 	}
 }
 
+func TestAnalyze_docsURLFlag_isRequired(t *testing.T) {
+	dir := t.TempDir()
+	cacheBase := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"analyze",
+		"--repo", dir,
+		"--cache-dir", cacheBase,
+	})
+	if code == 0 {
+		t.Fatalf("analyze without --docs-url should fail; stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "docs-url") {
+		t.Errorf("error should mention docs-url; got: %s", combined)
+	}
+}
+
 func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
@@ -152,33 +170,24 @@ func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The scan summary is printed before --docs-url is consulted; we don't
+	// need a real URL or a successful run to verify scan-side behavior.
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{
+	_ = run(&stdout, &stderr, []string{
 		"analyze",
 		"--repo", dir,
 		"--cache-dir", cacheBase,
+		"--docs-url", "https://docs.example.invalid",
 	})
-	if code != 0 {
-		t.Fatalf("analyze failed (code=%d): stderr=%q", code, stderr.String())
-	}
 	if !strings.Contains(stdout.String(), "scanned") {
-		t.Errorf("expected 'scanned' in output, got:\n%s", stdout.String())
+		t.Errorf("expected 'scanned' in output, got:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 	}
 }
 
 func TestAnalyze_noCache_flagAccepted(t *testing.T) {
-	dir := t.TempDir()
-	cacheBase := t.TempDir()
-
-	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{
-		"analyze",
-		"--repo", dir,
-		"--cache-dir", cacheBase,
-		"--no-cache",
-	})
-	if code != 0 {
-		t.Fatalf("analyze --no-cache failed (code=%d): stderr=%q", code, stderr.String())
+	cmd := newAnalyzeCmd()
+	if err := cmd.Flags().Parse([]string{"--no-cache"}); err != nil {
+		t.Fatalf("--no-cache should parse: %v", err)
 	}
 }
 

@@ -27,10 +27,13 @@ func TestAnalyze_printsScanSummary(t *testing.T) {
 	cmd := newAnalyzeCmd()
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"--repo", dir, "--cache-dir", filepath.Join(t.TempDir(), "cache")})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
+	cmd.SetArgs([]string{
+		"--repo", dir,
+		"--cache-dir", filepath.Join(t.TempDir(), "cache"),
+		"--docs-url", "https://docs.example.invalid",
+	})
+	// Scan summary prints before the docs path runs; ignore the eventual error.
+	_ = cmd.Execute()
 
 	out := buf.String()
 	if !strings.Contains(out, "scanned ") || !strings.Contains(out, "skipped ") {
@@ -52,10 +55,12 @@ func TestAnalyze_quietSuppressesSummary(t *testing.T) {
 	cmd := newAnalyzeCmd()
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"--repo", dir, "--cache-dir", filepath.Join(t.TempDir(), "cache")})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
+	cmd.SetArgs([]string{
+		"--repo", dir,
+		"--cache-dir", filepath.Join(t.TempDir(), "cache"),
+		"--docs-url", "https://docs.example.invalid",
+	})
+	_ = cmd.Execute()
 
 	if strings.Contains(buf.String(), "skipped ") {
 		t.Errorf("FIND_THE_GAPS_QUIET should suppress summary; got:\n%s", buf.String())
