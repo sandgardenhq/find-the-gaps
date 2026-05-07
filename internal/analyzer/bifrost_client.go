@@ -250,8 +250,14 @@ func (c *BifrostClient) renderBifrostMessages(messages []ChatMessage) []schemas.
 				for i, tc := range m.ToolCalls {
 					id := tc.ID
 					name := tc.Name
+					// Type must be "function" — OpenAI requires
+					// messages[*].tool_calls[*].type and Bifrost's struct
+					// uses omitempty, so a missing value drops the field on
+					// the wire and OpenAI 400s. Anthropic ignores it.
+					typ := "function"
 					calls[i] = schemas.ChatAssistantMessageToolCall{
-						ID: &id,
+						Type: &typ,
+						ID:   &id,
 						Function: schemas.ChatAssistantMessageToolCallFunction{
 							Name:      &name,
 							Arguments: tc.Arguments,

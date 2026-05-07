@@ -577,6 +577,40 @@ func TestBifrostClient_CompleteOneTurn_ToolCallNilIDAndName(t *testing.T) {
 	}
 }
 
+// TestBifrostClient_CompleteOneTurn_AssistantToolCall_SetsTypeFunction verifies
+// that assistant tool-call messages rendered to Bifrost carry Type="function".
+// OpenAI rejects requests where messages[*].tool_calls[*].type is missing;
+// Anthropic ignores it. The renderer must set it unconditionally so the same
+// message slice round-trips through both providers.
+func TestBifrostClient_CompleteOneTurn_AssistantToolCall_SetsTypeFunction(t *testing.T) {
+	text := "ok"
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeToolChoice(&schemas.ChatMessageContent{ContentStr: &text}, nil),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.OpenAI, "gpt-4o-mini")
+	msgs := []ChatMessage{
+		{Role: "user", Content: "go"},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "read_file", Arguments: `{"path":"a.go"}`}}},
+		{Role: "tool", Content: "data", ToolCallID: "c1"},
+	}
+	_, err := client.completeOneTurn(context.Background(), msgs, nil)
+	require.NoError(t, err)
+
+	req := fake.lastRequest
+	require.NotNil(t, req)
+	require.Len(t, req.Input, 3)
+	assistant := req.Input[1]
+	require.NotNil(t, assistant.ChatAssistantMessage)
+	require.Len(t, assistant.ChatAssistantMessage.ToolCalls, 1)
+	tc := assistant.ChatAssistantMessage.ToolCalls[0]
+	require.NotNil(t, tc.Type, "tool_calls[0].type must be set; OpenAI rejects requests without it")
+	assert.Equal(t, "function", *tc.Type)
+}
+
 // TestBifrostClient_CompleteWithTools_AdaptsRunAgentLoop verifies the public
 // method routes through RunAgentLoop. A single text response from the fake
 // must terminate the loop after one round.
