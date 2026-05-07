@@ -1,0 +1,21 @@
+# Update check end-to-end: with a known-old version and a stub GitHub server,
+# the upgrade notice prints on stderr after the command finishes. Then the
+# cache prevents a second network call within the 24h window.
+
+env FIND_THE_GAPS_UPDATE_BASE_URL=$FIND_THE_GAPS_UPDATE_STUB_URL
+env FIND_THE_GAPS_UPDATE_CACHE_PATH=$WORK/cache/update-check.json
+env FIND_THE_GAPS_UPDATE_FORCE_TTY=1
+env FIND_THE_GAPS_UPDATE_VERSION=v0.0.1
+
+mkdir repo
+
+# First run: writes notice to stderr, populates the cache file.
+exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache
+stderr 'A new version of ftg is available: v9.9.9'
+stderr 'v0.0.1'
+stderr 'Release notes: https://github.com/sandgardenhq/find-the-gaps/releases/tag/v9.9.9'
+exists $WORK/cache/update-check.json
+
+# Cache contains the latest tag we fetched.
+grep '"latest_version": "v9.9.9"' $WORK/cache/update-check.json
+grep '"current_version_at_check": "v0.0.1"' $WORK/cache/update-check.json

@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"time"
 
 	"github.com/charmbracelet/log"
+	"github.com/sandgardenhq/find-the-gaps/internal/updatecheck"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // version is overwritten at release time via:
@@ -81,10 +88,95 @@ func Execute() int {
 
 func run(stdout, stderr io.Writer, args []string) int {
 	root := NewRootCmd()
+
+	// Capture which subcommand was actually invoked so the post-run update
+	// check can decide whether to skip (e.g. for `--help`, `__complete`, or
+	// trivial commands that never reach PersistentPreRunE).
+	var executed *cobra.Command
+	prevPreRun := root.PersistentPreRunE
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		executed = cmd
+		if prevPreRun != nil {
+			return prevPreRun(cmd, args)
+		}
+		return nil
+	}
+
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	return errorToExitCode(root.Execute(), stderr)
+
+	code := errorToExitCode(root.Execute(), stderr)
+
+	// Update check runs after the command's output has been written.
+	// Best-effort: never affects the exit code, never panics out.
+	cmdName := ""
+	if executed != nil {
+		cmdName = executed.Name()
+	}
+	runUpdateCheck(stderr, cmdName)
+
+	return code
+}
+
+// runUpdateCheck calls into the updatecheck package and writes any returned
+// notice to stderr. Wired so test hooks (FIND_THE_GAPS_UPDATE_*) can redirect
+// the GitHub base URL, cache path, and pretend-TTY status without touching
+// production defaults.
+func runUpdateCheck(stderr io.Writer, cmdName string) {
+	version := os.Getenv("FIND_THE_GAPS_UPDATE_VERSION")
+	if version == "" {
+		version = currentVersion()
+	}
+
+	stderrIsTTY := false
+	if f, ok := stderr.(*os.File); ok {
+		stderrIsTTY = term.IsTerminal(int(f.Fd()))
+	}
+	if os.Getenv("FIND_THE_GAPS_UPDATE_FORCE_TTY") == "1" {
+		stderrIsTTY = true
+	}
+
+	cachePath := os.Getenv("FIND_THE_GAPS_UPDATE_CACHE_PATH")
+	if cachePath == "" {
+		cachePath = defaultUpdateCheckCachePath()
+		if cachePath == "" {
+			return // No home directory — silently skip.
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	notice, _ := updatecheck.Run(ctx, updatecheck.RunOptions{
+		CurrentVersion: version,
+		Command:        cmdName,
+		StderrIsTTY:    stderrIsTTY,
+		Env:            os.Getenv,
+		GOOS:           runtime.GOOS,
+		BrewOnPath:     brewOnPath(),
+		CachePath:      cachePath,
+		BaseURL:        os.Getenv("FIND_THE_GAPS_UPDATE_BASE_URL"),
+		Timeout:        2 * time.Second,
+	})
+	if notice != "" {
+		_, _ = fmt.Fprint(stderr, "\n", notice)
+	}
+}
+
+// defaultUpdateCheckCachePath returns the per-user cache file location, or ""
+// if the home directory cannot be resolved.
+func defaultUpdateCheckCachePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".find-the-gaps", "update-check.json")
+}
+
+func brewOnPath() bool {
+	_, err := exec.LookPath("brew")
+	return err == nil
 }
 
 func errorToExitCode(err error, stderr io.Writer) int {

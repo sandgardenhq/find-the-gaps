@@ -1,0 +1,25 @@
+# Update check stays quiet when gated: --version, dev-build, kill switch.
+
+env FIND_THE_GAPS_UPDATE_BASE_URL=$FIND_THE_GAPS_UPDATE_STUB_URL
+env FIND_THE_GAPS_UPDATE_CACHE_PATH=$WORK/cache/update-check.json
+env FIND_THE_GAPS_UPDATE_FORCE_TTY=1
+
+# --version is a trivial command: no notice, no cache write.
+env FIND_THE_GAPS_UPDATE_VERSION=v0.0.1
+exec ftg --version
+! stderr 'A new version of ftg is available'
+! exists $WORK/cache/update-check.json
+
+# Dev build: notice suppressed even on a real subcommand.
+env FIND_THE_GAPS_UPDATE_VERSION=
+mkdir repo
+exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache
+! stderr 'A new version of ftg is available'
+! exists $WORK/cache/update-check.json
+
+# Kill switch wins over a behind version.
+env FIND_THE_GAPS_UPDATE_VERSION=v0.0.1
+env FIND_THE_GAPS_NO_UPDATE_CHECK=1
+exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache
+! stderr 'A new version of ftg is available'
+! exists $WORK/cache/update-check.json
