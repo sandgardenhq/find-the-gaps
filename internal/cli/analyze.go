@@ -742,6 +742,20 @@ func formatScanSummary(s ignore.Stats) string {
 	return summaryPrinter.Sprintf("scanned %d files, skipped %d (%s)", s.Scanned, skipped, strings.Join(parts, ", "))
 }
 
+// supportedLanguages returns the entries of scan.Languages with the
+// "Generic" placeholder removed. An empty result means the codebase
+// contained nothing that any dedicated extractor could parse.
+func supportedLanguages(scan *scanner.ProjectScan) []string {
+	out := make([]string, 0, len(scan.Languages))
+	for _, l := range scan.Languages {
+		if l == "Generic" {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
 // allNotDocsGuard returns an error when every page in analyses is classified
 // as non-docs. It exists to make the "silent zero-output" failure mode noisy
 // and recoverable: under inclusive-by-default classification, getting all
