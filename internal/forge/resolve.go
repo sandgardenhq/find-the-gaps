@@ -36,18 +36,52 @@ type Result struct {
 	Notice string
 }
 
+// hasURLScheme reports whether s starts with http:// or https://. Anything
+// else is treated as a local filesystem path.
+func hasURLScheme(s string) bool {
+	lower := strings.ToLower(s)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
 // Resolve decides how to ingest docsURL.
 //
-//   - When docsURL is not a forge URL (and forgeFlag is empty), Result.OnDisk is
-//     false and the caller should crawl normally.
+//   - When docsURL is empty, scans repoPath on disk and emits file:// URLs.
+//   - When docsURL is a non-URL string (no http://, https:// scheme), treats
+//     it as a local path and scans there with file:// URLs.
 //   - When docsURL is a forge URL and --repo is a clone of the same repository,
-//     Result.OnDisk is true with Pages populated.
-//   - In every other forge case (no --repo, mismatched origin, wiki path, no
-//     git, etc.), returns ErrForgeNotIngestable.
+//     Result.OnDisk is true with synthesized forge URLs.
+//   - When docsURL is any other URL, Result.OnDisk is false; the caller crawls.
+//   - In every forge-URL failure case (no --repo, mismatched origin, wiki
+//     path, no git, etc.), returns ErrForgeNotIngestable.
 //
 // forgeFlag is the value of --forge (empty when unset). When non-empty, host
 // detection is bypassed and the URL's path is parsed as a forge URL.
 func Resolve(docsURL, repoPath, forgeFlag string) (Result, error) {
+	if docsURL == "" {
+		if repoPath == "" {
+			return Result{}, fmt.Errorf("no --docs provided and --repo is empty")
+		}
+		pages, err := WalkLocal(repoPath)
+		if err != nil {
+			return Result{}, fmt.Errorf("walk repo for docs: %w", err)
+		}
+		return Result{
+			OnDisk: true,
+			Pages:  pages,
+			Notice: fmt.Sprintf("no --docs provided; reading markdown from %s on disk.", repoPath),
+		}, nil
+	}
+	if !hasURLScheme(docsURL) {
+		pages, err := WalkLocal(docsURL)
+		if err != nil {
+			return Result{}, fmt.Errorf("walk --docs path: %w", err)
+		}
+		return Result{
+			OnDisk: true,
+			Pages:  pages,
+			Notice: fmt.Sprintf("reading markdown from %s on disk.", docsURL),
+		}, nil
+	}
 	if forgeFlag != "" {
 		if _, ok := allowedForgeFlags[strings.ToLower(forgeFlag)]; !ok {
 			return Result{}, fmt.Errorf(

@@ -2,7 +2,9 @@ package forge
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -12,6 +14,91 @@ func setRemote(t *testing.T, dir, url string) {
 	cmd := exec.Command("git", "-C", dir, "remote", "add", "origin", url)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+}
+
+func TestResolve_emptyDocs_scansRepoOnDisk(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "README.md", "x")
+	writeFile(t, repo, "docs/intro.md", "x")
+	writeFile(t, repo, "src/main.go", "x")
+
+	res, err := Resolve("", repo, "")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !res.OnDisk {
+		t.Fatal("expected OnDisk=true when --docs is empty")
+	}
+	if len(res.Pages) != 2 {
+		t.Fatalf("got %d pages, want 2: %v", len(res.Pages), res.Pages)
+	}
+	for url := range res.Pages {
+		if !strings.HasPrefix(url, "file://") {
+			t.Fatalf("expected file:// URL, got %q", url)
+		}
+	}
+}
+
+func TestResolve_localPath_scansThatPath(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "src/main.go", "x") // would match if Resolve scanned repo
+	docsDir := t.TempDir()
+	writeFile(t, docsDir, "intro.md", "x")
+	writeFile(t, docsDir, "guide.md", "x")
+
+	res, err := Resolve(docsDir, repo, "")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !res.OnDisk {
+		t.Fatal("expected OnDisk=true for local --docs path")
+	}
+	if len(res.Pages) != 2 {
+		t.Fatalf("got %d pages, want 2: %v", len(res.Pages), res.Pages)
+	}
+	for url := range res.Pages {
+		if !strings.HasPrefix(url, "file://") {
+			t.Fatalf("expected file:// URL, got %q", url)
+		}
+	}
+}
+
+func TestResolve_localPath_relative(t *testing.T) {
+	// A bare relative path like "docs" must be treated as a path, not a URL.
+	repo := t.TempDir()
+	writeFile(t, repo, "docs/intro.md", "x")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Resolve("docs", repo, "")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !res.OnDisk {
+		t.Fatal("expected OnDisk=true for relative local --docs path")
+	}
+	if len(res.Pages) != 1 {
+		t.Fatalf("got %d pages, want 1: %v", len(res.Pages), res.Pages)
+	}
+}
+
+func TestResolve_localPath_missing_clearError(t *testing.T) {
+	repo := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "does", "not", "exist")
+
+	_, err := Resolve(missing, repo, "")
+	if err == nil {
+		t.Fatal("expected error for missing --docs path")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("error should name the missing path %q: %v", missing, err)
 	}
 }
 
