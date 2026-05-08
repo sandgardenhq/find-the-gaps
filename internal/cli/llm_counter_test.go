@@ -263,6 +263,9 @@ func TestAnalyze_verbose_logsCallCountsOnNonSuccessPath(t *testing.T) {
 	t.Setenv("PATH", pathDir)
 
 	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	_ = run(&stdout, &stderr, []string{

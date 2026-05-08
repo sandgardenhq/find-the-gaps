@@ -20,6 +20,7 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
+	"github.com/sandgardenhq/find-the-gaps/internal/scanner/lang"
 	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
 	"github.com/spf13/cobra"
@@ -142,6 +143,16 @@ func newAnalyzeCmd() *cobra.Command {
 				return fmt.Errorf("scan failed: %w", err)
 			}
 			log.Debug("scan complete", "files", len(scan.Files))
+
+			if langs := supportedLanguages(scan); len(langs) == 0 {
+				supported := strings.Join(lang.Languages(), ", ")
+				return fmt.Errorf( //nolint:staticcheck // ST1005: proper-noun lead-in
+					"no supported programming languages detected in %s.\n\n"+
+						"Find the Gaps walked %d files but found no %s source.\n\n"+
+						"If your repo uses an unsupported language, please open an issue:\n"+
+						"https://github.com/sandgardenhq/find-the-gaps/issues",
+					repoPath, stats.Scanned, supported)
+			}
 
 			if os.Getenv("FIND_THE_GAPS_QUIET") != "1" {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), formatScanSummary(stats))

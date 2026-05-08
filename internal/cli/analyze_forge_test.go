@@ -116,6 +116,9 @@ func TestAnalyze_forgeURL_matchingRepo_skipsCrawl(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +164,9 @@ func TestAnalyze_forgeURL_matchingRepo_skipsCrawl(t *testing.T) {
 func TestAnalyze_forgeURL_noRepoMatch_halts(t *testing.T) {
 	repo := t.TempDir()
 	gitInitWithRemote(t, repo, "https://github.com/other/proj.git")
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := newAnalyzeCmd()
 	out := &bytes.Buffer{}
@@ -217,6 +223,9 @@ func TestAnalyze_forgeURL_matchingRepo_doesNotRequireMdfetch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -269,6 +278,9 @@ func TestAnalyze_forgeFlag_bypassesHostCheck(t *testing.T) {
 	repo := t.TempDir()
 	gitInitWithRemote(t, repo, "https://git.example.com/foo/bar.git")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
@@ -327,6 +339,9 @@ func TestAnalyze_forgeURL_onDiskCache_secondRunSkipsAnalyze(t *testing.T) {
 	repo := t.TempDir()
 	gitInitWithRemote(t, repo, "https://github.com/foo/bar.git")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
