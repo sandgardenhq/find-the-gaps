@@ -187,17 +187,14 @@ func clipToolResult(result string, max int) string {
 	if n <= max {
 		return result
 	}
-	cut := max * 4
-	if cut > len(result) {
-		cut = len(result)
-	}
-	trimmed := result[:cut]
+	cut := min(max*4, len(result))
+	trimmed := truncateAtRuneBoundary(result, cut)
 	for countTokens(trimmed) > max && len(trimmed) > 1 {
 		half := len(trimmed) / 2
 		if half == 0 {
 			break
 		}
-		trimmed = trimmed[:half]
+		trimmed = truncateAtRuneBoundary(trimmed, half)
 	}
 	omitted := n - countTokens(trimmed)
 	return trimmed + fmt.Sprintf("\n\n[truncated: ~%d tokens omitted from this tool result]", omitted)

@@ -1536,3 +1536,11 @@ Fixes the "Input tokens exceed the configured limit of 272000 tokens" crash from
 - ⏳ End-to-end repro of the original failing fixture is left for the developer — the failing input is on the user's machine, not in this workspace.
 - ⏳ PR creation deferred to the user (a user-visible action).
 
+
+## Task 15: UTF-8 boundary fix in clipping helpers - COMPLETE
+- Started: 2026-05-07
+- Tests: 3 new (clipObservationQuotes UTF-8 boundary, no-op when under max; clipToolResult UTF-8 boundary). All passing. Full suite green.
+- Build: ✅ Successful
+- Linting: ✅ Clean (pre-existing staticcheck warnings in bifrost_client_test.go are not from this work)
+- Completed: 2026-05-07
+- Notes: Review-finding fix. `clipObservationQuotes` (drift.go) and `clipToolResult` (agent_loop.go) sliced strings on byte positions, which could split a multi-byte UTF-8 rune (em dash, ellipsis, smart quotes are common in real docs prose). Added `truncateAtRuneBoundary` helper using `utf8.RuneStart` and routed both clipping paths through it. RED tests pinned the old behavior failing on `utf8.ValidString`; GREEN after wiring the helper through both call sites.

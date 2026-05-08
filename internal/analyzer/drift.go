@@ -710,10 +710,10 @@ const clipQuoteMaxChars = 1500
 // observation doesn't single-handedly overflow a chunk.
 func clipObservationQuotes(o driftObservation, max int) driftObservation {
 	if len(o.DocQuote) > max {
-		o.DocQuote = o.DocQuote[:max] + " […]"
+		o.DocQuote = truncateAtRuneBoundary(o.DocQuote, max) + " […]"
 	}
 	if len(o.CodeQuote) > max {
-		o.CodeQuote = o.CodeQuote[:max] + " […]"
+		o.CodeQuote = truncateAtRuneBoundary(o.CodeQuote, max) + " […]"
 	}
 	return o
 }
