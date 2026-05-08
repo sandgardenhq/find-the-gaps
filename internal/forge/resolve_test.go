@@ -104,6 +104,23 @@ func TestResolve_invalidDocsURL_returnsParseError(t *testing.T) {
 	}
 }
 
+func TestResolve_forgeHostWithPort_engagesOnDisk(t *testing.T) {
+	// Even when the docs URL carries an explicit port, IsForgeHost must still
+	// recognize the bare hostname so on-disk mode engages without needing --forge.
+	repo := t.TempDir()
+	gitInit(t, repo)
+	setRemote(t, repo, "https://github.com/foo/bar.git")
+	writeFile(t, repo, "README.md", "x")
+
+	res, err := Resolve("https://github.com:443/foo/bar", repo, "")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !res.OnDisk {
+		t.Fatal("expected OnDisk=true for github.com:443")
+	}
+}
+
 func TestResolve_forgeFlag_bypassesHostCheck(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo)

@@ -41,7 +41,7 @@ func Resolve(docsURL, repoPath, forgeFlag string) (Result, error) {
 	if perr != nil {
 		return Result{}, fmt.Errorf("parse docs-url: %w", perr)
 	}
-	host := strings.ToLower(parsed.Host)
+	host := strings.ToLower(parsed.Hostname())
 	if forgeFlag == "" && !IsForgeHost(host) {
 		return Result{OnDisk: false}, nil
 	}
