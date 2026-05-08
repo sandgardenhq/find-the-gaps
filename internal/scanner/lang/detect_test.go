@@ -1,6 +1,9 @@
 package lang
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestDetect_goFile_returnsGoExtractor(t *testing.T) {
 	e := Detect("internal/foo/bar.go")
@@ -174,5 +177,16 @@ func TestDetect_binaryExtension_returnsNil(t *testing.T) {
 		if e := Detect(name); e != nil {
 			t.Errorf("Detect(%q): expected nil for binary, got %v", name, e.Language())
 		}
+	}
+}
+
+func TestLanguages_returnsRegistryEntriesInRegistrationOrder(t *testing.T) {
+	got := Languages()
+	want := []string{
+		"Go", "Python", "TypeScript", "Rust", "Java",
+		"C#", "Kotlin", "Swift", "Scala", "PHP", "Ruby", "C", "C++",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Languages() = %v, want %v", got, want)
 	}
 }
