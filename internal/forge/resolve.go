@@ -12,6 +12,17 @@ import (
 // non-zero.
 var ErrForgeNotIngestable = errors.New("forge URL is not ingestable on disk")
 
+// allowedForgeFlags is the set of values --forge accepts. Comparison is
+// case-insensitive at the call site.
+var allowedForgeFlags = map[string]struct{}{
+	"github":    {},
+	"gitlab":    {},
+	"bitbucket": {},
+	"gitea":     {},
+	"forgejo":   {},
+	"gogs":      {},
+}
+
 // Result is the outcome of forge resolution.
 type Result struct {
 	// OnDisk is true when the caller should skip the spider crawl and use Pages
@@ -37,6 +48,13 @@ type Result struct {
 // forgeFlag is the value of --forge (empty when unset). When non-empty, host
 // detection is bypassed and the URL's path is parsed as a forge URL.
 func Resolve(docsURL, repoPath, forgeFlag string) (Result, error) {
+	if forgeFlag != "" {
+		if _, ok := allowedForgeFlags[strings.ToLower(forgeFlag)]; !ok {
+			return Result{}, fmt.Errorf(
+				"--forge: unknown value %q (expected github|gitlab|bitbucket|gitea|forgejo|gogs)",
+				forgeFlag)
+		}
+	}
 	parsed, perr := url.Parse(docsURL)
 	if perr != nil {
 		return Result{}, fmt.Errorf("parse docs-url: %w", perr)

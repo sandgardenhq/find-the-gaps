@@ -3,6 +3,7 @@ package forge
 import (
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -133,5 +134,58 @@ func TestResolve_forgeFlag_bypassesHostCheck(t *testing.T) {
 	}
 	if !res.OnDisk || len(res.Pages) != 1 {
 		t.Fatalf("got %+v", res)
+	}
+}
+
+func TestResolve_forgeFlag_unknownValue_rejected(t *testing.T) {
+	// --forge must accept only the documented allowlist
+	// (github|gitlab|bitbucket|gitea|forgejo|gogs). An arbitrary string
+	// should produce a clear error rather than silently bypassing host
+	// detection.
+	repo := t.TempDir()
+	gitInit(t, repo)
+	setRemote(t, repo, "https://git.example.com/foo/bar.git")
+	writeFile(t, repo, "README.md", "x")
+
+	_, err := Resolve("https://git.example.com/foo/bar", repo, "potato")
+	if err == nil {
+		t.Fatal("expected error for unknown --forge value")
+	}
+	if !strings.Contains(err.Error(), "potato") {
+		t.Fatalf("error should name the bad value: %v", err)
+	}
+}
+
+func TestResolve_forgeFlag_acceptsAllowlistedValues(t *testing.T) {
+	for _, v := range []string{"github", "gitlab", "bitbucket", "gitea", "forgejo", "gogs"} {
+		t.Run(v, func(t *testing.T) {
+			repo := t.TempDir()
+			gitInit(t, repo)
+			setRemote(t, repo, "https://git.example.com/foo/bar.git")
+			writeFile(t, repo, "README.md", "x")
+
+			res, err := Resolve("https://git.example.com/foo/bar", repo, v)
+			if err != nil {
+				t.Fatalf("Resolve(%q): %v", v, err)
+			}
+			if !res.OnDisk {
+				t.Fatalf("Resolve(%q): expected OnDisk=true", v)
+			}
+		})
+	}
+}
+
+func TestResolve_forgeFlag_caseInsensitive(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	setRemote(t, repo, "https://git.example.com/foo/bar.git")
+	writeFile(t, repo, "README.md", "x")
+
+	res, err := Resolve("https://git.example.com/foo/bar", repo, "GiTeA")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !res.OnDisk {
+		t.Fatal("expected OnDisk=true for case-mixed --forge value")
 	}
 }
