@@ -63,6 +63,29 @@ func TestWalk_subpath_limitsTree(t *testing.T) {
 	}
 }
 
+func TestWalk_missingRoot_returnsError(t *testing.T) {
+	repo := t.TempDir()
+	if _, err := Walk(repo, "does/not/exist", "main", "github.com", "foo", "bar"); err == nil {
+		t.Fatal("expected error for missing root")
+	}
+}
+
+func TestWalk_skipsHiddenAndVendorDirs(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "README.md", "x")
+	writeFile(t, repo, ".git/HEAD", "x")
+	writeFile(t, repo, "node_modules/pkg/README.md", "x")
+	writeFile(t, repo, "vendor/dep/README.md", "x")
+
+	got, err := Walk(repo, "", "main", "github.com", "foo", "bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1: %v", len(got), got)
+	}
+}
+
 func TestWalk_singleFile(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, repo, "README.md", "x")

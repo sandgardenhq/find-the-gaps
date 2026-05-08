@@ -65,6 +65,45 @@ func TestResolve_forgeWiki_halts(t *testing.T) {
 	}
 }
 
+func TestResolve_forgeURL_noRepo_halts(t *testing.T) {
+	_, err := Resolve("https://github.com/foo/bar", "", "")
+	if !errors.Is(err, ErrForgeNotIngestable) {
+		t.Fatalf("got %v, want ErrForgeNotIngestable", err)
+	}
+}
+
+func TestResolve_forgeURL_unparseablePath_halts(t *testing.T) {
+	// owner-only path on a forge host: ParseURL rejects, Resolve wraps as
+	// ErrForgeNotIngestable.
+	_, err := Resolve("https://github.com/foo", "", "")
+	if !errors.Is(err, ErrForgeNotIngestable) {
+		t.Fatalf("got %v, want ErrForgeNotIngestable", err)
+	}
+}
+
+func TestResolve_originUnparseable_halts(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	// file:// remotes are not a recognized forge shape: NormalizeRemote errors.
+	setRemote(t, repo, "file:///tmp/foo.git")
+
+	_, err := Resolve("https://github.com/foo/bar", repo, "")
+	if !errors.Is(err, ErrForgeNotIngestable) {
+		t.Fatalf("got %v, want ErrForgeNotIngestable", err)
+	}
+}
+
+func TestResolve_invalidDocsURL_returnsParseError(t *testing.T) {
+	// A control character is the simplest way to make net/url reject a URL.
+	_, err := Resolve("https://example.com/\x7f", "", "")
+	if err == nil {
+		t.Fatal("expected parse error for malformed docs URL")
+	}
+	if errors.Is(err, ErrForgeNotIngestable) {
+		t.Fatalf("got ErrForgeNotIngestable, want plain parse error: %v", err)
+	}
+}
+
 func TestResolve_forgeFlag_bypassesHostCheck(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo)

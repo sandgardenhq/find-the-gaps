@@ -17,6 +17,8 @@ func TestNormalizeRemote(t *testing.T) {
 		{"ssh://git@github.com/foo/bar.git", "github.com", "foo", "bar", false},
 		{"https://GitHub.com/Foo/Bar.git", "github.com", "Foo", "Bar", false}, // host lowercased, owner/repo preserved
 		{"file:///tmp/foo", "", "", "", true},
+		{"https://github.com/foo", "", "", "", true}, // missing repo segment
+		{"not a remote at all", "", "", "", true},    // regex non-match
 		{"", "", "", "", true},
 	}
 	for _, tc := range cases {

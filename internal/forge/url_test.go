@@ -88,4 +88,8 @@ func TestParseURL_rejectsNonForgePaths(t *testing.T) {
 	if _, err := ParseURL("https://github.com/"); err == nil {
 		t.Fatal("expected error for empty path")
 	}
+	// Malformed URL
+	if _, err := ParseURL("https://example.com/\x7f"); err == nil {
+		t.Fatal("expected error for malformed URL")
+	}
 }
