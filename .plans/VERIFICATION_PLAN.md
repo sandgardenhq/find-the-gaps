@@ -407,6 +407,29 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 ---
 
+### Scenario 17: Unsupported-Language Repo
+
+**Context**: A repository whose contents do not match any of the 13 dedicated language extractors (Go, Python, TypeScript, Rust, Java, C#, Kotlin, Swift, Scala, PHP, Ruby, C, C++). `ftg analyze` should halt before any docs ingestion or LLM call.
+
+**Steps**:
+1. Create a fixture directory containing only `README.md` + a few `.json` / `.yaml` files (no source code).
+2. Run `find-the-gaps analyze --repo <fixture> --docs-url https://example.com/docs -v`.
+3. Inspect the exit code and stderr.
+4. Inspect the project directory under `<cache>/<projectName>/`.
+
+**Success Criteria**:
+- [ ] Exit code is non-zero (1).
+- [ ] Stderr contains `no supported programming languages detected in <fixture>`.
+- [ ] Stderr lists every supported language (`Go, Python, TypeScript, Rust, Java, C#, Kotlin, Swift, Scala, PHP, Ruby, C, C++`).
+- [ ] Stderr links to the GitHub issues page.
+- [ ] `<cache>/<projectName>/scan/project.md` exists (the scan ran and produced its report).
+- [ ] `<cache>/<projectName>/mapping.md` and `gaps.md` do NOT exist.
+- [ ] `mdfetch` is not invoked (no entry in the verbose log).
+
+**If Blocked**: If the halt fires on a repo that does contain supported source (e.g. a single Go file is ignored), the `Generic` filter is wrong — capture `scan.Languages` from `<cache>/<projectName>/scan/scan.json` and ask before adjusting.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
