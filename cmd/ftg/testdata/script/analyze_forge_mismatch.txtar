@@ -1,0 +1,16 @@
+# A forge URL whose --repo origin points at a different repo halts non-zero
+# with the standard "can't crawl source-control forges" message. The halt
+# fires before any LLM init, so we don't need API keys or PATH manipulation.
+
+mkdir repo
+cd repo
+exec git init -q
+exec git -c user.email=a@b -c user.name=a commit --allow-empty -q -m init
+exec git remote add origin https://github.com/other/proj.git
+cd ..
+
+! exec ftg analyze --repo repo --docs-url https://github.com/foo/bar --cache-dir $WORK/cache --no-site
+# Match the apostrophe with `.` since the testscript regex makes literal
+# apostrophes awkward to escape.
+stderr 'Find the Gaps can.t crawl source-control forges'
+stderr 'clone the repo locally'

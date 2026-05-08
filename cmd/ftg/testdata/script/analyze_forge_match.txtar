@@ -1,0 +1,35 @@
+# A forge URL whose --repo origin matches reads docs from disk and prints the
+# on-disk notice. The spider is NOT invoked, and the mdfetch precheck is NOT
+# tripped. With ANTHROPIC_API_KEY=stub, tier validation passes, the on-disk
+# notice fires, per-page analysis fails fast on the bad key, and analyze
+# returns nil with "0 pages analyzed" — exit 0.
+#
+# Note: we do NOT scrub PATH here. The on-disk path needs `git remote get-url
+# origin` to read the local repo's remote, so git must remain reachable.
+# Whether mdfetch is on PATH does not affect this test: the precheck is
+# skipped entirely in on-disk mode, so no precheck error string can appear in
+# stderr regardless of host environment.
+
+mkdir repo
+cd repo
+exec git init -q
+exec git -c user.email=a@b -c user.name=a commit --allow-empty -q -m init
+exec git remote add origin https://github.com/foo/bar.git
+cd ..
+
+env ANTHROPIC_API_KEY=stub
+
+exec ftg analyze --repo repo --docs-url https://github.com/foo/bar --cache-dir $WORK/cache --no-site
+stdout 'reading markdown from'
+! stdout 'crawling https://github.com/foo/bar'
+! stderr 'crawling https://github.com/foo/bar'
+# The mdfetch precheck must NOT fire in on-disk mode. The precheck error
+# starts with "ftg analyze needs" and names the missing tool. Asserting its
+# absence proves on-disk mode skipped the precheck.
+! stderr 'ftg analyze needs'
+
+-- repo/README.md --
+# Hello
+
+-- repo/docs/intro.md --
+# Intro
