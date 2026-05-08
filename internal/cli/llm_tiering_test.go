@@ -27,6 +27,17 @@ func TestNewLLMTiering_DefaultsRequireAnthropicKey(t *testing.T) {
 			t.Errorf("error should mention %q, got:\n%s", want, msg)
 		}
 	}
+	// The provider-specific preamble is misleading — only one of the two
+	// supported defaults is ever named, so it reads as if the tool requires
+	// Anthropic. Keep the helpful hint, drop the preamble.
+	for _, unwanted := range []string{
+		`tier "small":`,
+		"ANTHROPIC_API_KEY not set",
+	} {
+		if strings.Contains(msg, unwanted) {
+			t.Errorf("error must not contain %q (provider-specific preamble), got:\n%s", unwanted, msg)
+		}
+	}
 }
 
 func TestNewLLMTiering_DefaultsToOpenAIWhenOnlyOpenAIKeySet(t *testing.T) {

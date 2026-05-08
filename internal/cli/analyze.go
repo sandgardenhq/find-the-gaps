@@ -170,6 +170,13 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 			tiering, err := tieringFactory(llmSmall, llmTypical, llmLarge)
 			if err != nil {
+				// The setup-hint error already renders as a self-contained
+				// user message — wrapping it would prepend "LLM client:" and
+				// reintroduce noise we just removed.
+				var she *llmSetupHintError
+				if errors.As(err, &she) {
+					return err
+				}
 				return fmt.Errorf("LLM client: %w", err)
 			}
 			if t, ok := tiering.(*llmTiering); ok {

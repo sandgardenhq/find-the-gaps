@@ -187,6 +187,11 @@ func errorToExitCode(err error, stderr io.Writer) int {
 	if errors.As(err, &ec) {
 		return ec.Code
 	}
+	var she *llmSetupHintError
+	if errors.As(err, &she) {
+		_, _ = fmt.Fprintln(stderr, she.Error())
+		return 1
+	}
 	_, _ = fmt.Fprintln(stderr, "Error:", err)
 	return 1
 }

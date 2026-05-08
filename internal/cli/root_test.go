@@ -182,6 +182,24 @@ func TestErrorToExitCode_PlainError_PrintsAndReturnsOne(t *testing.T) {
 	}
 }
 
+// The missing-default-key error renders as actionable setup instructions, so
+// the "Error:" preamble (and any wrap text added upstream) just adds noise
+// and reads as Anthropic-specific. errorToExitCode prints the hint verbatim.
+func TestErrorToExitCode_LLMSetupHint_PrintsHintWithoutErrorPrefix(t *testing.T) {
+	var stderr bytes.Buffer
+	code := errorToExitCode(&llmSetupHintError{}, &stderr)
+	if code != 1 {
+		t.Errorf("code = %d, want 1", code)
+	}
+	out := stderr.String()
+	if strings.Contains(out, "Error:") {
+		t.Errorf("stderr should not contain 'Error:' preamble, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Find the Gaps needs an LLM API key") {
+		t.Errorf("stderr should contain the setup hint, got:\n%s", out)
+	}
+}
+
 func TestExitCodeError_Error(t *testing.T) {
 	e := &ExitCodeError{Code: 7}
 	if !strings.Contains(e.Error(), "7") {

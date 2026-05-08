@@ -9,9 +9,17 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
-// llmKeySetupHint is appended to errors raised when a tier falls back to its
-// default provider (Anthropic or OpenAI) and the corresponding API key isn't
-// set. Listing both supported default providers means a first-run user with
+// llmSetupHintError is the error returned when a tier falls back to its
+// default provider and the corresponding API key isn't set. errorToExitCode
+// recognizes this type and writes the hint to stderr without an "Error:"
+// preamble — naming a single missing env var read as if the tool only
+// supported that one provider.
+type llmSetupHintError struct{}
+
+func (*llmSetupHintError) Error() string { return llmKeySetupHint }
+
+// llmKeySetupHint is the user-facing setup message for the missing-default-key
+// case. It names both supported default providers so a first-run user with
 // neither key configured can pick whichever they have access to without
 // hunting through docs.
 const llmKeySetupHint = `Find the Gaps needs an LLM API key. Set one of:
@@ -91,11 +99,11 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 		client, counter, err := buildTierClient(provider, model)
 		if err != nil {
 			// The user didn't pick a provider for this tier (raw == "")
-			// and the default provider's key is missing — surface the
-			// full setup hint so they can recover without reading the
-			// README.
+			// and the default provider's key is missing — surface only
+			// the setup hint. Naming a single env var (ANTHROPIC_API_KEY
+			// or OPENAI_API_KEY) reads as if that provider were required.
 			if tc.raw == "" && isMissingDefaultKeyErr(err) {
-				return nil, fmt.Errorf("tier %q: %w\n\n%s", tc.name, err, llmKeySetupHint)
+				return nil, &llmSetupHintError{}
 			}
 			return nil, fmt.Errorf("tier %q: %w", tc.name, err)
 		}
