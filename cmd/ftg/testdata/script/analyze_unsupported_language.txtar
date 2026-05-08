@@ -1,0 +1,20 @@
+# analyze halts before docs ingestion when the repo contains no source
+# files matched by a dedicated language extractor. Markdown + JSON only.
+mkdir repo
+cp README.md repo/README.md
+cp data.json repo/data.json
+
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://example.com/docs
+stderr 'no supported programming languages'
+stderr 'Go, Python, TypeScript'
+stderr 'https://github.com/sandgardenhq/find-the-gaps/issues'
+
+# Scan output exists; LLM-pass output does not.
+exists $WORK/cache/repo/scan/project.md
+! exists $WORK/cache/repo/mapping.md
+! exists $WORK/cache/repo/gaps.md
+
+-- README.md --
+# hi
+-- data.json --
+{}
