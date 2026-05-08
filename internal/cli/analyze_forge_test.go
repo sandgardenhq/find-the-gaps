@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -204,10 +205,8 @@ func recordingPrecheck(t *testing.T) (*[]doctor.Precheck, func()) {
 		mu.Lock()
 		seen = append(seen, p)
 		mu.Unlock()
-		for _, tool := range p.Tools {
-			if tool == "mdfetch" {
-				return fmt.Errorf("recordingPrecheck: mdfetch should not be required, got tools=%v", p.Tools)
-			}
+		if slices.Contains(p.Tools, "mdfetch") {
+			return fmt.Errorf("recordingPrecheck: mdfetch should not be required, got tools=%v", p.Tools)
 		}
 		return nil
 	}
