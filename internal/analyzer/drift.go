@@ -230,6 +230,16 @@ func DetectDrift(
 
 		observations, err := investigateFeatureDrift(ctx, investigator, entry, pages, pageReader, repoRoot)
 		if err != nil {
+			// A typed budget error from the investigator means the very
+			// first turn was already over budget — no observations were
+			// recorded. Log + skip the feature without writing a drift
+			// cache entry; a re-run with --llm-typical=<bigger-model>
+			// retries cleanly. Do NOT abort the run; other features still
+			// get a chance.
+			if errors.Is(err, ErrTokenBudgetExceeded{}) {
+				log.Warnf("drift investigator could not start for feature %q: %v; skipping (no cache entry written)", entry.Feature.Name, err)
+				return nil
+			}
 			return fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
 		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)
@@ -438,6 +448,23 @@ calling note_observation at all.`,
 			budget, entry.Feature.Name, len(entry.Files), len(pages), len(observations))
 		return observations, nil
 	}
+	if errors.Is(err, ErrTokenBudgetExceeded{}) {
+		// Two distinct shapes:
+		//   1. observations > 0 — earlier rounds recorded evidence before
+		//      the budget hook refused the next turn. Same shape as the
+		//      ErrMaxRounds path: log and hand the partial set to the judge.
+		//   2. observations == 0 — the very first turn was already over
+		//      budget (system prompt + tool defs alone). Return a typed
+		//      error so DetectDrift skips writing a "no drift" cache entry
+		//      for this feature — a re-run with a larger model retries
+		//      cleanly.
+		if len(observations) == 0 {
+			return nil, fmt.Errorf("investigateFeatureDrift %q: %w", entry.Feature.Name, err)
+		}
+		log.Warnf("drift investigator hit token budget for feature %q (%d files, %d pages); handing %d observations to judge",
+			entry.Feature.Name, len(entry.Files), len(pages), len(observations))
+		return observations, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -542,9 +569,17 @@ type judgeResponse struct {
 	Issues []DriftIssue `json:"issues"`
 }
 
-// judgeFeatureDrift adjudicates the investigator's observations for one feature
-// in a single non-tool CompleteJSON call. With zero observations it short-
-// circuits and returns nil without calling the LLM.
+// judgeFeatureDrift adjudicates the investigator's observations for one
+// feature. The fast path is one non-tool CompleteJSON call covering every
+// observation. When that prompt exceeds the model's input budget — the
+// pathological case where an investigator surfaced many observations on a
+// busy feature — the function falls back to a chunked-judging compaction
+// path that splits observations into smaller groups, judges each, and
+// concatenates the per-chunk issues. Lossless at the observation level:
+// every observation is still seen by the judge.
+//
+// With zero observations the function short-circuits and returns nil
+// without calling the LLM.
 func judgeFeatureDrift(
 	ctx context.Context,
 	client LLMClient,
@@ -555,6 +590,82 @@ func judgeFeatureDrift(
 		return nil, nil
 	}
 
+	issues, err := judgeOneShot(ctx, client, feature, observations)
+	if err == nil {
+		return issues, nil
+	}
+	if !errors.Is(err, ErrTokenBudgetExceeded{}) {
+		return nil, err
+	}
+
+	// Compaction path: split observations into the smallest number of
+	// groups whose rendered prompts each fit within the budget, judge
+	// each, and merge.
+	chunks := chunkObservationsToFit(client, feature, observations)
+	log.Warnf("judge prompt for %q exceeded token budget; compacting into %d chunks", feature.Name, len(chunks))
+
+	var all []DriftIssue
+	for i, chunk := range chunks {
+		chunkIssues, err := judgeOneShot(ctx, client, feature, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("judgeFeatureDrift %q: chunk %d/%d: %w", feature.Name, i+1, len(chunks), err)
+		}
+		all = append(all, chunkIssues...)
+	}
+	return all, nil
+}
+
+// judgeOneShot is the historical body of judgeFeatureDrift extracted as
+// a helper. It renders the prompt for a fixed observation set and runs
+// the existing retry loop. Returning ErrTokenBudgetExceeded triggers the
+// compaction path in judgeFeatureDrift.
+func judgeOneShot(
+	ctx context.Context,
+	client LLMClient,
+	feature CodeFeature,
+	observations []driftObservation,
+) ([]DriftIssue, error) {
+	prompt := renderJudgePrompt(feature, observations)
+
+	// Retry on transport error / malformed JSON / schema-validation
+	// failure. ErrTokenBudgetExceeded is NOT retried — it's deterministic
+	// for a given prompt and the caller (judgeFeatureDrift) handles it via
+	// chunked compaction.
+	var lastErr error
+	for attempt := 1; attempt <= driftJudgeMaxAttempts; attempt++ {
+		raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			if errors.Is(err, ErrTokenBudgetExceeded{}) {
+				return nil, err
+			}
+			lastErr = err
+			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
+			continue
+		}
+		var resp judgeResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			lastErr = fmt.Errorf("invalid JSON response: %w", err)
+			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, lastErr)
+			continue
+		}
+		if err := validateDriftIssues(resp.Issues); err != nil {
+			lastErr = err
+			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
+			continue
+		}
+		return resp.Issues, nil
+	}
+	return nil, fmt.Errorf("judgeFeatureDrift %q: %w: %s", feature.Name, ErrLLMRetriesExhausted, lastErr)
+}
+
+// renderJudgePrompt builds the judge-stage prompt for one feature and a
+// specific observation set. Extracted from judgeOneShot so
+// chunkObservationsToFit can size candidate chunks against the same
+// rendering used at send time.
+func renderJudgePrompt(feature CodeFeature, observations []driftObservation) string {
 	var b strings.Builder
 	for i, o := range observations {
 		fmt.Fprintf(&b, "[%d] page: %s\n    docs say: %q\n    code shows: %q\n    concern: %s\n",
@@ -562,7 +673,7 @@ func judgeFeatureDrift(
 	}
 
 	// PROMPT: Adjudicates a list of candidate drift observations for one feature, dropping false alarms, collapsing observations that describe the same docs problem into one issue, and emitting actionable documentation feedback as DriftIssues with a user-impact priority rating.
-	prompt := fmt.Sprintf(`You are reviewing candidate documentation drift observations for one software feature.
+	return fmt.Sprintf(`You are reviewing candidate documentation drift observations for one software feature.
 
 Feature: %s
 Description: %s
@@ -589,40 +700,59 @@ If every observation is a false alarm, emit an empty "issues" array.`,
 		feature.Name, feature.Description, b.String(),
 		pageRoleSummary(uniqueObservationPages(observations)),
 		priorityRubric)
+}
 
-	// Retry the judge call up to driftJudgeMaxAttempts on any failure
-	// (transport error, malformed JSON, or schema-validation failure). The
-	// drift cache persists per-feature, so a hard failure after the budget
-	// is exhausted still lets the user re-run analyze and pick up where
-	// they left off.
-	var lastErr error
-	for attempt := 1; attempt <= driftJudgeMaxAttempts; attempt++ {
-		raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
-		if err != nil {
-			// User abort or parent deadline — propagate immediately so the
-			// CLI can distinguish a cancel from a provider failure and skip
-			// the retry-exhausted restart hint.
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, ctxErr
-			}
-			lastErr = err
-			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
-			continue
-		}
-		var resp judgeResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			lastErr = fmt.Errorf("invalid JSON response: %w", err)
-			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, lastErr)
-			continue
-		}
-		if err := validateDriftIssues(resp.Issues); err != nil {
-			lastErr = err
-			log.Warnf("judge attempt %d/%d for %q failed: %v", attempt, driftJudgeMaxAttempts, feature.Name, err)
-			continue
-		}
-		return resp.Issues, nil
+const clipQuoteMaxChars = 1500
+
+// clipObservationQuotes truncates DocQuote/CodeQuote on a single
+// observation to max characters with a "[…]" marker. Used by
+// chunkObservationsToFit before greedy packing so a single bloated
+// observation doesn't single-handedly overflow a chunk.
+func clipObservationQuotes(o driftObservation, max int) driftObservation {
+	if len(o.DocQuote) > max {
+		o.DocQuote = truncateAtRuneBoundary(o.DocQuote, max) + " […]"
 	}
-	return nil, fmt.Errorf("judgeFeatureDrift %q: %w: %s", feature.Name, ErrLLMRetriesExhausted, lastErr)
+	if len(o.CodeQuote) > max {
+		o.CodeQuote = truncateAtRuneBoundary(o.CodeQuote, max) + " […]"
+	}
+	return o
+}
+
+// chunkObservationsToFit greedily packs observations into the smallest
+// number of groups whose rendered judge prompts each fit within
+// 0.9 × Capabilities().MaxInputTokens. Oversized quotes on individual
+// observations are clipped to clipQuoteMaxChars first. When the model
+// has no budget (MaxInputTokens == 0), returns one chunk containing all
+// observations.
+func chunkObservationsToFit(client LLMClient, feature CodeFeature, obs []driftObservation) [][]driftObservation {
+	caps := client.Capabilities()
+	if caps.MaxInputTokens <= 0 {
+		return [][]driftObservation{obs}
+	}
+	budget := int(0.9 * float64(caps.MaxInputTokens))
+
+	clipped := make([]driftObservation, len(obs))
+	for i, o := range obs {
+		clipped[i] = clipObservationQuotes(o, clipQuoteMaxChars)
+	}
+
+	var chunks [][]driftObservation
+	var cur []driftObservation
+	for _, o := range clipped {
+		candidate := append([]driftObservation{}, cur...)
+		candidate = append(candidate, o)
+		if countTokens(renderJudgePrompt(feature, candidate)) > budget && len(cur) > 0 {
+			// `cur` was the last chunk that fit; flush it.
+			chunks = append(chunks, cur)
+			cur = []driftObservation{o}
+			continue
+		}
+		cur = candidate
+	}
+	if len(cur) > 0 {
+		chunks = append(chunks, cur)
+	}
+	return chunks
 }
 
 // releaseNotePatterns are URL path segments that identify changelog/release-note

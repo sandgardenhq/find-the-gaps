@@ -111,6 +111,20 @@ func newLLMTiering(small, typical, large string) (*llmTiering, error) {
 	return tg, nil
 }
 
+// toAnalyzerCaps converts the cli capability shape to its analyzer mirror.
+// Extracted so propagation of every field — including MaxInputTokens, which
+// drives the budgeted-client decorator — is testable in isolation.
+func toAnalyzerCaps(caps ModelCapabilities) analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{
+		Provider:            caps.Provider,
+		Model:               caps.Model,
+		ToolUse:             caps.ToolUse,
+		Vision:              caps.Vision,
+		MaxCompletionTokens: caps.MaxCompletionTokens,
+		MaxInputTokens:      caps.MaxInputTokens,
+	}
+}
+
 func isMissingDefaultKeyErr(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "ANTHROPIC_API_KEY not set") ||
@@ -182,16 +196,15 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 	}
 
 	caps, _ := ResolveCapabilities(provider, model)
-	analyzerCaps := analyzer.ModelCapabilities{
-		Provider:            caps.Provider,
-		Model:               caps.Model,
-		ToolUse:             caps.ToolUse,
-		Vision:              caps.Vision,
-		MaxCompletionTokens: caps.MaxCompletionTokens,
-	}
+	analyzerCaps := toAnalyzerCaps(caps)
 	client, err := analyzer.NewBifrostClientWithProvider(bifrostProvider, apiKey, model, baseURL, analyzerCaps)
 	if err != nil {
 		return nil, nil, err
 	}
-	return client, counter, nil
+	// Wrap every constructed client in budgetedClient. Single-shot calls
+	// (Complete/CompleteJSON/CompleteJSONMultimodal) are gated against
+	// 0.9 × MaxInputTokens before any network attempt; multi-turn
+	// CompleteWithTools gets per-turn gating + per-tool-result clipping
+	// once the agent-loop hook lands.
+	return analyzer.NewBudgetedClient(client, fmt.Sprintf("%s/%s", provider, model)), counter, nil
 }

@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -186,6 +187,16 @@ Populate "entries" with one object per feature, where each object has:
 
 		raw, err := client.CompleteJSON(ctx, promptText, mapSchema)
 		if err != nil {
+			// The batcher's pre-send sizing (via counter.CountTokens
+			// above) should keep every batch under the model's budget.
+			// If the decorator's gate still fires, that's a regression
+			// in the batcher — log it and skip the batch rather than
+			// aborting the whole mapping run. Surfaces clearly so a
+			// future investigator can find the cause.
+			if errors.Is(err, ErrTokenBudgetExceeded{}) {
+				log.Warnf("MapFeaturesToCode: skipping batch %d/%d (%v) — batcher pre-sizing should have prevented this; investigate", i+1, len(queue), err)
+				continue
+			}
 			return nil, fmt.Errorf("MapFeaturesToCode: %w", err)
 		}
 

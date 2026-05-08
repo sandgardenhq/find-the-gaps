@@ -984,6 +984,241 @@ func TestJudgeFeatureDrift_ProducesIssues(t *testing.T) {
 	assert.Contains(t, issues[0].Issue, "docs claim X but code does Y")
 }
 
+// budgetErrToolStub is a ToolLLMClient stub that records the given
+// observations through the note_observation tool, then returns
+// ErrTokenBudgetExceeded — simulating the budgeted decorator's pre-turn
+// hook firing after some observations are already in.
+type budgetErrToolStub struct {
+	preRecord []analyzer.ChatMessage // assistant note_observation calls dispatched before the error
+}
+
+func (s *budgetErrToolStub) Complete(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (s *budgetErrToolStub) CompleteJSON(_ context.Context, _ string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *budgetErrToolStub) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *budgetErrToolStub) Capabilities() analyzer.ModelCapabilities {
+	return analyzer.ModelCapabilities{}
+}
+func (s *budgetErrToolStub) CompleteWithTools(ctx context.Context, _ []analyzer.ChatMessage, tools []analyzer.Tool, _ ...analyzer.AgentOption) (analyzer.AgentResult, error) {
+	// Find note_observation in tools and dispatch each preRecord message
+	// through it so observations land in the investigator's accumulator.
+	var noteFn analyzer.ToolHandler
+	for _, t := range tools {
+		if t.Name == "note_observation" {
+			noteFn = t.Execute
+			break
+		}
+	}
+	for _, msg := range s.preRecord {
+		for _, tc := range msg.ToolCalls {
+			if tc.Name == "note_observation" && noteFn != nil {
+				_, _ = noteFn(ctx, tc.Arguments)
+			}
+		}
+	}
+	return analyzer.AgentResult{}, analyzer.ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "drift-investigator",
+	}
+}
+
+// TestInvestigateFeatureDrift_TokenBudgetHitWithObservations_HandsToJudge
+// pins the partial-handoff path: when the per-turn budget hook fires after
+// the investigator has already recorded observations, those observations
+// flow to the judge and the run continues — same shape as ErrMaxRounds.
+func TestInvestigateFeatureDrift_TokenBudgetHitWithObservations_HandsToJudge(t *testing.T) {
+	stub := &budgetErrToolStub{preRecord: []analyzer.ChatMessage{
+		noteObservation("p1", "d1", "c1", "concern 1"),
+		noteObservation("p2", "d2", "c2", "concern 2"),
+	}}
+	entry := analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"a.go"}}
+
+	obs, err := analyzer.InvestigateFeatureDrift(context.Background(), stub, entry, []string{"https://x"}, func(string) (string, error) { return "", nil }, t.TempDir())
+
+	require.NoError(t, err, "budget-hit with observations must not be a hard error")
+	require.Len(t, obs, 2, "every observation recorded before the gate must be returned")
+}
+
+// TestInvestigateFeatureDrift_TokenBudgetHitWithZeroObs_ReturnsTypedError
+// pins the un-investigated path: when the budget gate fires before any
+// observation is recorded (e.g. system prompt + tools alone exceed the
+// budget), the investigator returns a typed error so DetectDrift can skip
+// writing a "no drift" cache entry that would silently mask the problem.
+func TestInvestigateFeatureDrift_TokenBudgetHitWithZeroObs_ReturnsTypedError(t *testing.T) {
+	stub := &budgetErrToolStub{} // no preRecord — zero observations
+	entry := analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "search"}, Files: []string{"s.go"}}
+
+	_, err := analyzer.InvestigateFeatureDrift(context.Background(), stub, entry, []string{"https://x"}, func(string) (string, error) { return "", nil }, t.TempDir())
+
+	if !errors.Is(err, analyzer.ErrTokenBudgetExceeded{}) {
+		t.Fatalf("expected ErrTokenBudgetExceeded, got %v", err)
+	}
+}
+
+// chunkAwareJudgeStub is a non-tool LLMClient that mimics a budget-gated
+// judge: prompts whose tiktoken count exceeds budgetTokens get
+// ErrTokenBudgetExceeded; smaller prompts return a canned issues array
+// containing one issue per observation referenced in the prompt (matched
+// by quoting the docQuote substring). Used to verify chunked compaction
+// without a real LLM.
+type chunkAwareJudgeStub struct {
+	budgetTokens int
+	caps         analyzer.ModelCapabilities
+	calls        int
+	prompts      []string
+}
+
+func (s *chunkAwareJudgeStub) Complete(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (s *chunkAwareJudgeStub) CompleteJSON(_ context.Context, prompt string, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	s.calls++
+	s.prompts = append(s.prompts, prompt)
+	if analyzer.CountTokensForTest(prompt) > s.budgetTokens {
+		return nil, analyzer.ErrTokenBudgetExceeded{
+			Provider: s.caps.Provider, Model: s.caps.Model,
+			Counted: analyzer.CountTokensForTest(prompt), Budget: s.budgetTokens,
+			Where: "judge",
+		}
+	}
+	// Echo one issue per "concern N" mention in the prompt so the test
+	// can verify every observation flowed through some chunk.
+	var issues []map[string]string
+	for i := 1; i <= 200; i++ {
+		marker := fmt.Sprintf("concern %d", i)
+		if strings.Contains(prompt, marker) {
+			issues = append(issues, map[string]string{
+				"page":            fmt.Sprintf("https://x/%d", i),
+				"issue":           fmt.Sprintf("issue for %s", marker),
+				"priority":        "medium",
+				"priority_reason": "test stub",
+			})
+		}
+	}
+	body := map[string]any{"issues": issues}
+	raw, _ := json.Marshal(body)
+	return raw, nil
+}
+func (s *chunkAwareJudgeStub) CompleteJSONMultimodal(_ context.Context, _ []analyzer.ChatMessage, _ analyzer.JSONSchema) (json.RawMessage, error) {
+	return nil, nil
+}
+func (s *chunkAwareJudgeStub) Capabilities() analyzer.ModelCapabilities { return s.caps }
+
+// TestJudgeFeatureDrift_ChunksWhenOverBudget pins the compaction contract:
+// when the assembled judge prompt exceeds the budget, observations are
+// split into smaller chunks that each fit, the judge is called once per
+// chunk, and the per-chunk issue lists are concatenated. Every original
+// observation is seen by some chunk's prompt — the chunking is lossless
+// at the observation level.
+func TestJudgeFeatureDrift_ChunksWhenOverBudget(t *testing.T) {
+	// Build N=12 observations whose concatenated prompt clearly exceeds
+	// the stub's 1500-token budget but which each individually fit.
+	const n = 12
+	obs := make([]analyzer.DriftObservation, n)
+	for i := 0; i < n; i++ {
+		obs[i] = analyzer.DriftObservation{
+			Page:      fmt.Sprintf("https://x/%d", i+1),
+			DocQuote:  strings.Repeat("doc ", 80),  // ~80 tokens each
+			CodeQuote: strings.Repeat("code ", 80), // ~80 tokens each
+			Concern:   fmt.Sprintf("concern %d", i+1),
+		}
+	}
+	stub := &chunkAwareJudgeStub{
+		budgetTokens: 1500,
+		caps:         analyzer.ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 1500},
+	}
+
+	feat := analyzer.CodeFeature{Name: "F", Description: "x"}
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), stub, feat, obs)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, issues, "chunked judging must still produce issues")
+	if stub.calls < 2 {
+		t.Fatalf("expected multiple chunk calls (>=2), got %d", stub.calls)
+	}
+	// Every observation must appear in some chunk's prompt — lossless.
+	for i := 1; i <= n; i++ {
+		marker := fmt.Sprintf("concern %d", i)
+		seen := false
+		for _, p := range stub.prompts[1:] { // [0] is the failed one-shot try
+			if strings.Contains(p, marker) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			t.Fatalf("observation %d (%q) did not appear in any chunked prompt", i, marker)
+		}
+	}
+}
+
+// TestJudgeFeatureDrift_NoChunkingWhenWithinBudget pins that the fast path
+// (single-call judge with the existing retry loop) is untouched when the
+// prompt fits — no chunking overhead, identical behavior to before.
+func TestJudgeFeatureDrift_NoChunkingWhenWithinBudget(t *testing.T) {
+	obs := []analyzer.DriftObservation{{
+		Page: "https://x/1", DocQuote: "small", CodeQuote: "small", Concern: "concern 1",
+	}}
+	stub := &chunkAwareJudgeStub{
+		budgetTokens: 100000,
+		caps:         analyzer.ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 100000},
+	}
+	feat := analyzer.CodeFeature{Name: "F", Description: "x"}
+	issues, err := analyzer.JudgeFeatureDrift(context.Background(), stub, feat, obs)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	if stub.calls != 1 {
+		t.Fatalf("expected exactly 1 call when prompt fits, got %d", stub.calls)
+	}
+}
+
+// TestDetectDrift_SkipsUninvestigatedFeatureWithoutAborting pins that a
+// single feature whose investigator returned ErrTokenBudgetExceeded with
+// zero observations does NOT abort the whole run, and does NOT trigger
+// onFeatureDone (which would persist a misleading "no drift" cache entry).
+// Other features in the same run continue normally.
+func TestDetectDrift_SkipsUninvestigatedFeatureWithoutAborting(t *testing.T) {
+	// One feature whose typical-tier investigator immediately returns the
+	// budget error with no observations — mimics "system prompt + tool
+	// defs alone exceed budget".
+	typical := &budgetErrToolStub{} // returns ErrTokenBudgetExceeded with zero obs
+
+	// Large tier (judge) and small tier (classifier) are still constructed
+	// but should never run for the failed feature.
+	large := &driftStubClient{}
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil },
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "huge-feature"}, Files: []string{"big.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "huge-feature", Pages: []string{"https://docs.example.com/huge"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Huge", nil }
+
+	var doneCalls int
+	onDone := func(_ string, _, _, _ []string, _ []analyzer.DriftIssue) error {
+		doneCalls++
+		return nil
+	}
+
+	findings, err := analyzer.DetectDrift(context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, "/repo", 1, nil, nil, onDone)
+
+	require.NoError(t, err, "a single feature's budget error must not abort the run")
+	assert.Empty(t, findings, "no findings from an un-investigated feature")
+	assert.Equal(t, 0, doneCalls, "onFeatureDone must NOT fire for un-investigated features (no cache write)")
+}
+
 func TestInvestigateFeatureDrift_MaxRoundsHit_ReturnsAccumulated(t *testing.T) {
 	// Two observations recorded, then loop exhausts without "done". The
 	// stub reuses the last element when responses runs out, so we script
