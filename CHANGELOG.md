@@ -2,8 +2,20 @@
 
 ## Unreleased
 
+### Breaking
+- **`--docs-url` renamed to `--docs` and made optional.** Omitting `--docs`
+  now scans `--repo` on disk for markdown — the common case for projects
+  whose docs live alongside their code. Strings without an `http://` or
+  `https://` scheme are treated as local filesystem paths; URLs go through
+  `mdfetch` as before. Missing local paths error out before any analysis
+  runs. The GitHub Action input is also renamed from `docs-url` to `docs`
+  and is no longer required.
+- **`--forge` flag removed.** Self-hosted forges (Gitea, Forgejo, Gogs on
+  custom domains) should now be analyzed by passing the local clone path
+  as `--docs`.
+
 ### Changed
-- **Forge URLs are no longer crawled.** When `--docs-url` points at a known
+- **Forge URLs are no longer crawled.** When `--docs` points at a known
   source-control forge (`github.com`, `gitlab.com`, `bitbucket.org`,
   `codeberg.org`, `git.sr.ht`) and `--repo` is a clone of the same
   repository, `ftg analyze` reads markdown from disk instead of attempting
@@ -14,12 +26,6 @@
 - **Recognized documentation extensions on the on-disk path.** `.md`,
   `.markdown`, `.mdx`, `.rst`, `.adoc`, `.asciidoc`. Files under `.git/`,
   `node_modules/`, and `vendor/` are skipped.
-
-### Added
-- **`--forge` flag** for self-hosted forges (`gitea`, `forgejo`, `gogs`,
-  `gitlab`, `bitbucket`, `github`) on custom domains where host detection
-  can't engage automatically. Assumes GitHub-shape URL paths
-  (`/owner/repo/{tree,blob}/branch/...`).
 
 ## v0.4.0
 

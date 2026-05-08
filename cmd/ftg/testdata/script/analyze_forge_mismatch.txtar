@@ -9,7 +9,7 @@ exec git -c user.email=a@b -c user.name=a commit --allow-empty -q -m init
 exec git remote add origin https://github.com/other/proj.git
 cd ..
 
-! exec ftg analyze --repo repo --docs-url https://github.com/foo/bar --cache-dir $WORK/cache --no-site
+! exec ftg analyze --repo repo --docs https://github.com/foo/bar --cache-dir $WORK/cache --no-site
 # Match the apostrophe with `.` since the testscript regex makes literal
 # apostrophes awkward to escape.
 stderr 'Find the Gaps can.t crawl source-control forges'

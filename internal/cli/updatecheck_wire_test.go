@@ -58,8 +58,8 @@ func TestUpdateCheckWiring_NoticePrintedOnStderrAfterAnalyze(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// The post-execute update check fires regardless of the analyze exit
 	// code; we don't need analyze to succeed, only to actually run, so we
-	// pass a stub --docs-url to satisfy the required-flag check.
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	// pass a stub --docs to satisfy the required-flag check.
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.Contains(t, stderr.String(), "A new version of ftg is available: v9.9.9")
 	assert.Contains(t, stderr.String(), "v0.0.1")
@@ -82,8 +82,8 @@ func TestUpdateCheckWiring_GatedByCIEnv(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// The post-execute update check fires regardless of the analyze exit
 	// code; we don't need analyze to succeed, only to actually run, so we
-	// pass a stub --docs-url to satisfy the required-flag check.
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	// pass a stub --docs to satisfy the required-flag check.
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.NotContains(t, stderr.String(), "A new version of ftg is available")
 	assert.EqualValues(t, 0, atomic.LoadInt32(hits), "CI gate must skip the network")
@@ -105,8 +105,8 @@ func TestUpdateCheckWiring_GatedByDedicatedKillSwitch(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// The post-execute update check fires regardless of the analyze exit
 	// code; we don't need analyze to succeed, only to actually run, so we
-	// pass a stub --docs-url to satisfy the required-flag check.
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	// pass a stub --docs to satisfy the required-flag check.
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.NotContains(t, stderr.String(), "A new version of ftg is available")
 	assert.EqualValues(t, 0, atomic.LoadInt32(hits))
@@ -161,7 +161,7 @@ func TestUpdateCheckWiring_DevBuildSkips(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.NotContains(t, stderr.String(), "A new version of ftg is available")
 	assert.EqualValues(t, 0, atomic.LoadInt32(hits))
@@ -180,7 +180,7 @@ func TestUpdateCheckWiring_NoticeAfterCommandOutput(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	noticeIdx := strings.Index(stderr.String(), "A new version of ftg is available")
 	require.NotEqual(t, -1, noticeIdx, "notice missing from stderr: %q", stderr.String())

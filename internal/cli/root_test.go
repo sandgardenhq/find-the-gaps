@@ -140,16 +140,6 @@ func TestRun_HelpReturnsZero(t *testing.T) {
 	}
 }
 
-func TestRun_AnalyzeMissingDocsURL_ReturnsNonZero(t *testing.T) {
-	dir := t.TempDir()
-	cacheBase := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase})
-	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero (analyze without --docs-url should fail); stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-}
-
 func TestErrorToExitCode_Nil_ReturnsZero(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := errorToExitCode(nil, &stderr); code != 0 {
@@ -252,11 +242,11 @@ func TestRun_verbose_showsDebugOutput(t *testing.T) {
 	})
 	// Runs analyze over an empty repo with --verbose. The scan logs at DEBUG
 	// before the docs path runs, so we don't need a real docs URL or a
-	// successful run — any --docs-url value satisfies the required-flag check.
+	// successful run — any --docs value satisfies the required-flag check.
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	_ = run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	_ = run(&stdout, &stderr, []string{"--verbose", "analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 	if !strings.Contains(stderr.String(), "DEBU") {
 		t.Errorf("expected DEBU lines in stderr with --verbose; got: %q", stderr.String())
 	}
@@ -271,7 +261,7 @@ func TestRun_noVerbose_noDebugOutput(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 	if strings.Contains(stderr.String(), "DEBU") {
 		t.Errorf("expected no DEBU lines in stderr without --verbose; got: %q", stderr.String())
 	}
@@ -303,7 +293,7 @@ func TestRun_noVerbose_infoLogsVisible(t *testing.T) {
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs-url", "https://docs.example.invalid"})
+	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 	if !strings.Contains(stderr.String(), "scanning repository") {
 		t.Errorf("expected 'scanning repository' info log in stderr; got: %q", stderr.String())
 	}

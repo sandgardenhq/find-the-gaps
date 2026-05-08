@@ -109,6 +109,75 @@ func TestWalk_includesDotGithubMarkdown(t *testing.T) {
 	}
 }
 
+func TestWalkLocal_findsDocFiles(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "README.md", "# top")
+	writeFile(t, root, "guide/intro.md", "# intro")
+	writeFile(t, root, "guide/api.adoc", "api")
+	writeFile(t, root, "guide/notes.txt", "noise")
+	writeFile(t, root, "src/main.go", "noise")
+
+	got, err := WalkLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d entries, want 3: %v", len(got), got)
+	}
+	absReadme, err := filepath.Abs(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "file://" + absReadme
+	path, ok := got[wantURL]
+	if !ok {
+		t.Fatalf("missing %q in %v", wantURL, got)
+	}
+	if path != absReadme {
+		t.Fatalf("path mapped to %q, want %q", path, absReadme)
+	}
+}
+
+func TestWalkLocal_singleFile(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "INSTALL.md", "# install")
+
+	full := filepath.Join(root, "INSTALL.md")
+	got, err := WalkLocal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d, want 1: %v", len(got), got)
+	}
+	abs, _ := filepath.Abs(full)
+	if _, ok := got["file://"+abs]; !ok {
+		t.Fatalf("missing file://%s in %v", abs, got)
+	}
+}
+
+func TestWalkLocal_skipsVendorAndGit(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "README.md", "x")
+	writeFile(t, root, ".git/HEAD", "x")
+	writeFile(t, root, "node_modules/pkg/README.md", "x")
+	writeFile(t, root, "vendor/dep/README.md", "x")
+
+	got, err := WalkLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d, want 1: %v", len(got), got)
+	}
+}
+
+func TestWalkLocal_missingRoot(t *testing.T) {
+	if _, err := WalkLocal("/does/not/exist/anywhere"); err == nil {
+		t.Fatal("expected error for missing root")
+	}
+}
+
 func TestWalk_singleFile(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, repo, "README.md", "x")

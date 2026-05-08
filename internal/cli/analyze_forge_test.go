@@ -139,7 +139,7 @@ func TestAnalyze_forgeURL_matchingRepo_skipsCrawl(t *testing.T) {
 	cmd.SetArgs([]string{
 		"--repo", repo,
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://github.com/foo/bar",
+		"--docs", "https://github.com/foo/bar",
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
@@ -169,7 +169,7 @@ func TestAnalyze_forgeURL_noRepoMatch_halts(t *testing.T) {
 	cmd.SetArgs([]string{
 		"--repo", repo,
 		"--cache-dir", filepath.Join(t.TempDir(), "cache"),
-		"--docs-url", "https://github.com/foo/bar",
+		"--docs", "https://github.com/foo/bar",
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
@@ -243,7 +243,7 @@ func TestAnalyze_forgeURL_matchingRepo_doesNotRequireMdfetch(t *testing.T) {
 	cmd.SetArgs([]string{
 		"--repo", repo,
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://github.com/foo/bar",
+		"--docs", "https://github.com/foo/bar",
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
@@ -259,62 +259,6 @@ func TestAnalyze_forgeURL_matchingRepo_doesNotRequireMdfetch(t *testing.T) {
 				t.Fatalf("mdfetch was requested in precheck %+v despite on-disk mode", p)
 			}
 		}
-	}
-}
-
-func TestAnalyze_forgeFlag_bypassesHostCheck(t *testing.T) {
-	// Mirror of forge.TestResolve_forgeFlag_bypassesHostCheck at the CLI
-	// surface: --forge gitea must engage on-disk mode for a self-hosted forge
-	// whose hostname is not in the built-in known-forge set.
-	repo := t.TempDir()
-	gitInitWithRemote(t, repo, "https://git.example.com/foo/bar.git")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "docs", "intro.md"), []byte("# Intro\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cacheBase := t.TempDir()
-	projectName := filepath.Base(filepath.Clean(repo))
-	projectDir := filepath.Join(cacheBase, projectName)
-	seedForgeFixture(t, projectDir)
-
-	srv := fakeAnalyzeServer(t)
-	t.Setenv("OLLAMA_BASE_URL", srv.URL)
-	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
-
-	// Re-use the mdfetch-blocking precheck stub from
-	// TestAnalyze_forgeURL_matchingRepo_doesNotRequireMdfetch: --forge gitea
-	// against a self-hosted forge must still resolve to on-disk mode (and
-	// therefore must not request mdfetch).
-	_, restore := recordingPrecheck(t)
-	defer restore()
-
-	cmd := newAnalyzeCmd()
-	out := &bytes.Buffer{}
-	cmd.SetOut(out)
-	cmd.SetErr(out)
-	cmd.SetArgs([]string{
-		"--repo", repo,
-		"--cache-dir", cacheBase,
-		"--docs-url", "https://git.example.com/foo/bar",
-		"--forge", "gitea",
-		"--llm-small", "ollama/test-model",
-		"--llm-typical", "anthropic/claude-haiku-4-5",
-		"--llm-large", "anthropic/claude-haiku-4-5",
-		"--no-site",
-	})
-	if err := cmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("Execute: %v\n%s", err, out.String())
-	}
-
-	combined := out.String()
-	if !strings.Contains(combined, "reading markdown from") {
-		t.Fatalf("missing on-disk notice in output:\n%s", combined)
 	}
 }
 
@@ -365,7 +309,7 @@ func TestAnalyze_forgeURL_onDiskCache_secondRunSkipsAnalyze(t *testing.T) {
 	args := []string{
 		"--repo", repo,
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://github.com/foo/bar",
+		"--docs", "https://github.com/foo/bar",
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
