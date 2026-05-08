@@ -246,9 +246,8 @@ func prepareDocsCache(t *testing.T, cacheBase, projectName, docsURL, pageContent
 
 func TestAnalyze_llmClientError_returnsError(t *testing.T) {
 	// Clear both keys so tierFallbacks resolves to anthropic/* defaults and
-	// newLLMTiering fails with "ANTHROPIC_API_KEY not set". A leaked
-	// OPENAI_API_KEY in the dev shell would otherwise flip defaults to openai/*
-	// and make this test non-deterministic.
+	// newLLMTiering fails. A leaked OPENAI_API_KEY in the dev shell would
+	// otherwise flip defaults to openai/* and make this test non-deterministic.
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 
@@ -269,8 +268,13 @@ func TestAnalyze_llmClientError_returnsError(t *testing.T) {
 		t.Error("expected non-zero exit when LLM client init fails")
 	}
 	combined := stdout.String() + stderr.String()
-	if !strings.Contains(combined, "LLM client") {
-		t.Errorf("expected 'LLM client' in output; got: %s", combined)
+	// The setup hint (no "Error:" or "LLM client:" preamble) is what the user
+	// sees when neither default key is set.
+	if !strings.Contains(combined, "Find the Gaps needs an LLM API key") {
+		t.Errorf("expected setup hint in output; got: %s", combined)
+	}
+	if strings.Contains(combined, "LLM client:") {
+		t.Errorf("output must not contain 'LLM client:' wrap for setup-hint error; got: %s", combined)
 	}
 }
 
