@@ -16,3 +16,5 @@ stderr 'typical'
 -- bin/mdfetch --
 #!/bin/sh
 echo "mdfetch stub"
+-- repo/main.go --
+package main

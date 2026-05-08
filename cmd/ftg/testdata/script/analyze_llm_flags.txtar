@@ -3,4 +3,7 @@
 # call is attempted.
 mkdir repo
 ! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid --llm-small ollama/llama3 --llm-large anthropic/claude-haiku-4-5
-stdout 'scanned 0 files'
+stdout 'scanned 1 files'
+
+-- repo/main.go --
+package main

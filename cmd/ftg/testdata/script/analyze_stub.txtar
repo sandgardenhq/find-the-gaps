@@ -3,4 +3,7 @@
 # still printed before the docs path runs.
 mkdir repo
 ! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid
-stdout 'scanned 0 files'
+stdout 'scanned 1 files'
+
+-- repo/main.go --
+package main
