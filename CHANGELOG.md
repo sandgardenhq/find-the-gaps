@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **Forge URLs are no longer crawled.** When `--docs-url` points at a known
+  source-control forge (`github.com`, `gitlab.com`, `bitbucket.org`,
+  `codeberg.org`, `git.sr.ht`) and `--repo` is a clone of the same
+  repository, `ftg analyze` reads markdown from disk instead of attempting
+  to crawl the forge. Forge URLs that don't resolve to an on-disk match
+  (no `--repo`, mismatched origin, wiki paths, etc.) halt with a message
+  pointing at the fix. The `mdfetch` precheck is skipped on the on-disk
+  path — that tool is no longer required when docs come from a forge.
+- **Recognized documentation extensions on the on-disk path.** `.md`,
+  `.markdown`, `.mdx`, `.rst`, `.adoc`, `.asciidoc`. Files under `.git/`,
+  `node_modules/`, and `vendor/` are skipped.
+
+### Added
+- **`--forge` flag** for self-hosted forges (`gitea`, `forgejo`, `gogs`,
+  `gitlab`, `bitbucket`, `github`) on custom domains where host detection
+  can't engage automatically. Assumes GitHub-shape URL paths
+  (`/owner/repo/{tree,blob}/branch/...`).
+
 ## v0.4.0
 
 ### Added

@@ -152,6 +152,7 @@ Flags:
       --no-cache                         force full re-scan, ignoring any cached results
       --no-site                          skip the Hugo site build; markdown reports still emitted
       --no-symbols                       map features to files only, skipping symbol-level analysis
+      --forge string                     override forge detection: github|gitlab|bitbucket|gitea|forgejo|gogs (use for self-hosted forges)
       --repo string                      path to the repository to analyze (default ".")
       --site-mode string                 site content shape: "mirror" or "expanded" (default "mirror")
       --workers int                      number of parallel mdfetch workers (default 5)
@@ -194,6 +195,38 @@ Configure tiers via flag or environment variable:
 - `GROQ_BASE_URL` — overrides the default Groq endpoint (`https://api.groq.com/openai`); optional
 - `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
 - `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
+
+#### Documentation hosted on a source-control forge
+
+Find the Gaps does not crawl source-control forges — the link graph there is
+the entire forge, not your docs. When `--docs-url` points at github.com,
+gitlab.com, bitbucket.org, codeberg.org, or git.sr.ht, the tool reads
+markdown directly from `--repo` on disk:
+
+```sh
+ftg analyze --repo . --docs-url https://github.com/sandgardenhq/find-the-gaps
+```
+
+The match is verified against the local repo's `origin` remote. If `origin`
+points at a different repo (or `--repo` isn't a git checkout), `ftg analyze`
+halts with a message asking you to clone the docs repo locally and re-run.
+Wiki URLs (`/owner/repo/wiki`) also halt — clone `<repo>.wiki.git` and pass
+that as `--repo` for a wiki-only analysis.
+
+Recognized documentation extensions: `.md`, `.markdown`, `.mdx`, `.rst`,
+`.adoc`, `.asciidoc`. Files under `.git/`, `node_modules/`, and `vendor/`
+are skipped.
+
+For self-hosted forges (Gitea, Forgejo, Gogs, GitLab CE, Bitbucket Server)
+on custom domains, host detection can't engage automatically. Pass `--forge`
+to force on-disk mode:
+
+```sh
+ftg analyze --repo . --docs-url https://git.example.com/foo/bar --forge gitea
+```
+
+`--forge` accepts `github`, `gitlab`, `bitbucket`, `gitea`, `forgejo`, or
+`gogs`. All assume GitHub-shape URL paths (`/owner/repo/{tree,blob}/branch/...`).
 
 #### Vision-aware screenshot analysis
 
