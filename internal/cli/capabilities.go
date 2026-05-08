@@ -28,21 +28,34 @@ type ModelCapabilities struct {
 // capabilities" for unknown (provider, model) pairs on a known provider, so
 // new models can be used immediately even before this table catches up.
 var knownModels = []ModelCapabilities{
-	// Anthropic models publish a 200k context window; we leave ~10% headroom
-	// so the request body, tool defs, and provider serialization overhead
-	// don't push the wire-level total past the cap.
+	// Anthropic windows differ across the 4.x family: Haiku 4.5 still
+	// publishes 200k, but Sonnet 4.6 and Opus 4.7 went to a 1M context window
+	// at standard pricing (no long-context premium). Each value sits ~10%
+	// under the published cap so output tokens, tool defs, and per-provider
+	// serialization overhead don't push the wire-level total past the limit.
 	{Provider: "anthropic", Model: "claude-haiku-4-5", ToolUse: true, Vision: true, MaxInputTokens: 180000},
-	{Provider: "anthropic", Model: "claude-sonnet-4-6", ToolUse: true, Vision: true, MaxInputTokens: 180000},
-	{Provider: "anthropic", Model: "claude-opus-4-7", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	{Provider: "anthropic", Model: "claude-sonnet-4-6", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "anthropic", Model: "claude-opus-4-7", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 	// OpenAI's 2026 lineup. GPT-5.4 (March 2026) and GPT-5.5 (April 2026)
 	// all support tool use and vision; the nano/mini/standard split is the
 	// usual cheap-fast / mid / flagship ladder. Older entries (gpt-5,
-	// gpt-4o family) stay so existing configs keep working. The 5.x family
-	// publishes a 272k input window; gpt-4o family is 128k.
-	{Provider: "openai", Model: "gpt-5.5", ToolUse: true, Vision: true, MaxInputTokens: 260000},
+	// gpt-4o family) stay so existing configs keep working.
+	//
+	// Per-model windows differ enough to matter:
+	//   - gpt-5.5: 922k input / 128k output. OpenAI charges 2x input + 1.5x
+	//     output on prompts above 272k input tokens, so picking 900k means
+	//     long drift runs CAN tip into the premium tier; that's an explicit
+	//     trade for the larger window.
+	//   - gpt-5.4: standard window is 272k; 1M is opt-in via params we do
+	//     not pass, so we cap at the standard tier.
+	//   - gpt-5.4-mini / gpt-5.4-nano: 400k context, no long-context premium.
+	//   - gpt-5 / gpt-5-mini: 400k total but the API enforces a 272k input
+	//     cap (rest is reserved for the 128k output ceiling).
+	//   - gpt-4o family: 128k shared in/out.
+	{Provider: "openai", Model: "gpt-5.5", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 	{Provider: "openai", Model: "gpt-5.4", ToolUse: true, Vision: true, MaxInputTokens: 260000},
-	{Provider: "openai", Model: "gpt-5.4-mini", ToolUse: true, Vision: true, MaxInputTokens: 260000},
-	{Provider: "openai", Model: "gpt-5.4-nano", ToolUse: true, Vision: true, MaxInputTokens: 260000},
+	{Provider: "openai", Model: "gpt-5.4-mini", ToolUse: true, Vision: true, MaxInputTokens: 360000},
+	{Provider: "openai", Model: "gpt-5.4-nano", ToolUse: true, Vision: true, MaxInputTokens: 360000},
 	{Provider: "openai", Model: "gpt-5", ToolUse: true, Vision: true, MaxInputTokens: 260000},
 	{Provider: "openai", Model: "gpt-5-mini", ToolUse: true, Vision: true, MaxInputTokens: 260000},
 	{Provider: "openai", Model: "gpt-4o", ToolUse: true, Vision: true, MaxInputTokens: 115000},

@@ -1,6 +1,6 @@
 # analyze accepts the default invocation (screenshot check off, experimental,
-# opt-in via --experimental-check-screenshots). --docs-url is required, so
+# opt-in via --experimental-check-screenshots). --docs is required, so
 # the run fails after scanning; the scan summary still prints first.
 mkdir repo
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://docs.example.invalid
 stdout 'scanned 0 files'

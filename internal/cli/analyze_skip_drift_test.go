@@ -150,7 +150,7 @@ func TestAnalyzeSkipsDriftOnSecondRun(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--no-site",
 	}
 
@@ -293,7 +293,7 @@ func TestAnalyzeNoCacheFlagDefeatsDriftSkip(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--no-site",
 	}
 
@@ -353,7 +353,7 @@ func TestAnalyzeUpstreamCacheMissDefeatsDriftSkip(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--no-site",
 	}
 

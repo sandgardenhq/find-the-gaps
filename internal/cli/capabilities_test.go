@@ -90,12 +90,12 @@ func TestResolveCapabilities_KnownModelsCarryMaxInputTokens(t *testing.T) {
 		want            int
 	}{
 		{"anthropic", "claude-haiku-4-5", 180000},
-		{"anthropic", "claude-sonnet-4-6", 180000},
-		{"anthropic", "claude-opus-4-7", 180000},
-		{"openai", "gpt-5.5", 260000},
+		{"anthropic", "claude-sonnet-4-6", 900000},
+		{"anthropic", "claude-opus-4-7", 900000},
+		{"openai", "gpt-5.5", 900000},
 		{"openai", "gpt-5.4", 260000},
-		{"openai", "gpt-5.4-mini", 260000},
-		{"openai", "gpt-5.4-nano", 260000},
+		{"openai", "gpt-5.4-mini", 360000},
+		{"openai", "gpt-5.4-nano", 360000},
 		{"openai", "gpt-5", 260000},
 		{"openai", "gpt-5-mini", 260000},
 		{"openai", "gpt-4o", 115000},

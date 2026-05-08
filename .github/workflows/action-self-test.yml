@@ -18,6 +18,6 @@ jobs:
       - name: Run the action against this repo's checkout
         uses: ./
         with:
-          docs-url: ${{ vars.SELF_TEST_DOCS_URL }}
+          docs: ${{ vars.SELF_TEST_DOCS_URL }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           create-issue: 'false'   # don't spam the issues tracker on every PR
