@@ -86,6 +86,29 @@ func TestWalk_skipsHiddenAndVendorDirs(t *testing.T) {
 	}
 }
 
+func TestWalk_includesDotGithubMarkdown(t *testing.T) {
+	// v1 decision: dotdirs are not skipped except for .git. .github/CONTRIBUTING.md
+	// is real documentation and must appear in the page map. Workflow YAML files
+	// are excluded by the docExtensions filter, not by directory pruning.
+	repo := t.TempDir()
+	writeFile(t, repo, ".github/CONTRIBUTING.md", "# contributing")
+	writeFile(t, repo, ".github/workflows/foo.yml", "name: foo")
+
+	got, err := Walk(repo, "", "main", "github.com", "foo", "bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "https://github.com/foo/bar/blob/main/.github/CONTRIBUTING.md"
+	if _, ok := got[wantURL]; !ok {
+		t.Fatalf("expected %q in %v", wantURL, got)
+	}
+	for u := range got {
+		if filepath.Ext(u) == ".yml" || filepath.Ext(u) == ".yaml" {
+			t.Fatalf("workflow yaml leaked into page map: %q", u)
+		}
+	}
+}
+
 func TestWalk_singleFile(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, repo, "README.md", "x")
