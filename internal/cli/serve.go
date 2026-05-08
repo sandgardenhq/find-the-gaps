@@ -46,6 +46,16 @@ func isInteractive() bool {
 	return term.IsTerminal(int(os.Stdout.Fd())) && term.IsTerminal(int(os.Stdin.Fd()))
 }
 
+// humanPresent returns true when stdin looks like a real terminal — used as
+// the auto-serve gate so that piping stdout (e.g. `analyze | tee log`) does
+// NOT suppress the browser launch the way isInteractive() would.
+func humanPresent() bool {
+	if testInteractiveOverride != nil {
+		return *testInteractiveOverride
+	}
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
 func newServeCmd() *cobra.Command {
 	var (
 		repoPath    string

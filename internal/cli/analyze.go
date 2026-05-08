@@ -105,6 +105,7 @@ func newAnalyzeCmd() *cobra.Command {
 		experimentalCheckScreenshots bool
 		siteMode                     string
 		noSite                       bool
+		noServe                      bool
 		keepSiteSource               bool
 		forgeFlag                    string
 	)
@@ -694,6 +695,14 @@ func newAnalyzeCmd() *cobra.Command {
 				len(scan.Files), len(pages), len(featureMap),
 				projectDir, gapsLine, screenshotsLine, siteLine, extraLine)
 
+			decision := decideAutoServe(noSite, noServe, humanPresent(), os.Getenv)
+			if decision.Serve {
+				siteDir := filepath.Join(projectDir, "site")
+				if err := runAutoServe(cmd.Context(), cmd.OutOrStdout(), siteDir); err != nil {
+					return fmt.Errorf("preview server: %w", err)
+				}
+			}
+
 			return nil
 		},
 	}
@@ -715,6 +724,9 @@ func newAnalyzeCmd() *cobra.Command {
 		"enable experimental missing-screenshot detection pass")
 	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
 	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
+	cmd.Flags().BoolVar(&noServe, "no-serve", false,
+		"skip starting the local preview server after analyze completes "+
+			"(default: false; --no-site, CI=*, FIND_THE_GAPS_QUIET=1, and a non-interactive stdin also skip)")
 	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true,
 		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
 	cmd.Flags().StringVar(&forgeFlag, "forge", "",
