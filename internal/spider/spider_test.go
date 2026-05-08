@@ -1,11 +1,14 @@
 package spider
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/log"
 )
 
 // fakeFetcher returns a Fetcher that writes content to the output file.
@@ -178,6 +181,43 @@ func TestCrawl_followsLinks(t *testing.T) {
 	}
 	if len(result) != 2 {
 		t.Errorf("expected 2 results, got %d: %v", len(result), result)
+	}
+}
+
+func TestCrawl_emitsPerURLDebugLog(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	prevLevel := log.GetLevel()
+	log.SetLevel(log.DebugLevel)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(prevLevel)
+	})
+
+	dir := t.TempDir()
+	opts := Options{CacheDir: dir, Workers: 2}
+
+	// Page A links to page B; both should appear in the debug log.
+	fetch := func(rawURL, outputPath string) error {
+		content := "# Page\nNo links."
+		if rawURL == "https://docs.example.com/a" {
+			content = "# Page A\n[B](https://docs.example.com/b)"
+		}
+		return os.WriteFile(outputPath, []byte(content), 0o644)
+	}
+
+	if _, err := Crawl("https://docs.example.com/a", opts, fetch); err != nil {
+		t.Fatalf("Crawl failed: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"https://docs.example.com/a",
+		"https://docs.example.com/b",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected debug log to contain %q; got:\n%s", want, out)
+		}
 	}
 }
 

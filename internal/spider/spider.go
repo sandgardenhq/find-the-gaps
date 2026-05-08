@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/charmbracelet/log"
 )
 
 // Options configures the spider.
@@ -129,6 +131,7 @@ func doFetch(rawURL, cacheDir string, fetch Fetcher, idx *Index) crawlResult {
 	filename := URLToFilename(rawURL)
 	filePath := filepath.Join(cacheDir, filename)
 
+	log.Debugf("  %s", rawURL)
 	if err := fetch(rawURL, filePath); err != nil {
 		return crawlResult{rawURL: rawURL, err: err}
 	}
