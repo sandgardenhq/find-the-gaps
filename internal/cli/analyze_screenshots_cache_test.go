@@ -183,7 +183,7 @@ func TestAnalyze_screenshotsSkipOnCachedComplete(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--llm-small", llmSmall,
 		"--no-site",
 		"--experimental-check-screenshots",
@@ -259,7 +259,7 @@ func TestAnalyze_screenshotsResumesAfterPartialCache(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURLA, // crawl seed; tells the spider where to start
+		"--docs", docsURLA, // crawl seed; tells the spider where to start
 		"--llm-small", "ollama/test",
 		"--no-site",
 		"--experimental-check-screenshots",

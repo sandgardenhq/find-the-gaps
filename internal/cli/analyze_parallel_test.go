@@ -322,7 +322,7 @@ func TestAnalyze_pageAnalysisRunsConcurrently(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", pageURLs[0],
+		"--docs", pageURLs[0],
 		"--workers", "4",
 		"--no-site",
 	}

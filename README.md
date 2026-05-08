@@ -86,16 +86,24 @@ brew install hugo                      # or see https://github.com/gohugoio/hugo
 
 ## Quick start
 
-Once `ftg` is installed and `ftg doctor` exits `0`, point it at a local checkout and the matching public docs site. Here it is run against [Cobra](https://github.com/spf13/cobra) and its docs at [cobra.dev](https://cobra.dev):
+Once `ftg` is installed and `ftg doctor` exits `0`, point it at a local checkout. If your docs live in the repo (the common case), that's all you need:
 
 ```sh
 git clone https://github.com/spf13/cobra
 export ANTHROPIC_API_KEY=sk-ant-...
 
-ftg analyze --repo ./cobra --docs-url https://cobra.dev
+ftg analyze --repo ./cobra
 ```
 
-`ftg` ingests the docs site with `mdfetch`, scans the repo for features and symbols, then uses the LLM tiers to map docs↔code and flag drift. The first run takes a few minutes; later runs reuse the cache under `.find-the-gaps/<project>/` (pass `--no-cache` to force a full re-scan).
+If your docs live on a separate site, pass `--docs` with the URL:
+
+```sh
+ftg analyze --repo ./cobra --docs https://cobra.dev
+```
+
+`--docs` also accepts a local directory if your docs live somewhere else on disk (e.g., a sibling repo): `ftg analyze --repo ./cobra --docs ./cobra-website/content`.
+
+When `--docs` is omitted (or is a local path), `ftg` reads markdown directly from disk. When `--docs` is an `http(s)` URL, `ftg` ingests the live site with `mdfetch`. Either way, it scans the repo for features and symbols, then uses the LLM tiers to map docs↔code and flag drift. The first run takes a few minutes; later runs reuse the cache under `.find-the-gaps/<project>/` (pass `--no-cache` to force a full re-scan).
 
 Reports land at `.find-the-gaps/<project>/`:
 
@@ -142,7 +150,7 @@ Usage:
 
 Flags:
       --cache-dir string                 base directory for all cached results (default ".find-the-gaps")
-      --docs-url string                  URL of the documentation site to analyze
+      --docs string                      URL or local path of docs to analyze (default: scan --repo on disk)
       --experimental-check-screenshots   enable experimental missing-screenshot detection pass
   -h, --help                             help for analyze
       --keep-site-source                 preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard) (default true)
@@ -152,7 +160,6 @@ Flags:
       --no-cache                         force full re-scan, ignoring any cached results
       --no-site                          skip the Hugo site build; markdown reports still emitted
       --no-symbols                       map features to files only, skipping symbol-level analysis
-      --forge string                     override forge detection: github|gitlab|bitbucket|gitea|forgejo|gogs (use for self-hosted forges)
       --repo string                      path to the repository to analyze (default ".")
       --site-mode string                 site content shape: "mirror" or "expanded" (default "mirror")
       --workers int                      number of parallel mdfetch workers (default 5)
@@ -196,15 +203,41 @@ Configure tiers via flag or environment variable:
 - `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
 - `LMSTUDIO_BASE_URL` — overrides the default LM Studio endpoint (`http://localhost:1234`)
 
+#### Documentation living on disk
+
+For most projects the docs live alongside the code. Run `ftg analyze` with
+no `--docs` and it walks `--repo` for markdown, treating those files as the
+documentation set:
+
+```sh
+ftg analyze --repo .
+```
+
+If your docs live in a sibling directory (or anywhere else on the local
+filesystem), pass that path as `--docs`:
+
+```sh
+ftg analyze --repo ./my-app --docs ./my-app-website/content
+```
+
+Recognized documentation extensions: `.md`, `.markdown`, `.mdx`, `.rst`,
+`.adoc`, `.asciidoc`. Files under `.git/`, `node_modules/`, and `vendor/`
+are skipped.
+
+`--docs` accepts a path or an `http(s)` URL. Anything not starting with
+`http://` or `https://` is treated as a local filesystem path; if the path
+doesn't exist, `ftg analyze` errors out before doing any work. URLs go
+through `mdfetch`.
+
 #### Documentation hosted on a source-control forge
 
 Find the Gaps does not crawl source-control forges — the link graph there is
-the entire forge, not your docs. When `--docs-url` points at github.com,
+the entire forge, not your docs. When `--docs` points at github.com,
 gitlab.com, bitbucket.org, codeberg.org, or git.sr.ht, the tool reads
 markdown directly from `--repo` on disk:
 
 ```sh
-ftg analyze --repo . --docs-url https://github.com/sandgardenhq/find-the-gaps
+ftg analyze --repo . --docs https://github.com/sandgardenhq/find-the-gaps
 ```
 
 The match is verified against the local repo's `origin` remote. If `origin`
@@ -213,20 +246,13 @@ halts with a message asking you to clone the docs repo locally and re-run.
 Wiki URLs (`/owner/repo/wiki`) also halt — clone `<repo>.wiki.git` and pass
 that as `--repo` for a wiki-only analysis.
 
-Recognized documentation extensions: `.md`, `.markdown`, `.mdx`, `.rst`,
-`.adoc`, `.asciidoc`. Files under `.git/`, `node_modules/`, and `vendor/`
-are skipped.
-
 For self-hosted forges (Gitea, Forgejo, Gogs, GitLab CE, Bitbucket Server)
-on custom domains, host detection can't engage automatically. Pass `--forge`
-to force on-disk mode:
+on custom domains, host detection can't engage automatically. Pass the
+checkout as `--docs` directly:
 
 ```sh
-ftg analyze --repo . --docs-url https://git.example.com/foo/bar --forge gitea
+ftg analyze --repo ./my-clone --docs ./my-clone
 ```
-
-`--forge` accepts `github`, `gitlab`, `bitbucket`, `gitea`, `forgejo`, or
-`gogs`. All assume GitHub-shape URL paths (`/owner/repo/{tree,blob}/branch/...`).
 
 #### Vision-aware screenshot analysis
 
@@ -359,7 +385,7 @@ locally.
 - uses: actions/checkout@v6
 - uses: sandgardenhq/find-the-gaps@v1
   with:
-    docs-url: https://docs.example.com
+    docs: https://docs.example.com
     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
@@ -367,7 +393,7 @@ locally.
 
 | Name | Required | Default | Description |
 |---|---|---|---|
-| `docs-url` | yes | — | URL of the live documentation site |
+| `docs` | no | — | URL or local path of docs to analyze. Omit to scan the checked-out repo on disk. |
 | `anthropic-api-key` | yes | — | Anthropic API key (use a repo secret) |
 | `create-issue` | no | `true` | When `true`, open or update a single tracking issue (label: `find-the-gaps`) |
 | `experimental-check-screenshots` | no | `false` | Run the experimental missing-screenshot detection pass |

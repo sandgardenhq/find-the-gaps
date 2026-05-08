@@ -9,7 +9,7 @@ env ANTHROPIC_API_KEY=stub
 chmod 755 bin/mdfetch
 env PATH=$WORK/bin:$PATH
 mkdir repo
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url http://example.invalid --llm-typical ollama/llama3.1 --no-site
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs http://example.invalid --llm-typical ollama/llama3.1 --no-site
 stderr 'tool use'
 stderr 'typical'
 

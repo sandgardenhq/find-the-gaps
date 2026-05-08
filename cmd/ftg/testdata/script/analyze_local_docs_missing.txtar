@@ -1,0 +1,13 @@
+# Passing --docs to a non-existent local path produces a clear error that
+# names the missing path, and exits non-zero. No partial analysis runs.
+
+mkdir repo
+env ANTHROPIC_API_KEY=stub
+
+! exec ftg analyze --repo repo --docs no-such-dir --cache-dir $WORK/cache --no-site
+stderr 'no-such-dir'
+
+-- repo/main.go --
+package main
+
+func main() {}

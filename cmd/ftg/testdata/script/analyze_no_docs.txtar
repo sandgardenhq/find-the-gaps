@@ -1,0 +1,20 @@
+# With no --docs flag, analyze scans --repo on disk for markdown and uses those
+# as the documentation set. The on-disk notice ("no --docs provided") fires,
+# the spider is NOT invoked, and the mdfetch precheck is NOT tripped.
+#
+# With ANTHROPIC_API_KEY=stub the tier validation passes; per-page analysis
+# fails fast on the bad key; analyze returns nil with "0 pages analyzed".
+
+mkdir repo
+env ANTHROPIC_API_KEY=stub
+
+exec ftg analyze --repo repo --cache-dir $WORK/cache --no-site
+stdout 'no --docs provided'
+stdout 'reading markdown from'
+! stderr 'ftg analyze needs'
+
+-- repo/README.md --
+# Hello
+
+-- repo/docs/intro.md --
+# Intro
