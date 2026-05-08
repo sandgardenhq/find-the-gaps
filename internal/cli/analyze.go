@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
+	"github.com/sandgardenhq/find-the-gaps/internal/forge"
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
@@ -105,6 +106,7 @@ func newAnalyzeCmd() *cobra.Command {
 		siteMode                     string
 		noSite                       bool
 		keepSiteSource               bool
+		forgeFlag                    string
 	)
 
 	cmd := &cobra.Command{
@@ -176,17 +178,39 @@ func newAnalyzeCmd() *cobra.Command {
 				defer logLLMCallCounts(t)
 			}
 
-			log.Infof("crawling %s", docsURL)
 			docsDir := filepath.Join(projectDir, "docs")
-			spiderOpts := spider.Options{
-				CacheDir: docsDir,
-				Workers:  workers,
-			}
-			pages, err := spider.Crawl(docsURL, spiderOpts, spider.MdfetchFetcher(spiderOpts))
+
+			var pages map[string]string
+			resolved, err := forge.Resolve(docsURL, repoPath, forgeFlag)
 			if err != nil {
-				return fmt.Errorf("crawl failed: %w", err)
+				if errors.Is(err, forge.ErrForgeNotIngestable) {
+					// Capitalized leading word is intentional: "Find the Gaps"
+					// is the product name and must lead the user-facing
+					// message. ST1005's lower-case-first rule does not apply
+					// to proper nouns.
+					return fmt.Errorf( //nolint:staticcheck // ST1005: proper-noun lead-in
+						"Find the Gaps can't crawl source-control forges "+
+							"(github.com, gitlab.com, bitbucket.org, codeberg.org, git.sr.ht). "+
+							"To analyze these docs, clone the repo locally and pass --repo /path/to/it. "+
+							"(%w)", err)
+				}
+				return err
 			}
-			log.Debug("crawl complete", "pages", len(pages))
+			if resolved.OnDisk {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), resolved.Notice)
+				pages = resolved.Pages
+			} else {
+				log.Infof("crawling %s", docsURL)
+				spiderOpts := spider.Options{
+					CacheDir: docsDir,
+					Workers:  workers,
+				}
+				pages, err = spider.Crawl(docsURL, spiderOpts, spider.MdfetchFetcher(spiderOpts))
+				if err != nil {
+					return fmt.Errorf("crawl failed: %w", err)
+				}
+				log.Debug("crawl complete", "pages", len(pages))
+			}
 
 			idx, err := spider.LoadIndex(docsDir)
 			if err != nil {
@@ -671,6 +695,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
 	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true,
 		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
+	cmd.Flags().StringVar(&forgeFlag, "forge", "",
+		"override forge detection: github|gitlab|bitbucket|gitea|forgejo|gogs (use for self-hosted forges)")
 
 	return cmd
 }
