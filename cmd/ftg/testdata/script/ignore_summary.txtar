@@ -1,6 +1,6 @@
 # Verify analyze prints the scan summary with per-layer skip counts when the
 # embedded defaults skip a file. package-lock.json is in the curated defaults.
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://docs.example.invalid
 stdout '^scanned 1 files, skipped 1 \(defaults: 1\)$'
 
 -- repo/main.go --

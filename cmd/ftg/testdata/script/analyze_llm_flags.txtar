@@ -1,6 +1,6 @@
-# analyze accepts LLM tier flags without error. --docs-url is required, so the
+# analyze accepts LLM tier flags without error. --docs is required, so the
 # run fails after scanning; the scan summary is still printed before any LLM
 # call is attempted.
 mkdir repo
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://docs.example.invalid --llm-small ollama/llama3 --llm-large anthropic/claude-haiku-4-5
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://docs.example.invalid --llm-small ollama/llama3 --llm-large anthropic/claude-haiku-4-5
 stdout 'scanned 0 files'

@@ -4,7 +4,7 @@
 # registered-command map, not PATH, so ftg still works.
 mkdir repo
 env PATH=$FTG_BIN_DIR
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://example.com/docs
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://example.com/docs
 stderr 'ftg analyze needs'
 stderr 'mdfetch'
 stderr 'not found on \$PATH'
@@ -18,6 +18,6 @@ stderr 'Pass --no-site to skip Hugo'
 
 # With --no-site we still need mdfetch, so the precheck must still fire and
 # the suffix line must NOT mention --no-site (since hugo isn't requested).
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://example.com/docs --no-site
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://example.com/docs --no-site
 stderr 'mdfetch'
 ! stderr 'Pass --no-site to skip Hugo'

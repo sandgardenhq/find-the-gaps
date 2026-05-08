@@ -12,17 +12,6 @@ import (
 // non-zero.
 var ErrForgeNotIngestable = errors.New("forge URL is not ingestable on disk")
 
-// allowedForgeFlags is the set of values --forge accepts. Comparison is
-// case-insensitive at the call site.
-var allowedForgeFlags = map[string]struct{}{
-	"github":    {},
-	"gitlab":    {},
-	"bitbucket": {},
-	"gitea":     {},
-	"forgejo":   {},
-	"gogs":      {},
-}
-
 // Result is the outcome of forge resolution.
 type Result struct {
 	// OnDisk is true when the caller should skip the spider crawl and use Pages
@@ -53,10 +42,7 @@ func hasURLScheme(s string) bool {
 //   - When docsURL is any other URL, Result.OnDisk is false; the caller crawls.
 //   - In every forge-URL failure case (no --repo, mismatched origin, wiki
 //     path, no git, etc.), returns ErrForgeNotIngestable.
-//
-// forgeFlag is the value of --forge (empty when unset). When non-empty, host
-// detection is bypassed and the URL's path is parsed as a forge URL.
-func Resolve(docsURL, repoPath, forgeFlag string) (Result, error) {
+func Resolve(docsURL, repoPath string) (Result, error) {
 	if docsURL == "" {
 		if repoPath == "" {
 			return Result{}, fmt.Errorf("no --docs provided and --repo is empty")
@@ -82,19 +68,12 @@ func Resolve(docsURL, repoPath, forgeFlag string) (Result, error) {
 			Notice: fmt.Sprintf("reading markdown from %s on disk.", docsURL),
 		}, nil
 	}
-	if forgeFlag != "" {
-		if _, ok := allowedForgeFlags[strings.ToLower(forgeFlag)]; !ok {
-			return Result{}, fmt.Errorf(
-				"--forge: unknown value %q (expected github|gitlab|bitbucket|gitea|forgejo|gogs)",
-				forgeFlag)
-		}
-	}
 	parsed, perr := url.Parse(docsURL)
 	if perr != nil {
 		return Result{}, fmt.Errorf("parse docs-url: %w", perr)
 	}
 	host := strings.ToLower(parsed.Hostname())
-	if forgeFlag == "" && !IsForgeHost(host) {
+	if !IsForgeHost(host) {
 		return Result{OnDisk: false}, nil
 	}
 

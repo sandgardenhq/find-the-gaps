@@ -148,7 +148,7 @@ func TestFreshCount_AllFreshPagesFail_UsesCachedProductSummary(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", cacheHitURLs[0], // any seeded URL works; spider skips fetch when entries exist
+		"--docs", cacheHitURLs[0], // any seeded URL works; spider skips fetch when entries exist
 		"--workers", "2",
 		"--no-site",
 	}
@@ -203,7 +203,7 @@ func TestFreshCount_SomeFreshPagesSucceed_RunsSynthesize(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", cacheHitURLs[0],
+		"--docs", cacheHitURLs[0],
 		"--workers", "2",
 		"--no-site",
 	}
@@ -253,7 +253,7 @@ func TestFreshCount_PerPageLogPrefix(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", freshURLs[0],
+		"--docs", freshURLs[0],
 		"--workers", "2",
 		"--no-site",
 		"-v",

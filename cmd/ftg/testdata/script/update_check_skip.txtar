@@ -13,13 +13,13 @@ exec ftg --version
 # Dev build: notice suppressed even on a real subcommand.
 env FIND_THE_GAPS_UPDATE_VERSION=
 mkdir repo
-! exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache --docs-url https://docs.example.invalid
+! exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache --docs https://docs.example.invalid
 ! stderr 'A new version of ftg is available'
 ! exists $WORK/cache/update-check.json
 
 # Kill switch wins over a behind version.
 env FIND_THE_GAPS_UPDATE_VERSION=v0.0.1
 env FIND_THE_GAPS_NO_UPDATE_CHECK=1
-! exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache --docs-url https://docs.example.invalid
+! exec ftg analyze --repo repo --cache-dir $WORK/analyze-cache --docs https://docs.example.invalid
 ! stderr 'A new version of ftg is available'
 ! exists $WORK/cache/update-check.json

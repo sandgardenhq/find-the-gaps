@@ -182,7 +182,7 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", apiURL,
+		"--docs", apiURL,
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",

@@ -80,7 +80,7 @@ func TestAnalyze_cacheUsesProjectSubdir(t *testing.T) {
 		"analyze",
 		"--repo", dir,
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://docs.example.invalid",
+		"--docs", "https://docs.example.invalid",
 	})
 
 	projectName := filepath.Base(dir)
@@ -119,7 +119,7 @@ func TestAnalyze_relativeRepoDot_usesAbsoluteBasenameForProjectDir(t *testing.T)
 		"analyze",
 		"--repo", ".",
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://docs.example.invalid",
+		"--docs", "https://docs.example.invalid",
 	})
 
 	wantScan := filepath.Join(cacheBase, "myrelrepo", "scan", "scan.json")
@@ -132,34 +132,15 @@ func TestAnalyze_relativeRepoDot_usesAbsoluteBasenameForProjectDir(t *testing.T)
 	}
 }
 
-func TestAnalyze_docsURLFlag_appearsInHelp(t *testing.T) {
+func TestAnalyze_docsFlag_appearsInHelp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{"analyze", "--docs-url", "https://docs.example.com", "--help"})
+	code := run(&stdout, &stderr, []string{"analyze", "--docs", "https://docs.example.com", "--help"})
 	combined := stdout.String() + stderr.String()
 	if strings.Contains(combined, "unknown flag") {
-		t.Errorf("--docs-url flag not registered; got: %s", combined)
+		t.Errorf("--docs flag not registered; got: %s", combined)
 	}
 	if code != 0 {
 		t.Errorf("code = %d, want 0; output=%q", code, combined)
-	}
-}
-
-func TestAnalyze_docsURLFlag_isRequired(t *testing.T) {
-	dir := t.TempDir()
-	cacheBase := t.TempDir()
-
-	var stdout, stderr bytes.Buffer
-	code := run(&stdout, &stderr, []string{
-		"analyze",
-		"--repo", dir,
-		"--cache-dir", cacheBase,
-	})
-	if code == 0 {
-		t.Fatalf("analyze without --docs-url should fail; stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-	combined := stdout.String() + stderr.String()
-	if !strings.Contains(combined, "docs-url") {
-		t.Errorf("error should mention docs-url; got: %s", combined)
 	}
 }
 
@@ -177,7 +158,7 @@ func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 		"analyze",
 		"--repo", dir,
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://docs.example.invalid",
+		"--docs", "https://docs.example.invalid",
 	})
 	if !strings.Contains(stdout.String(), "scanned") {
 		t.Errorf("expected 'scanned' in output, got:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
@@ -206,7 +187,7 @@ func TestAnalyze_crawlFails_returnsError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(&stdout, &stderr, []string{
 		"analyze",
-		"--docs-url", "https://docs.example.com",
+		"--docs", "https://docs.example.com",
 		"--cache-dir", f.Name(),
 		"--workers", "1",
 		"--llm-small", "ollama/llama3",
@@ -262,7 +243,7 @@ func TestAnalyze_llmClientError_returnsError(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 	})
 	if code == 0 {
 		t.Error("expected non-zero exit when LLM client init fails")
@@ -353,7 +334,7 @@ func TestAnalyze_screenshotCheck_exercisesPath(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
@@ -464,7 +445,7 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
@@ -561,7 +542,7 @@ func TestAnalyze_writesSiteAfterReports(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
@@ -628,7 +609,7 @@ func TestAnalyze_anthropicProvider_usesAnthropicTokenCounter(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--llm-large", "anthropic/claude-haiku-4-5",
 		"--no-site",
 	})
@@ -682,7 +663,7 @@ func TestAnalyze_llmAnalyzeError_continuesWithWarning(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--llm-small", "ollama/test-model",
 		"--llm-typical", "anthropic/claude-haiku-4-5",
 		"--llm-large", "anthropic/claude-haiku-4-5",
