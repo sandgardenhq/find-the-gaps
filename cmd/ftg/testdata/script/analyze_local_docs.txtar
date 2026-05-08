@@ -1,0 +1,24 @@
+# Passing --docs as a local path scans that directory for markdown. The
+# on-disk notice fires, the spider is NOT invoked, and mdfetch is NOT required.
+# This is the "docs live outside the repo" workflow: --repo points at code,
+# --docs at a separate folder of markdown.
+
+mkdir repo
+mkdir external-docs
+env ANTHROPIC_API_KEY=stub
+
+exec ftg analyze --repo repo --docs external-docs --cache-dir $WORK/cache --no-site
+stdout 'reading markdown from external-docs'
+! stdout 'crawling'
+! stderr 'ftg analyze needs'
+
+-- repo/main.go --
+package main
+
+func main() {}
+
+-- external-docs/intro.md --
+# Intro
+
+-- external-docs/guide.md --
+# Guide
