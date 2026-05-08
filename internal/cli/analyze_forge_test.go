@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 )
 
@@ -185,6 +188,80 @@ func TestAnalyze_forgeURL_noRepoMatch_halts(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "clone the repo locally") {
 		t.Fatalf("missing clone-locally hint in error: %v", err)
+	}
+}
+
+// recordingPrecheck swaps requireExternalTools for a stub that records the
+// tools requested per precheck call and rejects any call that asks for
+// `mdfetch`. It returns the recorder slice (mutex-protected) and a restore
+// func.
+func recordingPrecheck(t *testing.T) (*[]doctor.Precheck, func()) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []doctor.Precheck
+	prev := requireExternalTools
+	requireExternalTools = func(_ context.Context, p doctor.Precheck) error {
+		mu.Lock()
+		seen = append(seen, p)
+		mu.Unlock()
+		for _, tool := range p.Tools {
+			if tool == "mdfetch" {
+				return fmt.Errorf("recordingPrecheck: mdfetch should not be required, got tools=%v", p.Tools)
+			}
+		}
+		return nil
+	}
+	return &seen, func() { requireExternalTools = prev }
+}
+
+func TestAnalyze_forgeURL_matchingRepo_doesNotRequireMdfetch(t *testing.T) {
+	repo := t.TempDir()
+	gitInitWithRemote(t, repo, "https://github.com/foo/bar.git")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "docs", "intro.md"), []byte("# Intro\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheBase := t.TempDir()
+	projectName := filepath.Base(filepath.Clean(repo))
+	projectDir := filepath.Join(cacheBase, projectName)
+	seedForgeFixture(t, projectDir)
+
+	srv := fakeAnalyzeServer(t)
+	t.Setenv("OLLAMA_BASE_URL", srv.URL)
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+
+	seen, restore := recordingPrecheck(t)
+	defer restore()
+
+	cmd := newAnalyzeCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{
+		"--repo", repo,
+		"--cache-dir", cacheBase,
+		"--docs-url", "https://github.com/foo/bar",
+		"--llm-small", "ollama/test-model",
+		"--llm-typical", "anthropic/claude-haiku-4-5",
+		"--llm-large", "anthropic/claude-haiku-4-5",
+		"--no-site",
+	})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("Execute: %v\n%s", err, out.String())
+	}
+
+	for _, p := range *seen {
+		for _, tool := range p.Tools {
+			if tool == "mdfetch" {
+				t.Fatalf("mdfetch was requested in precheck %+v despite on-disk mode", p)
+			}
+		}
 	}
 }
 
