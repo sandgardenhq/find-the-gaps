@@ -33,7 +33,7 @@ func NormalizeRemote(raw string) (Remote, error) {
 			return Remote{}, fmt.Errorf("remote %q: missing owner/repo", raw)
 		}
 		return Remote{
-			Host:  strings.ToLower(u.Host),
+			Host:  strings.ToLower(u.Hostname()),
 			Owner: parts[0],
 			Repo:  strings.TrimSuffix(parts[1], ".git"),
 		}, nil

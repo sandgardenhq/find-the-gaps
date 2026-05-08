@@ -60,6 +60,15 @@ func TestParseURL(t *testing.T) {
 			wantRepo:  "bar",
 			wantHost:  "github.com",
 		},
+		{
+			name:      "host with port stripped",
+			raw:       "https://gitlab.example.com:8443/foo/bar/tree/main/docs",
+			wantHost:  "gitlab.example.com",
+			wantOwner: "foo",
+			wantRepo:  "bar",
+			wantRef:   "main",
+			wantSub:   "docs",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -16,6 +16,7 @@ func TestNormalizeRemote(t *testing.T) {
 		{"git@gitlab.com:group/proj.git", "gitlab.com", "group", "proj", false},
 		{"ssh://git@github.com/foo/bar.git", "github.com", "foo", "bar", false},
 		{"https://GitHub.com/Foo/Bar.git", "github.com", "Foo", "Bar", false}, // host lowercased, owner/repo preserved
+		{"https://gitlab.example.com:8443/foo/bar.git", "gitlab.example.com", "foo", "bar", false}, // port stripped from host
 		{"file:///tmp/foo", "", "", "", true},
 		{"https://github.com/foo", "", "", "", true}, // missing repo segment
 		{"not a remote at all", "", "", "", true},    // regex non-match

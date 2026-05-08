@@ -28,7 +28,7 @@ func ParseURL(raw string) (URL, error) {
 		return URL{}, fmt.Errorf("forge url %q: missing <owner>/<repo>", raw)
 	}
 	out := URL{
-		Host:  strings.ToLower(u.Host),
+		Host:  strings.ToLower(u.Hostname()),
 		Owner: parts[0],
 		Repo:  strings.TrimSuffix(parts[1], ".git"),
 	}

@@ -34,6 +34,22 @@ func TestSameRepo(t *testing.T) {
 			want:   false,
 		},
 	}
+	// Cross-form: docs URL has https with non-443 port, origin is scp-style
+	// (no port). After Hostname()-stripping at the parse boundary, both hosts
+	// equal "gitlab.example.com" and SameRepo must report true.
+	t.Run("cross-form host with port matches scp-style", func(t *testing.T) {
+		docs, err := ParseURL("https://gitlab.example.com:8443/foo/bar/tree/main/docs")
+		if err != nil {
+			t.Fatalf("ParseURL: %v", err)
+		}
+		remote, err := NormalizeRemote("git@gitlab.example.com:foo/bar.git")
+		if err != nil {
+			t.Fatalf("NormalizeRemote: %v", err)
+		}
+		if !SameRepo(docs, remote) {
+			t.Fatalf("expected SameRepo=true; docs=%+v remote=%+v", docs, remote)
+		}
+	})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := SameRepo(tc.docs, tc.remote); got != tc.want {
