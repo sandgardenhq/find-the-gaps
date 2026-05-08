@@ -72,7 +72,7 @@ func TestAnalyze_cacheUsesProjectSubdir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Scan runs (and writes scan.json) before --docs-url is consulted, so we
+	// Scan runs (and writes scan.json) before --docs is consulted, so we
 	// don't need a real docs path here — any value satisfies the required-flag
 	// check, and we ignore the eventual non-zero exit.
 	var stdout, stderr bytes.Buffer
@@ -151,7 +151,7 @@ func TestAnalyze_repoFlag_scansDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The scan summary is printed before --docs-url is consulted; we don't
+	// The scan summary is printed before --docs is consulted; we don't
 	// need a real URL or a successful run to verify scan-side behavior.
 	var stdout, stderr bytes.Buffer
 	_ = run(&stdout, &stderr, []string{

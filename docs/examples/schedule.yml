@@ -16,5 +16,5 @@ jobs:
       - uses: actions/checkout@v6
       - uses: sandgardenhq/find-the-gaps@v1
         with:
-          docs-url: https://docs.example.com
+          docs: https://docs.example.com
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

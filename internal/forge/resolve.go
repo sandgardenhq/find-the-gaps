@@ -21,7 +21,7 @@ type Result struct {
 	// Pages is the synthesized url→filepath map populated when OnDisk is true.
 	Pages map[string]string
 	// Notice is a human-readable line the caller should print when OnDisk is
-	// true, e.g. "docs-url is a forge URL; reading markdown from --repo on disk."
+	// true, e.g. "--docs is a forge URL; reading markdown from --repo on disk."
 	Notice string
 }
 
@@ -70,7 +70,7 @@ func Resolve(docsURL, repoPath string) (Result, error) {
 	}
 	parsed, perr := url.Parse(docsURL)
 	if perr != nil {
-		return Result{}, fmt.Errorf("parse docs-url: %w", perr)
+		return Result{}, fmt.Errorf("parse --docs URL: %w", perr)
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if !IsForgeHost(host) {
@@ -96,7 +96,7 @@ func Resolve(docsURL, repoPath string) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %v", ErrForgeNotIngestable, err)
 	}
 	if !SameRepo(purl, remote) {
-		return Result{}, fmt.Errorf("%w: --repo origin is %s/%s/%s, docs-url targets %s/%s/%s",
+		return Result{}, fmt.Errorf("%w: --repo origin is %s/%s/%s, --docs targets %s/%s/%s",
 			ErrForgeNotIngestable,
 			remote.Host, remote.Owner, remote.Repo,
 			purl.Host, purl.Owner, purl.Repo)
@@ -109,6 +109,6 @@ func Resolve(docsURL, repoPath string) (Result, error) {
 	return Result{
 		OnDisk: true,
 		Pages:  pages,
-		Notice: fmt.Sprintf("docs-url is a forge URL; reading markdown from %s on disk.", repoPath),
+		Notice: fmt.Sprintf("--docs is a forge URL; reading markdown from %s on disk.", repoPath),
 	}, nil
 }

@@ -242,7 +242,7 @@ func TestRun_verbose_showsDebugOutput(t *testing.T) {
 	})
 	// Runs analyze over an empty repo with --verbose. The scan logs at DEBUG
 	// before the docs path runs, so we don't need a real docs URL or a
-	// successful run — any --docs-url value satisfies the required-flag check.
+	// successful run — any --docs value satisfies the required-flag check.
 	dir := t.TempDir()
 	cacheBase := t.TempDir()
 	var stdout, stderr bytes.Buffer

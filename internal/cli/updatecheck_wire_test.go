@@ -58,7 +58,7 @@ func TestUpdateCheckWiring_NoticePrintedOnStderrAfterAnalyze(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// The post-execute update check fires regardless of the analyze exit
 	// code; we don't need analyze to succeed, only to actually run, so we
-	// pass a stub --docs-url to satisfy the required-flag check.
+	// pass a stub --docs to satisfy the required-flag check.
 	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.Contains(t, stderr.String(), "A new version of ftg is available: v9.9.9")
@@ -82,7 +82,7 @@ func TestUpdateCheckWiring_GatedByCIEnv(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// The post-execute update check fires regardless of the analyze exit
 	// code; we don't need analyze to succeed, only to actually run, so we
-	// pass a stub --docs-url to satisfy the required-flag check.
+	// pass a stub --docs to satisfy the required-flag check.
 	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.NotContains(t, stderr.String(), "A new version of ftg is available")
@@ -105,7 +105,7 @@ func TestUpdateCheckWiring_GatedByDedicatedKillSwitch(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// The post-execute update check fires regardless of the analyze exit
 	// code; we don't need analyze to succeed, only to actually run, so we
-	// pass a stub --docs-url to satisfy the required-flag check.
+	// pass a stub --docs to satisfy the required-flag check.
 	_ = run(&stdout, &stderr, []string{"analyze", "--repo", dir, "--cache-dir", cacheBase, "--docs", "https://docs.example.invalid"})
 
 	assert.NotContains(t, stderr.String(), "A new version of ftg is available")

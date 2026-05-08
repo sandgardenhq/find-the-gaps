@@ -31,8 +31,8 @@ func TestActionManifest_DeclaresExpectedInputs(t *testing.T) {
 
 	require.Equal(t, "composite", manifest.Runs.Using, "must be a composite action")
 
-	required := []string{"docs-url", "anthropic-api-key"}
-	optional := []string{"create-issue", "experimental-check-screenshots"}
+	required := []string{"anthropic-api-key"}
+	optional := []string{"docs", "create-issue", "experimental-check-screenshots"}
 	for _, k := range required {
 		got, ok := manifest.Inputs[k]
 		require.True(t, ok, "input %q missing", k)

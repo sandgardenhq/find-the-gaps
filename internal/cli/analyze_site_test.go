@@ -13,7 +13,7 @@ func TestAnalyzeFlagsSiteMode(t *testing.T) {
 		}
 	}
 	// --site-mode should reject unknown values
-	cmd.SetArgs([]string{"--site-mode=bogus", "--repo=.", "--docs-url=http://x"})
+	cmd.SetArgs([]string{"--site-mode=bogus", "--repo=.", "--docs=http://x"})
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
 	err := cmd.ParseFlags([]string{"--site-mode=bogus"})
