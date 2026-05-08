@@ -1544,3 +1544,53 @@ Fixes the "Input tokens exceed the configured limit of 272000 tokens" crash from
 - Linting: ✅ Clean (pre-existing staticcheck warnings in bifrost_client_test.go are not from this work)
 - Completed: 2026-05-07
 - Notes: Review-finding fix. `clipObservationQuotes` (drift.go) and `clipToolResult` (agent_loop.go) sliced strings on byte positions, which could split a multi-byte UTF-8 rune (em dash, ellipsis, smart quotes are common in real docs prose). Added `truncateAtRuneBoundary` helper using `utf8.RuneStart` and routed both clipping paths through it. RED tests pinned the old behavior failing on `utf8.ValidString`; GREEN after wiring the helper through both call sites.
+
+
+## Task 16: Forge-aware docs ingestion - COMPLETE
+- Started: 2026-05-08
+- Branch: `feat/forge-aware-docs`
+- Commits: 17 (b319556..cac48be) — see `git log --oneline` for the chain
+- Tests: full suite green (`go test ./...`), 3 new testscript scenarios, ~30 new Go tests
+- Coverage: `internal/forge/` 93.5% statement (≥90% gate)
+- Build: ✅ Successful (`go build ./...`)
+- Linting: ✅ Clean on `internal/forge/...` and `internal/cli/...` (0 issues)
+- Completed: 2026-05-08
+- Plan: `.plans/FORGE_AWARE_DOCS_INGESTION_PLAN.md`
+- Design: `.plans/FORGE_AWARE_DOCS_INGESTION_DESIGN.md`
+
+### What it does
+
+Stops `ftg analyze` from crawling source-control forges (github.com,
+gitlab.com, bitbucket.org, codeberg.org, git.sr.ht). When `--docs-url` is
+on a forge AND `--repo`'s `origin` matches the same `<owner>/<repo>`, the
+spider is skipped and markdown is read directly from disk. Otherwise the
+run halts with a clear message asking the user to clone the repo locally
+and pass `--repo /path/to/it`. The `mdfetch` precheck is skipped on the
+on-disk path — that tool is no longer required for forge-hosted docs.
+
+A new `--forge` flag covers self-hosted forges on custom domains
+(`gitea`, `forgejo`, `gogs`, `gitlab`, `bitbucket`, `github`).
+
+### Tasks completed (11/11)
+
+1. `IsForgeHost` lookup (`internal/forge/host.go`).
+2. `ParseURL` extracting (host, owner, repo, ref, sub, isWiki) from forge URLs.
+3. `NormalizeRemote` for https / ssh:// / scp-style git remote URLs (port-stripping at the boundary).
+4. `ReadOrigin` shelling out to `git remote get-url origin`.
+5. `SameRepo(URL, Remote)` case-insensitive owner/repo comparison.
+6. `Walk` on-disk markdown — `.md`, `.mdx`, `.markdown`, `.rst`, `.adoc`, `.asciidoc`. Skips `.git/`, `node_modules/`, `vendor/`. Includes `.github/*.md` (locked in by an explicit test).
+7. `Resolve` orchestrator + `ErrForgeNotIngestable` sentinel.
+8. `analyze.go` routing: `forge.Resolve` runs before the precheck; `mdfetch` is required only when `!resolved.OnDisk`; halt message wraps the sentinel via `%w`. New `--forge` flag.
+9. testscript scenarios: `analyze_forge_match.txtar`, `analyze_forge_mismatch.txtar`, `analyze_forge_wiki.txtar`.
+10. README "Documentation hosted on a source-control forge" subsection + `--forge` in flags listing.
+11. CHANGELOG `Unreleased` entry; this PROGRESS entry; full verification gate clean.
+
+### Notes
+
+- `forge.ReadOrigin` shells out to `git`, so on-disk mode adds a runtime
+  dependency on `git` being on `$PATH`. This is acceptable — anyone
+  using `--repo` likely has a clone, and clones imply git. Worth flagging
+  in `ftg doctor` as a follow-up.
+- Wiki ingestion is out of scope — wikis halt with a hint to clone
+  `<repo>.wiki.git` and treat it as the `--repo` for a wiki-only run.
+- SourceHut on-disk path support is also deferred (different URL shape).
