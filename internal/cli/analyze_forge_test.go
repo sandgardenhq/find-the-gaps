@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,10 +47,7 @@ func gitInitWithRemote(t *testing.T, dir, remoteURL string) {
 func fakeAnalyzeServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body := make([]byte, r.ContentLength)
-		if r.ContentLength > 0 {
-			_, _ = r.Body.Read(body)
-		}
+		body, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
 		s := string(body)
 
@@ -339,10 +337,7 @@ func TestAnalyze_forgeURL_onDiskCache_secondRunSkipsAnalyze(t *testing.T) {
 
 	var analyzeCalls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buf := make([]byte, r.ContentLength)
-		if r.ContentLength > 0 {
-			_, _ = r.Body.Read(buf)
-		}
+		buf, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
 		s := string(buf)
 		respond := func(content string) {
