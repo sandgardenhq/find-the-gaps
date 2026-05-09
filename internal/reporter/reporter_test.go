@@ -102,11 +102,14 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 
 // TestWriteGaps_UndocumentedFeatures verifies that a user-facing feature
 // with code but no documentation page appears in the Undocumented Features
-// section as an `.ftg-undoc` problem callout.
+// section as a prominent `.ftg-undoc` problem card. The card carries a
+// heading row (alert icon supplied by `.ftg-undoc::before` in CSS,
+// feature name as the heading), a description body pulled from the
+// feature map, and a "Why document this" rationale section.
 func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
-		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Auth.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
+		{Feature: analyzer.CodeFeature{Name: "auth", Description: "Login and session management.", Layer: "cli", UserFacing: true}, Files: []string{"auth.go"}},
 	}
 	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
 		t.Fatal(err)
@@ -119,8 +122,12 @@ func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 	for _, want := range []string{
 		"## Undocumented Features",
 		`<div class="ftg-undoc">`,
+		`<div class="ftg-undoc-head">`,
 		`<span class="ftg-undoc-name">auth</span>`,
-		"no documentation page",
+		`<div class="ftg-undoc-body">`,
+		`<p class="ftg-undoc-description">Login and session management.</p>`,
+		`<div class="ftg-undoc-rationale">`,
+		`<span class="ftg-undoc-rationale-label">Why document this</span>`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing %q in gaps.md:\n%s", want, content)
@@ -129,6 +136,34 @@ func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 	// "Undocumented Code" was renamed; the section heading must not appear.
 	if strings.Contains(content, "## Undocumented Code") {
 		t.Error("gaps.md must not contain the old `## Undocumented Code` heading")
+	}
+}
+
+// TestWriteGaps_UndocumentedFeaturesNoDescription pins that an undocumented
+// feature with an empty Description still renders the card structure
+// (head + rationale) but omits the description paragraph entirely rather
+// than emitting an empty `<p>`.
+func TestWriteGaps_UndocumentedFeaturesNoDescription(t *testing.T) {
+	dir := t.TempDir()
+	mapping := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth", Description: "", UserFacing: true}, Files: []string{"auth.go"}},
+	}
+	if err := reporter.WriteGaps(dir, mapping, []string{}, []analyzer.DriftFinding{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `<div class="ftg-undoc-head">`) {
+		t.Errorf("expected card head even without description; got:\n%s", content)
+	}
+	if !strings.Contains(content, `<div class="ftg-undoc-rationale">`) {
+		t.Errorf("expected rationale even without description; got:\n%s", content)
+	}
+	if strings.Contains(content, `class="ftg-undoc-description"></p>`) || strings.Contains(content, `<p class="ftg-undoc-description"></p>`) {
+		t.Errorf("empty description must not render an empty <p>; got:\n%s", content)
 	}
 }
 
@@ -220,7 +255,7 @@ func TestWriteGaps_StaleDocCardAndPriorityHeader(t *testing.T) {
 		`<span class="ftg-stale-feature">search</span>`,
 		`href="https://docs.example.com/search"`,
 		`<span class="ftg-stale-issue">old signature</span>`,
-		`<span class="ftg-stale-why">why: user-impact</span>`,
+		`<div class="ftg-stale-why"><span class="ftg-stale-why-label">Why</span><p class="ftg-stale-why-text">user-impact</p></div>`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing %q in gaps.md:\n%s", want, content)
@@ -277,7 +312,7 @@ func TestWriteGaps_EscapesHTMLSpecialChars(t *testing.T) {
 	// reporter must escape before writing.
 	for _, bad := range []string{
 		`<span class="ftg-stale-issue">signature changed from Foo() to Foo[T any]() <breaking>`,
-		`<span class="ftg-stale-why">why: user-impact: callers must update <T>`,
+		`<p class="ftg-stale-why-text">user-impact: callers must update <T>`,
 		`href="https://docs.example.com/search?a=1&b=<2>"`,
 	} {
 		if strings.Contains(content, bad) {
@@ -1004,7 +1039,7 @@ func TestBuildGapsStaticPrefix_includesUndocumentedFeatures(t *testing.T) {
 		{Feature: analyzer.CodeFeature{Name: "delta", UserFacing: true}, Files: []string{}},              // no code mapping → not undoc
 	}
 	docFeatures := []string{"gamma", "epsilon"} // epsilon is doc-only — main removed the Unmapped Features section
-	got := reporter.BuildGapsStaticPrefix(mapping, docFeatures)
+	got := reporter.BuildGapsStaticPrefix(mapping, docFeatures, nil)
 	assert.Contains(t, got, "# Gaps Found")
 	assert.Contains(t, got, "## Undocumented Features")
 	assert.Contains(t, got, "alpha")
@@ -1019,11 +1054,29 @@ func TestBuildGapsStaticPrefix_includesUndocumentedFeatures(t *testing.T) {
 	assert.NotContains(t, got, "## Stale Documentation")
 }
 
+// TestBuildGapsStaticPrefix_OmitsUndocumentedSectionWhenEmpty pins that
+// when there are zero undocumented user-facing features, the
+// "## Undocumented Features" header is dropped from gaps.md entirely
+// rather than rendered with a "_None found._" body. The Gaps page
+// should not advertise a section that has nothing to show.
+func TestBuildGapsStaticPrefix_OmitsUndocumentedSectionWhenEmpty(t *testing.T) {
+	mapping := analyzer.FeatureMap{
+		// alpha is documented (in docFeatures below) → not undoc
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},
+		// beta is not user-facing → excluded by policy
+		{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: false}, Files: []string{"b.go"}},
+	}
+	got := reporter.BuildGapsStaticPrefix(mapping, []string{"alpha"}, nil)
+	assert.Contains(t, got, "# Gaps Found")
+	assert.NotContains(t, got, "## Undocumented Features")
+	assert.NotContains(t, got, "_None found._")
+}
+
 func TestBuildGapsStaticPrefix_omitsStaleSection(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},
 	}
-	got := reporter.BuildGapsStaticPrefix(mapping, []string{"alpha"})
+	got := reporter.BuildGapsStaticPrefix(mapping, []string{"alpha"}, nil)
 	assert.NotContains(t, got, "## Stale Documentation")
 	assert.NotContains(t, got, "_None found._\n\n## Stale Documentation")
 }
@@ -1091,7 +1144,7 @@ func TestWriteGaps_byteIdenticalToBuilders(t *testing.T) {
 	onDisk, err := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	require.NoError(t, err)
 
-	composed := reporter.BuildGapsStaticPrefix(mapping, docFeatures) +
+	composed := reporter.BuildGapsStaticPrefix(mapping, docFeatures, nil) +
 		"\n## Stale Documentation\n\n" +
 		reporter.BuildGapsStaleSection(drift)
 

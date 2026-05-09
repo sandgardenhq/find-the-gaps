@@ -398,14 +398,14 @@ func TestMaterializeMirrorMappingHasNoFeatureMapH1(t *testing.T) {
 		"## Product Summary",
 		"A demo CLI.",
 		"### User Auth",
-		"#### Implemented in",
+		"<summary>Implemented in (2)</summary>",
 		"- `internal/auth/login.go`",
 		"- `internal/auth/session.go`",
-		"#### Symbols",
+		"<summary>Symbols (2)</summary>",
 		"- `Login`",
 		"- `Logout`",
-		"#### Documented on",
-		"- [https://example.com/docs/auth](https://example.com/docs/auth)",
+		"<summary>Documented on (1)</summary>",
+		`- <a href="https://example.com/docs/auth" target="_blank" rel="noopener">https://example.com/docs/auth</a>`,
 	} {
 		if !contains(s, want) {
 			t.Errorf("missing %q in content/mapping.md:\n%s", want, s)

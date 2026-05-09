@@ -145,7 +145,7 @@ func TestRenderCmd_RegeneratesGapsAndBuildsSite(t *testing.T) {
 		`<span class="ftg-stale-feature">search</span>`,
 		`href="https://docs.example.com/search"`,
 		`<span class="ftg-stale-issue">old signature</span>`,
-		`<span class="ftg-stale-why">why: user-impact</span>`,
+		`<div class="ftg-stale-why"><span class="ftg-stale-why-label">Why</span><p class="ftg-stale-why-text">user-impact</p></div>`,
 	} {
 		if !strings.Contains(gaps, want) {
 			t.Errorf("missing %q in regenerated gaps.md:\n%s", want, gaps)
