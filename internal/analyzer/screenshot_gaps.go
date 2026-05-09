@@ -214,6 +214,93 @@ func extractImages(md string) []imageRef {
 	return refs
 }
 
+// codeBlockRef is one fenced code block on a docs page, captured for the
+// purpose of feeding deterministic locality data into the screenshot-gap
+// detection prompt. A passage in prose may be considered "already covered"
+// by a code block in the same section heading or within ±3 paragraphs whose
+// language plausibly matches the moment (bash/console for terminal output,
+// json/yaml for response shapes, html/jsx for rendered UI).
+//
+// Body content is intentionally NOT captured: every code block already
+// appears verbatim in the page content sent to the model, and duplicating
+// bodies in the coverage list would blow ScreenshotPromptBudget on
+// reference-heavy pages.
+type codeBlockRef struct {
+	Language       string // from the fence opener; "" when absent
+	LineCount      int    // body lines, excluding the opener and closer fences
+	SectionHeading string // most recent ATX heading above the block; "" if none
+	ParagraphIndex int    // 0-based block position, same scheme as imageRef
+	OriginalIndex  int    // 1-based "code-N" label for prompt locality lists
+}
+
+// extractCodeBlocks returns one codeBlockRef per fenced block in md, walking
+// the markdown with the same fence state machine as extractImages. The two
+// functions share style but not state: each emits its own ref slice so tests
+// on one don't churn when the other changes.
+//
+// Unclosed fences are ignored: the trailing block has no closer, so we do
+// not emit a partial ref. This matches extractImages' tolerance for malformed
+// markdown (no panics, no half-written state).
+func extractCodeBlocks(md string) []codeBlockRef {
+	var refs []codeBlockRef
+	currentHeading := ""
+	inFence := false
+	pIdx := 0
+	hadContentInBlock := false
+	var (
+		fenceLang  string
+		fenceLines int
+	)
+
+	for line := range strings.SplitSeq(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			if !inFence {
+				marker := "```"
+				if strings.HasPrefix(trimmed, "~~~") {
+					marker = "~~~"
+				}
+				fenceLang = strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
+				fenceLines = 0
+				inFence = true
+				hadContentInBlock = true
+			} else {
+				refs = append(refs, codeBlockRef{
+					Language:       fenceLang,
+					LineCount:      fenceLines,
+					SectionHeading: currentHeading,
+					ParagraphIndex: pIdx,
+				})
+				inFence = false
+			}
+			continue
+		}
+
+		if inFence {
+			fenceLines++
+			continue
+		}
+
+		if trimmed == "" {
+			if hadContentInBlock {
+				pIdx++
+				hadContentInBlock = false
+			}
+			continue
+		}
+		if atxHeadingRe.MatchString(trimmed) {
+			currentHeading = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+		}
+		hadContentInBlock = true
+	}
+
+	for i := range refs {
+		refs[i].OriginalIndex = i + 1
+	}
+	return refs
+}
+
 // visionUnsupportedExts is the set of image extensions Anthropic's vision API
 // rejects with "The file format is invalid or unsupported". Anthropic accepts
 // only jpeg, png, gif, and webp; everything else (vector, next-gen, legacy)

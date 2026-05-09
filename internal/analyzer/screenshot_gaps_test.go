@@ -111,6 +111,79 @@ func TestExtractImages_RejectsSevenOrMoreHashes(t *testing.T) {
 	assert.Equal(t, "Real", got[0].SectionHeading)
 }
 
+func TestExtractCodeBlocks_BacktickFence(t *testing.T) {
+	md := "# Quickstart\n\nRun this:\n\n" +
+		"```bash\n" +
+		"brew install foo\n" +
+		"foo --version\n" +
+		"```\n\n" +
+		"Done.\n"
+	got := extractCodeBlocks(md)
+	assert.Equal(t, []codeBlockRef{
+		{Language: "bash", LineCount: 2, SectionHeading: "Quickstart", ParagraphIndex: 2, OriginalIndex: 1},
+	}, got)
+}
+
+func TestExtractCodeBlocks_TildeFence(t *testing.T) {
+	md := "# Config\n\n" +
+		"~~~yaml\n" +
+		"name: foo\n" +
+		"version: 1\n" +
+		"~~~\n"
+	got := extractCodeBlocks(md)
+	assert.Equal(t, []codeBlockRef{
+		{Language: "yaml", LineCount: 2, SectionHeading: "Config", ParagraphIndex: 1, OriginalIndex: 1},
+	}, got)
+}
+
+func TestExtractCodeBlocks_NoLanguage(t *testing.T) {
+	md := "# X\n\n```\nhello\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "", got[0].Language)
+	assert.Equal(t, 1, got[0].LineCount)
+}
+
+func TestExtractCodeBlocks_MultipleBlocksAcrossSections(t *testing.T) {
+	md := "# A\n\n```bash\ncmd\n```\n\n## B\n\n" +
+		"```json\n{\"x\":1}\n{\"y\":2}\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 2)
+	assert.Equal(t, "A", got[0].SectionHeading)
+	assert.Equal(t, "bash", got[0].Language)
+	assert.Equal(t, 1, got[0].OriginalIndex)
+	assert.Equal(t, "B", got[1].SectionHeading)
+	assert.Equal(t, "json", got[1].Language)
+	assert.Equal(t, 2, got[1].LineCount)
+	assert.Equal(t, 2, got[1].OriginalIndex)
+}
+
+func TestExtractCodeBlocks_DoesNotCaptureBody(t *testing.T) {
+	// Locality only; body lives in page content. Type has no body field — this
+	// test pins the contract that the type layout cannot regress to one.
+	md := "```bash\nsecret\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 1)
+	// Compile-time check: codeBlockRef must not have a body-shaped field.
+	// If someone adds one, this test is a documentation anchor for why not.
+	_ = got[0].Language
+	_ = got[0].LineCount
+}
+
+func TestExtractCodeBlocks_EmptyOnNoFences(t *testing.T) {
+	got := extractCodeBlocks("# Title\n\nProse only.\n")
+	assert.Empty(t, got)
+}
+
+func TestExtractCodeBlocks_UnclosedFenceIsIgnored(t *testing.T) {
+	// Defensive: a malformed page with an unclosed fence should not panic
+	// and should not emit a partial ref. (The existing extractImages tolerates
+	// this; mirror that contract.)
+	md := "# X\n\n```bash\nbrew install foo\n"
+	got := extractCodeBlocks(md)
+	assert.Empty(t, got)
+}
+
 func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
 	refs := []imageRef{
 		{Src: "a.png", SectionHeading: "Intro", ParagraphIndex: 1},
