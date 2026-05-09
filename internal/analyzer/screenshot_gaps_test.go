@@ -239,7 +239,7 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 	coverage := map[string][]imageRef{
 		"Quickstart": {{Src: "hero.png", AltText: "Hero", SectionHeading: "Quickstart", ParagraphIndex: 0}},
 	}
-	got := buildScreenshotPrompt(pageURL, content, coverage)
+	got := buildScreenshotPrompt(pageURL, content, coverage, nil)
 	assert.Contains(t, got, pageURL)
 	assert.Contains(t, got, content)
 	assert.Contains(t, got, "hero.png")
@@ -252,8 +252,32 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 }
 
 func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
-	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil, nil)
 	assert.Contains(t, got, "No existing images")
+}
+
+func TestBuildScreenshotPrompt_NoCodeBlocks(t *testing.T) {
+	got := buildScreenshotPrompt("https://x/p", "content", nil, nil)
+	assert.Contains(t, got, "Existing code blocks on this page (if any):")
+	assert.Contains(t, got, "No code blocks on this page.")
+}
+
+func TestBuildScreenshotPrompt_ListsCodeBlocksWithLocality(t *testing.T) {
+	blocks := []codeBlockRef{
+		{Language: "bash", LineCount: 12, SectionHeading: "Quickstart", ParagraphIndex: 4, OriginalIndex: 1},
+		{Language: "json", LineCount: 8, SectionHeading: "Response", ParagraphIndex: 7, OriginalIndex: 2},
+	}
+	got := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	assert.Contains(t, got, `- code-1, section "Quickstart", paragraph 4: language=bash, 12 lines`)
+	assert.Contains(t, got, `- code-2, section "Response", paragraph 7: language=json, 8 lines`)
+}
+
+func TestBuildScreenshotPrompt_EmptyHeadingFallback(t *testing.T) {
+	blocks := []codeBlockRef{
+		{Language: "bash", LineCount: 3, SectionHeading: "", ParagraphIndex: 0, OriginalIndex: 1},
+	}
+	got := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	assert.Contains(t, got, `section "(no heading)"`)
 }
 
 // fakeLLMClient collects calls and returns canned responses per call index.
@@ -619,7 +643,7 @@ func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing.T) {
 	refs := []imageRef{{Src: "a.png"}}
 	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil)
-	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs))
+	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs), nil)
 	assert.Equal(t, want, got)
 }
 
@@ -629,7 +653,7 @@ func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing
 // practice). The intended posture is "flag a screenshot only when it earns
 // its place" — when in doubt, omit.
 func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
-	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil, nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"legacy prompt should no longer instruct the model to be aggressively conservative")
@@ -666,7 +690,7 @@ func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 // signatures and option tables.
 func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 	cases := map[string]string{
-		"legacy": buildScreenshotPrompt("https://x", "content", nil),
+		"legacy": buildScreenshotPrompt("https://x", "content", nil, nil),
 		"verdict": buildDetectionPromptWithVerdicts("https://x", "content",
 			[]imageRef{{Src: "a.png"}},
 			[]ImageVerdict{{Index: "img-1", Matches: true}}),

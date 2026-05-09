@@ -49,7 +49,7 @@ func TestValidateScreenshotGapAcceptsValid(t *testing.T) {
 }
 
 func TestBuildScreenshotPromptContainsRubric(t *testing.T) {
-	out := buildScreenshotPrompt("https://x/quickstart", "body", nil)
+	out := buildScreenshotPrompt("https://x/quickstart", "body", nil, nil)
 	if !strings.Contains(out, "page_role") {
 		t.Error("missing page_role hint")
 	}

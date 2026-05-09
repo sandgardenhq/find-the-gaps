@@ -646,7 +646,7 @@ func buildCoverageMap(refs []imageRef) map[string][]imageRef {
 }
 
 // buildScreenshotPrompt assembles the LLM prompt for one docs page.
-func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef) string {
+func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef) string {
 	var coverageSummary string
 	if len(coverage) == 0 {
 		coverageSummary = "No existing images on this page."
@@ -670,12 +670,33 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
+	codeBlocksSummary := "No code blocks on this page."
+	if len(codeBlocks) > 0 {
+		var lines []string
+		for _, b := range codeBlocks {
+			heading := b.SectionHeading
+			if heading == "" {
+				heading = "(no heading)"
+			}
+			lang := b.Language
+			if lang == "" {
+				lang = "(none)"
+			}
+			lines = append(lines, fmt.Sprintf("- code-%d, section %q, paragraph %d: language=%s, %d lines",
+				b.OriginalIndex, heading, b.ParagraphIndex, lang, b.LineCount))
+		}
+		codeBlocksSummary = strings.Join(lines, "\n")
+	}
+
 	// PROMPT: Identifies passages in a documentation page where a screenshot earns its place — multi-step flows, non-obvious UI layouts, visual-recognition asks, first-run confirmations whose target state is hard to describe in words. Applies a locality rule: a passage may be covered when an existing image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
 
 URL: %s
 
 Existing images on this page (if any):
+%s
+
+Existing code blocks on this page (if any):
 %s
 
 Page content:
@@ -710,7 +731,7 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageURL), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, pageRole(pageURL), priorityRubric)
 }
 
 // buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
@@ -725,7 +746,7 @@ When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageUR
 // without a second LLM call.
 func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict) string {
 	if len(verdicts) == 0 {
-		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs))
+		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs), nil)
 	}
 
 	verdictByIndex := make(map[string]bool, len(verdicts))
@@ -841,7 +862,7 @@ func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef,
 	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
 	// on repetitive content.
 	const margin = 1_000
-	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage))
+	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage, nil))
 	available := budget - overhead - margin
 	if available < 100 {
 		return "", false
