@@ -1133,7 +1133,7 @@ func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
 		}`},
 	}
 	page := DocPage{URL: "https://x.com/p", Path: "p.md", Content: "# Hello\n\nClick Save."}
-	gaps, suppressed, skipped, err := detectionPass(context.Background(), client, page, nil, nil)
+	gaps, suppressed, _, skipped, err := detectionPass(context.Background(), client, page, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1267,4 +1267,42 @@ func TestScreenshotGapsSchema_AllowsSuppressedByCodeBlock(t *testing.T) {
 	// would reject it otherwise).
 	doc := string(screenshotGapsSchema.Doc)
 	assert.Contains(t, doc, `"suppressed_by_code_block"`)
+}
+
+func TestDetectScreenshotGaps_RoutesSuppressedByCodeBlockIntoPossiblyCovered(t *testing.T) {
+	// One suppressed_by_code_block item, zero gaps, zero suppressed_by_image —
+	// the code-block-suppressed entry must land in result.PossiblyCovered, and
+	// the per-page audit stats must reflect both the code blocks present on
+	// the page and the count of code-block-suppressed findings.
+	client := &fakeLLMClient{
+		responses: []string{`{
+		  "gaps": [],
+		  "suppressed_by_image": [],
+		  "suppressed_by_code_block": [
+		    {"quoted_passage": "Run brew install foo", "should_show": "shell output",
+		     "suggested_alt": "terminal", "insertion_hint": "after install line",
+		     "priority": "small", "priority_reason": "low signal"}
+		  ]
+		}`},
+	}
+	page := DocPage{URL: "https://x/p", Content: "# Quickstart\n\nRun brew install foo\n\n```bash\nbrew install foo\n```\n"}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, res.PossiblyCovered, 1)
+	assert.Equal(t, "Run brew install foo", res.PossiblyCovered[0].QuotedPassage)
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 1, res.AuditStats[0].CodeBlocksSeen)
+	assert.Equal(t, 1, res.AuditStats[0].SuppressedByCodeBlock)
+	// The aggregate possibly_covered count must include the code-block suppression:
+	assert.Equal(t, 1, res.AuditStats[0].PossiblyCovered)
+}
+
+func TestDetectScreenshotGaps_CountsCodeBlocksSeenEvenWhenZeroSuppressions(t *testing.T) {
+	client := &fakeLLMClient{responses: []string{`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`}}
+	page := DocPage{URL: "https://x/p", Content: "# Q\n\n```bash\nfoo\n```\n\n```json\n{}\n```\n"}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 2, res.AuditStats[0].CodeBlocksSeen)
+	assert.Equal(t, 0, res.AuditStats[0].SuppressedByCodeBlock)
 }

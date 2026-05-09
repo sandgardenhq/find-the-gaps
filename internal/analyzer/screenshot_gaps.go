@@ -882,12 +882,12 @@ When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, conte
 // estimator). The returned bool is false when the prompt overhead alone — URL,
 // instructions, coverage map — already exceeds the budget; callers should skip
 // the page in that case.
-func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef, budget int) (string, bool) {
+func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef, budget int) (string, bool) {
 	// Margin absorbs (a) drift between cl100k_base and the provider's exact
 	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
 	// on repetitive content.
 	const margin = 1_000
-	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage, nil))
+	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage, codeBlocks))
 	available := budget - overhead - margin
 	if available < 100 {
 		return "", false
@@ -1241,14 +1241,16 @@ type ScreenshotResult struct {
 // ScreenshotPromptBudget so the detection LLM call was never issued; this
 // distinguishes a budget skip from a clean run with zero findings.
 type ScreenshotPageStats struct {
-	PageURL            string
-	VisionEnabled      bool
-	RelevanceBatches   int
-	ImagesSeen         int
-	ImageIssues        int
-	MissingScreenshots int
-	PossiblyCovered    int
-	DetectionSkipped   bool
+	PageURL               string
+	VisionEnabled         bool
+	RelevanceBatches      int
+	ImagesSeen            int
+	CodeBlocksSeen        int
+	ImageIssues           int
+	MissingScreenshots    int
+	PossiblyCovered       int
+	SuppressedByCodeBlock int
+	DetectionSkipped      bool
 }
 
 // detectionPass runs the text-only screenshot-gap detection LLM call for one
@@ -1272,14 +1274,15 @@ func detectionPass(
 	page DocPage,
 	refs []imageRef,
 	verdicts []ImageVerdict,
-) (gaps []ScreenshotGap, suppressed []ScreenshotGap, skipped bool, err error) {
+	codeBlocks []codeBlockRef,
+) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, err error) {
 	coverage := buildCoverageMap(refs)
-	content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
+	content, ok := fitContentToBudget(page.URL, page.Content, coverage, codeBlocks, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-		return nil, nil, true, nil
+		return nil, nil, nil, true, nil
 	}
-	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts, nil)
+	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts, codeBlocks)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
 		// Per-model budget gate fired before any wire send. Treat this
@@ -1289,14 +1292,14 @@ func detectionPass(
 		// it up.
 		if errors.Is(err, ErrTokenBudgetExceeded{}) {
 			log.Warnf("screenshot-gaps: skipping %s: %v", page.URL, err)
-			return nil, nil, true, nil
+			return nil, nil, nil, true, nil
 		}
-		return nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+		return nil, nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 	}
 	var resp screenshotGapsResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
-		return nil, nil, false, nil
+		return nil, nil, nil, false, nil
 	}
 	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
 	for _, it := range resp.Gaps {
@@ -1316,7 +1319,7 @@ func detectionPass(
 		}
 		gaps = append(gaps, g)
 	}
-	suppressed = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
+	suppressedByImage = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
 	for _, it := range resp.SuppressedByImage {
 		g := ScreenshotGap{
 			PageURL:        page.URL,
@@ -1332,9 +1335,27 @@ func detectionPass(
 			log.Warnf("screenshot-gaps: dropping %s suppressed item with bad priority: %v", page.URL, err)
 			continue
 		}
-		suppressed = append(suppressed, g)
+		suppressedByImage = append(suppressedByImage, g)
 	}
-	return gaps, suppressed, false, nil
+	suppressedByCodeBlock = make([]ScreenshotGap, 0, len(resp.SuppressedByCodeBlock))
+	for _, it := range resp.SuppressedByCodeBlock {
+		g := ScreenshotGap{
+			PageURL:        page.URL,
+			PagePath:       page.Path,
+			QuotedPassage:  unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:     unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:   unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint:  unescapeLiteralWhitespace(it.InsertionHint),
+			Priority:       it.Priority,
+			PriorityReason: unescapeLiteralWhitespace(it.PriorityReason),
+		}
+		if err := validateScreenshotGap(g); err != nil {
+			log.Warnf("screenshot-gaps: dropping %s code-block-suppressed item with bad priority: %v", page.URL, err)
+			continue
+		}
+		suppressedByCodeBlock = append(suppressedByCodeBlock, g)
+	}
+	return gaps, suppressedByImage, suppressedByCodeBlock, false, nil
 }
 
 // unescapeLiteralWhitespace converts the two-character escape sequences \n,
@@ -1436,9 +1457,11 @@ func DetectScreenshotGaps(
 		}
 
 		refs := extractImages(page.Content)
+		codeBlocks := extractCodeBlocks(page.Content)
 		stats := ScreenshotPageStats{
-			PageURL:    page.URL,
-			ImagesSeen: len(refs),
+			PageURL:        page.URL,
+			ImagesSeen:     len(refs),
+			CodeBlocksSeen: len(codeBlocks),
 		}
 
 		// Partition refs: vision-supported (and non-GIF) take the relevance
@@ -1497,13 +1520,22 @@ func DetectScreenshotGaps(
 			cancel()
 		}
 
-		gaps, suppressed, skipped, detErr := detectionPass(ctx, client, page, refs, verdicts)
+		gaps, suppressedByImage, suppressedByCodeBlock, skipped, detErr := detectionPass(ctx, client, page, refs, verdicts, codeBlocks)
 		if detErr != nil {
 			return detErr
 		}
 		stats.MissingScreenshots = len(gaps)
-		stats.PossiblyCovered = len(suppressed)
+		stats.SuppressedByCodeBlock = len(suppressedByCodeBlock)
+		stats.PossiblyCovered = len(suppressedByImage) + len(suppressedByCodeBlock)
 		stats.DetectionSkipped = skipped
+
+		// Possibly-covered union: image-suppressed + code-block-suppressed
+		// findings flow into the same user-visible "Possibly Covered" channel,
+		// matching the audit stats union above. Building this locally keeps
+		// the cache-entry construction below honest under concurrent dispatch.
+		possibly := make([]ScreenshotGap, 0, len(suppressedByImage)+len(suppressedByCodeBlock))
+		possibly = append(possibly, suppressedByImage...)
+		possibly = append(possibly, suppressedByCodeBlock...)
 
 		// Single locked region: append everything this page contributed
 		// to the shared result accumulator. LLM calls and persister/
@@ -1511,7 +1543,7 @@ func DetectScreenshotGaps(
 		resultMu.Lock()
 		result.ImageIssues = append(result.ImageIssues, pageIssues...)
 		result.MissingGaps = append(result.MissingGaps, gaps...)
-		result.PossiblyCovered = append(result.PossiblyCovered, suppressed...)
+		result.PossiblyCovered = append(result.PossiblyCovered, possibly...)
 		result.AuditStats = append(result.AuditStats, stats)
 		resultMu.Unlock()
 
@@ -1521,7 +1553,7 @@ func DetectScreenshotGaps(
 				ContentHash: contentHash,
 				Stats:       stats,
 				Missing:     append([]ScreenshotGap(nil), gaps...),
-				Possibly:    append([]ScreenshotGap(nil), suppressed...),
+				Possibly:    append([]ScreenshotGap(nil), possibly...),
 				ImageIssues: append([]ImageIssue(nil), pageIssues...),
 			}
 			if err := onPageDone(page.URL, entry); err != nil {
