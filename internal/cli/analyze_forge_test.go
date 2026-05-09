@@ -66,7 +66,7 @@ func fakeAnalyzeServer(t *testing.T) *httptest.Server {
 		case strings.Contains(s, "analyze_page_response"):
 			respond(`{"summary":"Doc page.","features":["feature-one"],"is_docs":true}`)
 		case strings.Contains(s, "screenshot_gaps_response"):
-			respond(`{"gaps":[],"suppressed_by_image":[]}`)
+			respond(`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`)
 		default:
 			// Any unmodeled call should fail loudly so the test surfaces a
 			// missing dispatch rather than silently returning empty content.

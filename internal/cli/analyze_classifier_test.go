@@ -143,9 +143,9 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 			// leaks it into screenshots.md and assertion 3 fails loudly.
 			// All other pages get an empty gap list.
 			if strings.Contains(s, teamURL) {
-				respond(`{"gaps":[{"quoted_passage":"team photo","should_show":"team page UI","suggested_alt":"team","insertion_hint":"after the heading","priority":"medium","priority_reason":"test stub"}],"suppressed_by_image":[]}`)
+				respond(`{"gaps":[{"quoted_passage":"team photo","should_show":"team page UI","suggested_alt":"team","insertion_hint":"after the heading","priority":"medium","priority_reason":"test stub"}],"suppressed_by_image":[],"suppressed_by_code_block":[]}`)
 			} else {
-				respond(`{"gaps":[],"suppressed_by_image":[]}`)
+				respond(`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`)
 			}
 		case strings.Contains(s, `"name":"synthesize_response"`),
 			strings.Contains(s, `"name": "synthesize_response"`):
