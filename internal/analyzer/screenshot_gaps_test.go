@@ -1226,3 +1226,25 @@ func TestPartitionRefsForVision(t *testing.T) {
 		t.Errorf("suppression path len = %d, want 2 (gif, svg)", len(suppressionPath))
 	}
 }
+
+func TestScreenshotGapsResponse_DecodesSuppressedByCodeBlock(t *testing.T) {
+	raw := []byte(`{
+	  "gaps": [],
+	  "suppressed_by_image": [],
+	  "suppressed_by_code_block": [
+	    {"quoted_passage": "p", "should_show": "s", "suggested_alt": "a",
+	     "insertion_hint": "h", "priority": "small", "priority_reason": "r"}
+	  ]
+	}`)
+	var resp screenshotGapsResponse
+	require.NoError(t, json.Unmarshal(raw, &resp))
+	require.Len(t, resp.SuppressedByCodeBlock, 1)
+	assert.Equal(t, "p", resp.SuppressedByCodeBlock[0].QuotedPassage)
+}
+
+func TestScreenshotGapsSchema_AllowsSuppressedByCodeBlock(t *testing.T) {
+	// The JSON Schema must declare the new array (additionalProperties:false
+	// would reject it otherwise).
+	doc := string(screenshotGapsSchema.Doc)
+	assert.Contains(t, doc, `"suppressed_by_code_block"`)
+}

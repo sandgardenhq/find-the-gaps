@@ -921,8 +921,9 @@ func validateScreenshotGap(g ScreenshotGap) error {
 // existing image whose verdict was matches=true; counted into audit stats but
 // not rendered to screenshots.md.
 type screenshotGapsResponse struct {
-	Gaps              []screenshotResponseItem `json:"gaps"`
-	SuppressedByImage []screenshotResponseItem `json:"suppressed_by_image"`
+	Gaps                  []screenshotResponseItem `json:"gaps"`
+	SuppressedByImage     []screenshotResponseItem `json:"suppressed_by_image"`
+	SuppressedByCodeBlock []screenshotResponseItem `json:"suppressed_by_code_block"`
 }
 
 // PROMPT SCHEMA: output shape for DetectScreenshotGaps. The suppressed_by_image
@@ -964,9 +965,25 @@ var screenshotGapsSchema = JSONSchema{
             "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint", "priority", "priority_reason"],
             "additionalProperties": false
           }
+        },
+        "suppressed_by_code_block": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "quoted_passage":  {"type": "string"},
+              "should_show":     {"type": "string"},
+              "suggested_alt":   {"type": "string"},
+              "insertion_hint":  {"type": "string"},
+              "priority":        {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason": {"type": "string"}
+            },
+            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint", "priority", "priority_reason"],
+            "additionalProperties": false
+          }
         }
       },
-      "required": ["gaps", "suppressed_by_image"],
+      "required": ["gaps", "suppressed_by_image", "suppressed_by_code_block"],
       "additionalProperties": false
     }`),
 }
