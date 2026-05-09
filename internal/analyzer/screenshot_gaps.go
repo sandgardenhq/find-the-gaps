@@ -645,6 +645,27 @@ func buildCoverageMap(refs []imageRef) map[string][]imageRef {
 	return out
 }
 
+// renderCodeBlockCoverage formats the deterministic code-block locality list shared by both screenshot-detection prompts.
+func renderCodeBlockCoverage(blocks []codeBlockRef) string {
+	if len(blocks) == 0 {
+		return "No code blocks on this page."
+	}
+	lines := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		heading := b.SectionHeading
+		if heading == "" {
+			heading = "(no heading)"
+		}
+		lang := b.Language
+		if lang == "" {
+			lang = "(none)"
+		}
+		lines = append(lines, fmt.Sprintf("- code-%d, section %q, paragraph %d: language=%s, %d lines",
+			b.OriginalIndex, heading, b.ParagraphIndex, lang, b.LineCount))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // buildScreenshotPrompt assembles the LLM prompt for one docs page.
 func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef) string {
 	var coverageSummary string
@@ -670,23 +691,7 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	codeBlocksSummary := "No code blocks on this page."
-	if len(codeBlocks) > 0 {
-		var lines []string
-		for _, b := range codeBlocks {
-			heading := b.SectionHeading
-			if heading == "" {
-				heading = "(no heading)"
-			}
-			lang := b.Language
-			if lang == "" {
-				lang = "(none)"
-			}
-			lines = append(lines, fmt.Sprintf("- code-%d, section %q, paragraph %d: language=%s, %d lines",
-				b.OriginalIndex, heading, b.ParagraphIndex, lang, b.LineCount))
-		}
-		codeBlocksSummary = strings.Join(lines, "\n")
-	}
+	codeBlocksSummary := renderCodeBlockCoverage(codeBlocks)
 
 	// PROMPT: Identifies passages in a documentation page where a screenshot earns its place — multi-step flows, non-obvious UI layouts, visual-recognition asks, first-run confirmations whose target state is hard to describe in words. Applies a locality rule: a passage may be covered when an existing image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
@@ -744,9 +749,9 @@ When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, conte
 // a matches image already covers the moment and (b) report those suppressed
 // moments under "suppressed_by_image" so the audit stats can count them
 // without a second LLM call.
-func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict) string {
+func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict, codeBlocks []codeBlockRef) string {
 	if len(verdicts) == 0 {
-		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs), nil)
+		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs), codeBlocks)
 	}
 
 	verdictByIndex := make(map[string]bool, len(verdicts))
@@ -802,12 +807,17 @@ func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, 
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
+	codeBlocksSummary := renderCodeBlockCoverage(codeBlocks)
+
 	// PROMPT: Verdict-enriched screenshot-gap detection. A vision model has already inspected each existing image and emitted an authoritative verdict. The first question for every UI moment in the prose is: is there an existing image on this page whose verdict is "matches" and that sits near the passage? If yes, suppress (record under "suppressed_by_image"). If no, only THEN consider whether a screenshot would earn its place under the selective triggers below. "verdict: does not match" images do NOT cover their surrounding prose — treat them as if absent. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
 
 URL: %s
 
 Existing images on this page, each annotated with the relevance-pass verdict (a vision model already inspected the actual image contents):
+%s
+
+Existing code blocks on this page (if any):
 %s
 
 Page content:
@@ -849,7 +859,7 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageURL), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, pageRole(pageURL), priorityRubric)
 }
 
 // fitContentToBudget returns content sized so that the assembled
@@ -1237,7 +1247,7 @@ func detectionPass(
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
 		return nil, nil, true, nil
 	}
-	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
+	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts, nil)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
 		// Per-model budget gate fired before any wire send. Treat this

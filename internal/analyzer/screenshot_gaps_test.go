@@ -634,7 +634,7 @@ func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}, {Index: "img-2", Matches: false}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}, {Src: "b.png", AltText: "Logs"}}
-	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
 	assert.Contains(t, prompt, "img-1")
 	assert.Contains(t, prompt, "verdict: matches")
 	assert.Contains(t, prompt, "verdict: does not match")
@@ -642,8 +642,36 @@ func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 
 func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing.T) {
 	refs := []imageRef{{Src: "a.png"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil)
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil, nil)
 	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs), nil)
+	assert.Equal(t, want, got)
+}
+
+func TestBuildDetectionPromptWithVerdicts_NoCodeBlocks(t *testing.T) {
+	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1, SectionHeading: "S", ParagraphIndex: 0}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, nil)
+	assert.Contains(t, got, "Existing code blocks on this page (if any):")
+	assert.Contains(t, got, "No code blocks on this page.")
+}
+
+func TestBuildDetectionPromptWithVerdicts_ListsCodeBlocks(t *testing.T) {
+	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	blocks := []codeBlockRef{
+		{Language: "json", LineCount: 5, SectionHeading: "Response", ParagraphIndex: 3, OriginalIndex: 1},
+	}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, blocks)
+	assert.Contains(t, got, `- code-1, section "Response", paragraph 3: language=json, 5 lines`)
+}
+
+func TestBuildDetectionPromptWithVerdicts_EmptyVerdictsDelegatesWithBlocks(t *testing.T) {
+	// When verdicts is empty, delegate to buildScreenshotPrompt — but pass
+	// codeBlocks through. Pin the contract so a future refactor doesn't
+	// silently strip them on the no-verdict branch.
+	blocks := []codeBlockRef{{Language: "bash", LineCount: 1, OriginalIndex: 1}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", nil, nil, blocks)
+	want := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
 	assert.Equal(t, want, got)
 }
 
@@ -670,7 +698,7 @@ func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"verdict prompt should no longer instruct the model to be aggressively conservative")
@@ -693,7 +721,7 @@ func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 		"legacy": buildScreenshotPrompt("https://x", "content", nil, nil),
 		"verdict": buildDetectionPromptWithVerdicts("https://x", "content",
 			[]imageRef{{Src: "a.png"}},
-			[]ImageVerdict{{Index: "img-1", Matches: true}}),
+			[]ImageVerdict{{Index: "img-1", Matches: true}}, nil),
 	}
 	for name, prompt := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -715,7 +743,7 @@ func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_AsksWhetherScreenshotIsAlreadyOnPage(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
 	lower := strings.ToLower(got)
 	assert.Contains(t, lower, "existing image",
 		"verdict prompt should direct the model to check for an existing image on the page")
