@@ -111,6 +111,113 @@ func TestExtractImages_RejectsSevenOrMoreHashes(t *testing.T) {
 	assert.Equal(t, "Real", got[0].SectionHeading)
 }
 
+func TestExtractCodeBlocks_BacktickFence(t *testing.T) {
+	md := "# Quickstart\n\nRun this:\n\n" +
+		"```bash\n" +
+		"brew install foo\n" +
+		"foo --version\n" +
+		"```\n\n" +
+		"Done.\n"
+	got := extractCodeBlocks(md)
+	assert.Equal(t, []codeBlockRef{
+		{Language: "bash", LineCount: 2, SectionHeading: "Quickstart", ParagraphIndex: 2, OriginalIndex: 1},
+	}, got)
+}
+
+func TestExtractCodeBlocks_TildeFence(t *testing.T) {
+	md := "# Config\n\n" +
+		"~~~yaml\n" +
+		"name: foo\n" +
+		"version: 1\n" +
+		"~~~\n"
+	got := extractCodeBlocks(md)
+	assert.Equal(t, []codeBlockRef{
+		{Language: "yaml", LineCount: 2, SectionHeading: "Config", ParagraphIndex: 1, OriginalIndex: 1},
+	}, got)
+}
+
+func TestExtractCodeBlocks_NoLanguage(t *testing.T) {
+	md := "# X\n\n```\nhello\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "", got[0].Language)
+	assert.Equal(t, 1, got[0].LineCount)
+}
+
+func TestExtractCodeBlocks_MultipleBlocksAcrossSections(t *testing.T) {
+	md := "# A\n\n```bash\ncmd\n```\n\n## B\n\n" +
+		"```json\n{\"x\":1}\n{\"y\":2}\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 2)
+	assert.Equal(t, "A", got[0].SectionHeading)
+	assert.Equal(t, "bash", got[0].Language)
+	assert.Equal(t, 1, got[0].OriginalIndex)
+	assert.Equal(t, "B", got[1].SectionHeading)
+	assert.Equal(t, "json", got[1].Language)
+	assert.Equal(t, 2, got[1].LineCount)
+	assert.Equal(t, 2, got[1].OriginalIndex)
+}
+
+func TestExtractCodeBlocks_DoesNotCaptureBody(t *testing.T) {
+	// Locality only; body lives in page content. Type has no body field — this
+	// test pins the contract that the type layout cannot regress to one.
+	md := "```bash\nsecret\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 1)
+	// Compile-time check: codeBlockRef must not have a body-shaped field.
+	// If someone adds one, this test is a documentation anchor for why not.
+	_ = got[0].Language
+	_ = got[0].LineCount
+}
+
+func TestExtractCodeBlocks_EmptyOnNoFences(t *testing.T) {
+	got := extractCodeBlocks("# Title\n\nProse only.\n")
+	assert.Empty(t, got)
+}
+
+func TestExtractCodeBlocks_UnclosedFenceIsIgnored(t *testing.T) {
+	// Defensive: a malformed page with an unclosed fence should not panic
+	// and should not emit a partial ref. (The existing extractImages tolerates
+	// this; mirror that contract.)
+	md := "# X\n\n```bash\nbrew install foo\n"
+	got := extractCodeBlocks(md)
+	assert.Empty(t, got)
+}
+
+// TestExtractCodeBlocks_TrimsLanguageInfoString pins that the captured
+// Language is the first whitespace-bounded token of the fence info string.
+// CommonMark / Hugo allow tagged info strings like ```go {linenos=true}; the
+// downstream coverage matcher keys on bare language equality (e.g. "go",
+// "bash") and would never match a tagged string left intact.
+func TestExtractCodeBlocks_TrimsLanguageInfoString(t *testing.T) {
+	md := "# X\n\n```go {linenos=true}\nfmt.Println(\"hi\")\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "go", got[0].Language)
+}
+
+// TestExtractCodeBlocks_ParagraphIndexParityWithImages locks the paragraph-
+// index semantics shared between extractImages and extractCodeBlocks. Both
+// walkers must use the same blank-line-separated block scheme so a
+// downstream consumer can compare image and code-block locality apples-to-
+// apples without two divergent indices to reconcile.
+func TestExtractCodeBlocks_ParagraphIndexParityWithImages(t *testing.T) {
+	md := "# H\n\nintro\n\n![pic](a.png)\n\nnext\n\n" +
+		"```bash\ncmd\n```\n\nafter\n"
+	imgs := extractImages(md)
+	blocks := extractCodeBlocks(md)
+	require.Len(t, imgs, 1)
+	require.Len(t, blocks, 1)
+	// Heading is paragraph 0; intro is 1; the image lives in paragraph 2;
+	// "next" is 3; the code block is 4. The exact value matters less than
+	// the parity contract, but pin both so a future walker change has to
+	// update both call sites in lockstep.
+	assert.Equal(t, 2, imgs[0].ParagraphIndex,
+		"image paragraph index should be the blank-line-separated block position")
+	assert.Equal(t, 4, blocks[0].ParagraphIndex,
+		"code block paragraph index should use the same blank-line-separated scheme")
+}
+
 func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
 	refs := []imageRef{
 		{Src: "a.png", SectionHeading: "Intro", ParagraphIndex: 1},
@@ -132,7 +239,7 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 	coverage := map[string][]imageRef{
 		"Quickstart": {{Src: "hero.png", AltText: "Hero", SectionHeading: "Quickstart", ParagraphIndex: 0}},
 	}
-	got := buildScreenshotPrompt(pageURL, content, coverage)
+	got := buildScreenshotPrompt(pageURL, content, coverage, nil)
 	assert.Contains(t, got, pageURL)
 	assert.Contains(t, got, content)
 	assert.Contains(t, got, "hero.png")
@@ -145,8 +252,52 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 }
 
 func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
-	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil, nil)
 	assert.Contains(t, got, "No existing images")
+}
+
+func TestBuildScreenshotPrompt_NoCodeBlocks(t *testing.T) {
+	got := buildScreenshotPrompt("https://x/p", "content", nil, nil)
+	assert.Contains(t, got, "Existing code blocks on this page (if any):")
+	assert.Contains(t, got, "No code blocks on this page.")
+}
+
+func TestBuildScreenshotPrompt_ListsCodeBlocksWithLocality(t *testing.T) {
+	blocks := []codeBlockRef{
+		{Language: "bash", LineCount: 12, SectionHeading: "Quickstart", ParagraphIndex: 4, OriginalIndex: 1},
+		{Language: "json", LineCount: 8, SectionHeading: "Response", ParagraphIndex: 7, OriginalIndex: 2},
+	}
+	got := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	assert.Contains(t, got, `- code-1, section "Quickstart", paragraph 4: language=bash, 12 lines`)
+	assert.Contains(t, got, `- code-2, section "Response", paragraph 7: language=json, 8 lines`)
+}
+
+func TestBuildScreenshotPrompt_EmptyHeadingFallback(t *testing.T) {
+	blocks := []codeBlockRef{
+		{Language: "bash", LineCount: 3, SectionHeading: "", ParagraphIndex: 0, OriginalIndex: 1},
+	}
+	got := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	assert.Contains(t, got, `section "(no heading)"`)
+}
+
+func TestBuildScreenshotPrompt_GeneralizesCoveredRuleToCodeBlocks(t *testing.T) {
+	got := buildScreenshotPrompt("https://x/p", "content", nil, nil)
+	// Coverage rule must explicitly call out code-block coverage:
+	assert.Contains(t, got, "code block")
+	// Do NOT flag list expanded:
+	assert.Contains(t, got, "API responses, config files, or data shapes")
+	assert.Contains(t, got, "Rendered UI whose source is already shown")
+}
+
+func TestBuildDetectionPromptWithVerdicts_GeneralizesCoveredRule(t *testing.T) {
+	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, nil)
+	assert.Contains(t, got, "code block")
+	assert.Contains(t, got, "API responses, config files, or data shapes")
+	assert.Contains(t, got, "Rendered UI whose source is already shown")
+	// Verdict-aware prompt must also instruct the model to populate the new array:
+	assert.Contains(t, got, `"suppressed_by_code_block"`)
 }
 
 // fakeLLMClient collects calls and returns canned responses per call index.
@@ -503,7 +654,7 @@ func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}, {Index: "img-2", Matches: false}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}, {Src: "b.png", AltText: "Logs"}}
-	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
 	assert.Contains(t, prompt, "img-1")
 	assert.Contains(t, prompt, "verdict: matches")
 	assert.Contains(t, prompt, "verdict: does not match")
@@ -511,8 +662,36 @@ func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 
 func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing.T) {
 	refs := []imageRef{{Src: "a.png"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil)
-	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs))
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil, nil)
+	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs), nil)
+	assert.Equal(t, want, got)
+}
+
+func TestBuildDetectionPromptWithVerdicts_NoCodeBlocks(t *testing.T) {
+	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1, SectionHeading: "S", ParagraphIndex: 0}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, nil)
+	assert.Contains(t, got, "Existing code blocks on this page (if any):")
+	assert.Contains(t, got, "No code blocks on this page.")
+}
+
+func TestBuildDetectionPromptWithVerdicts_ListsCodeBlocks(t *testing.T) {
+	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	blocks := []codeBlockRef{
+		{Language: "json", LineCount: 5, SectionHeading: "Response", ParagraphIndex: 3, OriginalIndex: 1},
+	}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, blocks)
+	assert.Contains(t, got, `- code-1, section "Response", paragraph 3: language=json, 5 lines`)
+}
+
+func TestBuildDetectionPromptWithVerdicts_EmptyVerdictsDelegatesWithBlocks(t *testing.T) {
+	// When verdicts is empty, delegate to buildScreenshotPrompt — but pass
+	// codeBlocks through. Pin the contract so a future refactor doesn't
+	// silently strip them on the no-verdict branch.
+	blocks := []codeBlockRef{{Language: "bash", LineCount: 1, OriginalIndex: 1}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", nil, nil, blocks)
+	want := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
 	assert.Equal(t, want, got)
 }
 
@@ -522,7 +701,7 @@ func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing
 // practice). The intended posture is "flag a screenshot only when it earns
 // its place" — when in doubt, omit.
 func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
-	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil)
+	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil, nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"legacy prompt should no longer instruct the model to be aggressively conservative")
@@ -539,7 +718,7 @@ func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"verdict prompt should no longer instruct the model to be aggressively conservative")
@@ -559,10 +738,10 @@ func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 // signatures and option tables.
 func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 	cases := map[string]string{
-		"legacy": buildScreenshotPrompt("https://x", "content", nil),
+		"legacy": buildScreenshotPrompt("https://x", "content", nil, nil),
 		"verdict": buildDetectionPromptWithVerdicts("https://x", "content",
 			[]imageRef{{Src: "a.png"}},
-			[]ImageVerdict{{Index: "img-1", Matches: true}}),
+			[]ImageVerdict{{Index: "img-1", Matches: true}}, nil),
 	}
 	for name, prompt := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -570,7 +749,7 @@ func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 				"prompt should still tell the model not to flag single-action UI moments")
 			assert.Contains(t, prompt, `click Save`,
 				"prompt should keep the canonical 'click Save' example")
-			assert.Contains(t, prompt, `Terminal sessions whose output is already shown inline in a code block`,
+			assert.Contains(t, prompt, `Terminal sessions whose output is shown inline in a nearby code block`,
 				"prompt should still exclude terminal sessions already shown inline as code")
 			assert.Contains(t, prompt, `API signatures, option tables, type listings`,
 				"prompt should keep the reference-material exclusion")
@@ -584,7 +763,7 @@ func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_AsksWhetherScreenshotIsAlreadyOnPage(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts)
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
 	lower := strings.ToLower(got)
 	assert.Contains(t, lower, "existing image",
 		"verdict prompt should direct the model to check for an existing image on the page")
@@ -954,7 +1133,7 @@ func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
 		}`},
 	}
 	page := DocPage{URL: "https://x.com/p", Path: "p.md", Content: "# Hello\n\nClick Save."}
-	gaps, suppressed, skipped, err := detectionPass(context.Background(), client, page, nil, nil)
+	gaps, suppressed, _, skipped, err := detectionPass(context.Background(), client, page, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1066,4 +1245,64 @@ func TestPartitionRefsForVision(t *testing.T) {
 	if len(suppressionPath) != 2 {
 		t.Errorf("suppression path len = %d, want 2 (gif, svg)", len(suppressionPath))
 	}
+}
+
+func TestScreenshotGapsResponse_DecodesSuppressedByCodeBlock(t *testing.T) {
+	raw := []byte(`{
+	  "gaps": [],
+	  "suppressed_by_image": [],
+	  "suppressed_by_code_block": [
+	    {"quoted_passage": "p", "should_show": "s", "suggested_alt": "a",
+	     "insertion_hint": "h", "priority": "small", "priority_reason": "r"}
+	  ]
+	}`)
+	var resp screenshotGapsResponse
+	require.NoError(t, json.Unmarshal(raw, &resp))
+	require.Len(t, resp.SuppressedByCodeBlock, 1)
+	assert.Equal(t, "p", resp.SuppressedByCodeBlock[0].QuotedPassage)
+}
+
+func TestScreenshotGapsSchema_AllowsSuppressedByCodeBlock(t *testing.T) {
+	// The JSON Schema must declare the new array (additionalProperties:false
+	// would reject it otherwise).
+	doc := string(screenshotGapsSchema.Doc)
+	assert.Contains(t, doc, `"suppressed_by_code_block"`)
+}
+
+func TestDetectScreenshotGaps_RoutesSuppressedByCodeBlockIntoPossiblyCovered(t *testing.T) {
+	// One suppressed_by_code_block item, zero gaps, zero suppressed_by_image —
+	// the code-block-suppressed entry must land in result.PossiblyCovered, and
+	// the per-page audit stats must reflect both the code blocks present on
+	// the page and the count of code-block-suppressed findings.
+	client := &fakeLLMClient{
+		responses: []string{`{
+		  "gaps": [],
+		  "suppressed_by_image": [],
+		  "suppressed_by_code_block": [
+		    {"quoted_passage": "Run brew install foo", "should_show": "shell output",
+		     "suggested_alt": "terminal", "insertion_hint": "after install line",
+		     "priority": "small", "priority_reason": "low signal"}
+		  ]
+		}`},
+	}
+	page := DocPage{URL: "https://x/p", Content: "# Quickstart\n\nRun brew install foo\n\n```bash\nbrew install foo\n```\n"}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, res.PossiblyCovered, 1)
+	assert.Equal(t, "Run brew install foo", res.PossiblyCovered[0].QuotedPassage)
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 1, res.AuditStats[0].CodeBlocksSeen)
+	assert.Equal(t, 1, res.AuditStats[0].SuppressedByCodeBlock)
+	// The aggregate possibly_covered count must include the code-block suppression:
+	assert.Equal(t, 1, res.AuditStats[0].PossiblyCovered)
+}
+
+func TestDetectScreenshotGaps_CountsCodeBlocksSeenEvenWhenZeroSuppressions(t *testing.T) {
+	client := &fakeLLMClient{responses: []string{`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`}}
+	page := DocPage{URL: "https://x/p", Content: "# Q\n\n```bash\nfoo\n```\n\n```json\n{}\n```\n"}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 2, res.AuditStats[0].CodeBlocksSeen)
+	assert.Equal(t, 0, res.AuditStats[0].SuppressedByCodeBlock)
 }

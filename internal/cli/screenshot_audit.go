@@ -10,7 +10,7 @@ import (
 // key=value layout so downstream log scrapers (CI, observability pipelines)
 // can parse it without guessing field positions:
 //
-//	page=<url> vision=on|off relevance_batches=N images_seen=N image_issues=N missing_screenshots=N possibly_covered=N detection_skipped=true|false
+//	page=<url> vision=on|off relevance_batches=N images_seen=N code_blocks_seen=N image_issues=N missing_screenshots=N possibly_covered=N suppressed_by_code_block=N detection_skipped=true|false
 //
 // Vision-off and detection-skipped pages report `vision=off` with the
 // relevance / image counts zeroed. `detection_skipped` is emitted
@@ -24,14 +24,16 @@ func emitScreenshotAuditLog(stats []analyzer.ScreenshotPageStats) {
 			visionFlag = "on"
 		}
 		log.Infof(
-			"page=%s vision=%s relevance_batches=%d images_seen=%d image_issues=%d missing_screenshots=%d possibly_covered=%d detection_skipped=%t",
+			"page=%s vision=%s relevance_batches=%d images_seen=%d code_blocks_seen=%d image_issues=%d missing_screenshots=%d possibly_covered=%d suppressed_by_code_block=%d detection_skipped=%t",
 			s.PageURL,
 			visionFlag,
 			s.RelevanceBatches,
 			s.ImagesSeen,
+			s.CodeBlocksSeen,
 			s.ImageIssues,
 			s.MissingScreenshots,
 			s.PossiblyCovered,
+			s.SuppressedByCodeBlock,
 			s.DetectionSkipped,
 		)
 	}

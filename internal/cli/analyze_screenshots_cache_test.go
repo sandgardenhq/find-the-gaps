@@ -43,7 +43,7 @@ func (s *screenshotsStubClient) CompleteWithTools(_ context.Context, _ []analyze
 func (s *screenshotsStubClient) CompleteJSON(_ context.Context, _ string, schema analyzer.JSONSchema) (json.RawMessage, error) {
 	if schema.Name == "screenshot_gaps_response" {
 		s.jsonCalls.Add(1)
-		return json.RawMessage(`{"gaps":[],"suppressed_by_image":[]}`), nil
+		return json.RawMessage(`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`), nil
 	}
 	switch schema.Name {
 	case "code_features_response":

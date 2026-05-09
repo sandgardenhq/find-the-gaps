@@ -164,7 +164,7 @@ func TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues(t *testing.T) {
 		case strings.Contains(s, `"name":"screenshot_gaps_response"`),
 			strings.Contains(s, `"name": "screenshot_gaps_response"`):
 			atomic.AddInt64(&detectionCalls, 1)
-			respond(`{"gaps":[],"suppressed_by_image":[]}`)
+			respond(`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`)
 		case strings.Contains(s, `"name":"synthesize_response"`),
 			strings.Contains(s, `"name": "synthesize_response"`):
 			respond(`{"description":"A test product.","features":["feature-one"]}`)
@@ -307,7 +307,7 @@ func TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass(t *testing.T) {
 			// Emit one missing-screenshot finding so screenshots.md has body
 			// content to render under # Missing Screenshots; suppressed_by_image
 			// stays empty (no verdicts on the vision-off path).
-			respond(`{"gaps":[{"quoted_passage":"The Settings page lets you configure billing, security, and integrations.","should_show":"Full Settings page with billing, security, and integrations panels visible.","suggested_alt":"Settings page overview","insertion_hint":"after the heading","priority":"medium","priority_reason":"test stub"}],"suppressed_by_image":[]}`)
+			respond(`{"gaps":[{"quoted_passage":"The Settings page lets you configure billing, security, and integrations.","should_show":"Full Settings page with billing, security, and integrations panels visible.","suggested_alt":"Settings page overview","insertion_hint":"after the heading","priority":"medium","priority_reason":"test stub"}],"suppressed_by_image":[],"suppressed_by_code_block":[]}`)
 		case strings.Contains(s, `"name":"synthesize_response"`),
 			strings.Contains(s, `"name": "synthesize_response"`):
 			respond(`{"description":"A test product.","features":["feature-one"]}`)

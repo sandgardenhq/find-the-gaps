@@ -49,7 +49,7 @@ func TestValidateScreenshotGapAcceptsValid(t *testing.T) {
 }
 
 func TestBuildScreenshotPromptContainsRubric(t *testing.T) {
-	out := buildScreenshotPrompt("https://x/quickstart", "body", nil)
+	out := buildScreenshotPrompt("https://x/quickstart", "body", nil, nil)
 	if !strings.Contains(out, "page_role") {
 		t.Error("missing page_role hint")
 	}
@@ -64,7 +64,7 @@ func TestBuildScreenshotPromptContainsRubric(t *testing.T) {
 func TestBuildDetectionPromptWithVerdictsContainsRubric(t *testing.T) {
 	refs := []imageRef{{Src: "x.png", AltText: "a", OriginalIndex: 1}}
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
-	out := buildDetectionPromptWithVerdicts("https://x/docs/api", "body", refs, verdicts)
+	out := buildDetectionPromptWithVerdicts("https://x/docs/api", "body", refs, verdicts, nil)
 	if !strings.Contains(out, "page_role") {
 		t.Error("missing page_role hint in verdict-enriched prompt")
 	}
@@ -91,7 +91,7 @@ func TestSuppressedByImagePriorityRoundTrip(t *testing.T) {
 	}`
 	client := &fakeLLMClient{responses: []string{resp}}
 	page := DocPage{URL: "https://x/p", Path: "p.md", Content: "# H"}
-	_, suppressed, _, err := detectionPass(context.Background(), client, page, nil, nil)
+	_, suppressed, _, _, err := detectionPass(context.Background(), client, page, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

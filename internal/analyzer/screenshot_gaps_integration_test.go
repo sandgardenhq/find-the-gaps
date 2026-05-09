@@ -383,3 +383,92 @@ func TestDetectScreenshotGaps_VisionVerdictIndicesMatchUnfilteredRefs(t *testing
 	assert.NotContains(t, promptText, `img-2: src="https://x/photo.jpg"`,
 		"JPG must NOT inherit the SVG's position — that's the bug being fixed")
 }
+
+// TestDetectScreenshotGaps_NoFalsePositiveOnTerminalOutput pins the end-to-end
+// plumbing for the code-block coverage signal: a page containing a terminal
+// session inside a fenced bash block must surface that block in the detection
+// prompt as deterministic locality data (`code-N, section "...", language=...`).
+// The model response is stubbed; the test asserts only on what the model SAW,
+// which is the contract Tasks 1–6 deliver.
+//
+// Three parallel cases cover the three coverage classes the prompt's Do-NOT-
+// flag list calls out: bash terminal output, JSON response shapes, and
+// HTML/JSX rendered UI source.
+func TestDetectScreenshotGaps_NoFalsePositiveOnTerminalOutput(t *testing.T) {
+	cases := []struct {
+		name           string
+		content        string
+		wantSection    string
+		wantLanguage   string
+		wantLineCount  string
+	}{
+		{
+			name: "bash terminal output",
+			content: "# Install\n\nRun:\n\n" +
+				"```bash\n" +
+				"brew install foo\n" +
+				"foo --version\n" +
+				"# foo 1.2.3\n" +
+				"```\n\n" +
+				"You should see the version.\n",
+			wantSection:   `section "Install"`,
+			wantLanguage:  "language=bash",
+			wantLineCount: "3 lines",
+		},
+		{
+			name: "json response shape",
+			content: "# Response\n\nThe API returns a user object:\n\n" +
+				"```json\n" +
+				"{\n" +
+				"  \"id\": 1,\n" +
+				"  \"name\": \"alice\"\n" +
+				"}\n" +
+				"```\n\n" +
+				"Inspect the id field.\n",
+			wantSection:   `section "Response"`,
+			wantLanguage:  "language=json",
+			wantLineCount: "4 lines",
+		},
+		{
+			name: "html rendered UI preview",
+			content: "# Preview\n\nThe rendered button looks like this:\n\n" +
+				"```html\n" +
+				"<button class=\"primary\">Save</button>\n" +
+				"```\n\n" +
+				"Click Save to commit.\n",
+			wantSection:   `section "Preview"`,
+			wantLanguage:  "language=html",
+			wantLineCount: "1 lines",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeLLMClient{
+				responses: []string{`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`},
+			}
+			pages := []DocPage{{
+				URL:     "https://x/p",
+				Path:    "/tmp/p.md",
+				Content: tc.content,
+			}}
+
+			_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
+			require.NoError(t, err)
+
+			require.NotEmpty(t, client.prompts, "detection pass must have issued at least one LLM call")
+			lastPrompt := client.prompts[len(client.prompts)-1]
+
+			assert.Contains(t, lastPrompt, "Existing code blocks on this page (if any):",
+				"prompt must include the code-block coverage section header")
+			assert.Contains(t, lastPrompt, "code-1,",
+				"prompt must list the extracted code block as code-1")
+			assert.Contains(t, lastPrompt, tc.wantSection,
+				"prompt must carry the heading-derived locality")
+			assert.Contains(t, lastPrompt, tc.wantLanguage,
+				"prompt must carry the fence-language hint")
+			assert.Contains(t, lastPrompt, tc.wantLineCount,
+				"prompt must carry the body-line count")
+		})
+	}
+}

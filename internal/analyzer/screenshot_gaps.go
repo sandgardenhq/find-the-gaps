@@ -214,6 +214,103 @@ func extractImages(md string) []imageRef {
 	return refs
 }
 
+// codeBlockRef is one fenced code block on a docs page, captured for the
+// purpose of feeding deterministic locality data into the screenshot-gap
+// detection prompt. A passage in prose may be considered "already covered"
+// by a code block in the same section heading or within ±3 paragraphs whose
+// language plausibly matches the moment (bash/console for terminal output,
+// json/yaml for response shapes, html/jsx for rendered UI).
+//
+// Body content is intentionally NOT captured: every code block already
+// appears verbatim in the page content sent to the model, and duplicating
+// bodies in the coverage list would blow ScreenshotPromptBudget on
+// reference-heavy pages.
+type codeBlockRef struct {
+	Language       string // from the fence opener; "" when absent
+	LineCount      int    // body lines, excluding the opener and closer fences
+	SectionHeading string // most recent ATX heading above the block; "" if none
+	ParagraphIndex int    // 0-based block position, same scheme as imageRef
+	OriginalIndex  int    // 1-based "code-N" label for prompt locality lists
+}
+
+// extractCodeBlocks returns one codeBlockRef per fenced block in md, walking
+// the markdown with the same fence state machine as extractImages. The two
+// functions share style but not state: each emits its own ref slice so tests
+// on one don't churn when the other changes.
+//
+// Unclosed fences are ignored: the trailing block has no closer, so we do
+// not emit a partial ref. This matches extractImages' tolerance for malformed
+// markdown (no panics, no half-written state).
+func extractCodeBlocks(md string) []codeBlockRef {
+	var refs []codeBlockRef
+	currentHeading := ""
+	inFence := false
+	pIdx := 0
+	hadContentInBlock := false
+	var (
+		fenceLang  string
+		fenceLines int
+	)
+
+	for line := range strings.SplitSeq(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			if !inFence {
+				marker := "```"
+				if strings.HasPrefix(trimmed, "~~~") {
+					marker = "~~~"
+				}
+				// CommonMark / Hugo info strings can carry attributes after the
+				// language token (e.g. ```go {linenos=true}). Downstream
+				// matchers key on the bare language, so capture only the first
+				// whitespace-delimited token. strings.Fields collapses any
+				// leading/trailing/internal whitespace; an empty info string
+				// yields no fields, leaving Language as "".
+				info := strings.TrimPrefix(trimmed, marker)
+				fenceLang = ""
+				if fields := strings.Fields(info); len(fields) > 0 {
+					fenceLang = fields[0]
+				}
+				fenceLines = 0
+				inFence = true
+				hadContentInBlock = true
+			} else {
+				refs = append(refs, codeBlockRef{
+					Language:       fenceLang,
+					LineCount:      fenceLines,
+					SectionHeading: currentHeading,
+					ParagraphIndex: pIdx,
+				})
+				inFence = false
+			}
+			continue
+		}
+
+		if inFence {
+			fenceLines++
+			continue
+		}
+
+		if trimmed == "" {
+			if hadContentInBlock {
+				pIdx++
+				hadContentInBlock = false
+			}
+			continue
+		}
+		if atxHeadingRe.MatchString(trimmed) {
+			currentHeading = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+		}
+		hadContentInBlock = true
+	}
+
+	for i := range refs {
+		refs[i].OriginalIndex = i + 1
+	}
+	return refs
+}
+
 // visionUnsupportedExts is the set of image extensions Anthropic's vision API
 // rejects with "The file format is invalid or unsupported". Anthropic accepts
 // only jpeg, png, gif, and webp; everything else (vector, next-gen, legacy)
@@ -548,8 +645,29 @@ func buildCoverageMap(refs []imageRef) map[string][]imageRef {
 	return out
 }
 
+// renderCodeBlockCoverage formats the deterministic code-block locality list shared by both screenshot-detection prompts.
+func renderCodeBlockCoverage(blocks []codeBlockRef) string {
+	if len(blocks) == 0 {
+		return "No code blocks on this page."
+	}
+	lines := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		heading := b.SectionHeading
+		if heading == "" {
+			heading = "(no heading)"
+		}
+		lang := b.Language
+		if lang == "" {
+			lang = "(none)"
+		}
+		lines = append(lines, fmt.Sprintf("- code-%d, section %q, paragraph %d: language=%s, %d lines",
+			b.OriginalIndex, heading, b.ParagraphIndex, lang, b.LineCount))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // buildScreenshotPrompt assembles the LLM prompt for one docs page.
-func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef) string {
+func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef) string {
 	var coverageSummary string
 	if len(coverage) == 0 {
 		coverageSummary = "No existing images on this page."
@@ -573,7 +691,9 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	// PROMPT: Identifies passages in a documentation page where a screenshot earns its place — multi-step flows, non-obvious UI layouts, visual-recognition asks, first-run confirmations whose target state is hard to describe in words. Applies a locality rule: a passage may be covered when an existing image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
+	codeBlocksSummary := renderCodeBlockCoverage(codeBlocks)
+
+	// PROMPT: Identifies passages in a documentation page where a screenshot earns its place — multi-step flows, non-obvious UI layouts, visual-recognition asks, first-run confirmations whose target state is hard to describe in words. Applies a generalized locality rule: a passage may be covered EITHER by a topically-matching nearby image OR by a topically-matching nearby code block (e.g., a bash/console block covering terminal output, a json/yaml block covering an API or config response shape, an html/jsx block covering rendered UI source). Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
 
 URL: %s
@@ -581,10 +701,16 @@ URL: %s
 Existing images on this page (if any):
 %s
 
+Existing code blocks on this page (if any):
+%s
+
 Page content:
 %s
 
-A passage may already be visually covered by an existing image, but ONLY when the image's alt text and src plausibly describe the same UI moment as the passage AND the image appears in the same section heading or within 3 paragraphs before/after. An off-topic nearby image (e.g., an architecture diagram next to UI-walkthrough prose) does NOT cover the passage.
+A passage may already be visually covered by an existing image OR a nearby code block.
+- Image coverage: an image's alt text and src plausibly describe the same UI moment AND the image appears in the same section heading or within 3 paragraphs before/after.
+- Code-block coverage: a code block sits in the same section heading or within 3 paragraphs AND its language plausibly matches the moment in prose — `+"`bash`/`console`/`shell`/`text`/`sh`"+` for terminal output; `+"`json`/`yaml`/`toml`/`xml`"+` for response or config shapes; `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` for rendered UI source. The full block content appears verbatim in the page content above; judge topical fit by reading it directly.
+An off-topic nearby image OR an off-topic nearby code block does NOT cover the passage.
 
 Flag a passage ONLY when at least one is true AND the prose by itself leaves a competent reader unable to picture the result:
 1. MULTI-STEP FLOW: a sequence of two or more user actions across changing UI states where the reader needs to see intermediate states to stay oriented (a wizard, an OAuth handshake, guided onboarding).
@@ -594,12 +720,14 @@ Flag a passage ONLY when at least one is true AND the prose by itself leaves a c
 
 Do NOT flag:
 - Single-action interactions ("click Save", "press Enter", "fill in the email field").
-- Terminal sessions whose output is already shown inline in a code block.
+- Terminal sessions whose output is shown inline in a nearby code block.
+- API responses, config files, or data shapes already shown verbatim in a nearby `+"`json`/`yaml`/`toml`/`xml`"+` code block under the locality rule above.
+- Rendered UI whose source is already shown in a nearby `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` code block where the prose describes how the resulting UI looks.
 - Reference material (API signatures, option tables, type listings).
 - Pure conceptual prose with no UI moment.
 - Generic "you'll see the result" sentences where the result is already described in prose or shown in a code block.
 - Any UI moment a competent reader can picture from the prose alone.
-- Passages already covered by a topically-matching image under the locality rule above.
+- Passages already covered by a topically-matching image or code block under the locality rule above.
 
 Populate "gaps" with one object per gap. Each object must have:
 - "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
@@ -613,7 +741,7 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageURL), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, pageRole(pageURL), priorityRubric)
 }
 
 // buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
@@ -626,9 +754,9 @@ When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageUR
 // a matches image already covers the moment and (b) report those suppressed
 // moments under "suppressed_by_image" so the audit stats can count them
 // without a second LLM call.
-func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict) string {
+func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict, codeBlocks []codeBlockRef) string {
 	if len(verdicts) == 0 {
-		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs))
+		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs), codeBlocks)
 	}
 
 	verdictByIndex := make(map[string]bool, len(verdicts))
@@ -684,12 +812,17 @@ func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, 
 		coverageSummary = strings.Join(lines, "\n")
 	}
 
-	// PROMPT: Verdict-enriched screenshot-gap detection. A vision model has already inspected each existing image and emitted an authoritative verdict. The first question for every UI moment in the prose is: is there an existing image on this page whose verdict is "matches" and that sits near the passage? If yes, suppress (record under "suppressed_by_image"). If no, only THEN consider whether a screenshot would earn its place under the selective triggers below. "verdict: does not match" images do NOT cover their surrounding prose — treat them as if absent. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
+	codeBlocksSummary := renderCodeBlockCoverage(codeBlocks)
+
+	// PROMPT: Verdict-enriched screenshot-gap detection. A vision model has already inspected each existing image and emitted an authoritative verdict. For every UI moment in the prose the model must ask: is there an existing image on this page whose verdict is "matches" and that sits near the passage, OR is there a topically-matching nearby code block (bash/console terminal output, json/yaml response or config shape, html/jsx rendered UI source) under the locality rule? If yes to either, suppress (record under "suppressed_by_image" or "suppressed_by_code_block" respectively). If no, only THEN consider whether a screenshot would earn its place under the selective triggers below. "verdict: does not match" images do NOT cover their surrounding prose — treat them as if absent. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
 
 URL: %s
 
 Existing images on this page, each annotated with the relevance-pass verdict (a vision model already inspected the actual image contents):
+%s
+
+Existing code blocks on this page (if any):
 %s
 
 Page content:
@@ -700,7 +833,12 @@ The verdicts above are AUTHORITATIVE. Do not second-guess them based on filename
 - "verdict: does not match" — the image's actual contents do NOT depict what the surrounding prose describes. Treat the passage as uncovered, exactly as if the image were absent.
 - "verdict: unknown" — fall back to the locality rule: a passage is covered only when an image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after.
 
-KEY QUESTION for every UI moment in the prose: is there an existing image on this page whose verdict is "matches" and that sits in the same section heading or within 3 paragraphs of the passage? If yes, the passage is already covered — do NOT add it to "gaps"; record it in "suppressed_by_image" instead. If no, only THEN consider whether a screenshot would earn its place under the selective triggers below.
+A passage may already be visually covered by an existing image OR a nearby code block.
+- Image coverage: an image's alt text and src plausibly describe the same UI moment AND the image appears in the same section heading or within 3 paragraphs before/after.
+- Code-block coverage: a code block sits in the same section heading or within 3 paragraphs AND its language plausibly matches the moment in prose — `+"`bash`/`console`/`shell`/`text`/`sh`"+` for terminal output; `+"`json`/`yaml`/`toml`/`xml`"+` for response or config shapes; `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` for rendered UI source. The full block content appears verbatim in the page content above; judge topical fit by reading it directly.
+An off-topic nearby image OR an off-topic nearby code block does NOT cover the passage.
+
+KEY QUESTION for every UI moment in the prose: is there an existing image on this page whose verdict is "matches" and that sits in the same section heading or within 3 paragraphs of the passage, OR is there a topically-matching nearby code block under the code-block-coverage rule above? If yes to the image, the passage is already covered — do NOT add it to "gaps"; record it in "suppressed_by_image" instead. If yes to the code block, do NOT add it to "gaps"; record it in "suppressed_by_code_block" instead. If no to both, only THEN consider whether a screenshot would earn its place under the selective triggers below.
 
 Flag a passage ONLY when at least one is true AND the prose by itself leaves a competent reader unable to picture the result:
 1. MULTI-STEP FLOW: a sequence of two or more user actions across changing UI states where the reader needs to see intermediate states to stay oriented (a wizard, an OAuth handshake, guided onboarding).
@@ -710,14 +848,17 @@ Flag a passage ONLY when at least one is true AND the prose by itself leaves a c
 
 Do NOT flag:
 - Single-action interactions ("click Save", "press Enter", "fill in the email field").
-- Terminal sessions whose output is already shown inline in a code block.
+- Terminal sessions whose output is shown inline in a nearby code block.
+- API responses, config files, or data shapes already shown verbatim in a nearby `+"`json`/`yaml`/`toml`/`xml`"+` code block under the locality rule above.
+- Rendered UI whose source is already shown in a nearby `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` code block where the prose describes how the resulting UI looks.
 - Reference material (API signatures, option tables, type listings).
 - Pure conceptual prose with no UI moment.
 - Generic "you'll see the result" sentences where the result is already described in prose or shown in a code block.
 - Any UI moment a competent reader can picture from the prose alone.
 - Passages where a "verdict: matches" image already sits in the same section heading or within 3 paragraphs (record these in "suppressed_by_image" instead of "gaps").
+- Passages already covered by a topically-matching nearby code block (record these in "suppressed_by_code_block" instead of "gaps").
 
-Populate "gaps" with one object per gap (a passage that should have a screenshot AND no "verdict: matches" image already covers it). Each object must have:
+Populate "gaps" with one object per gap (a passage that should have a screenshot AND no "verdict: matches" image and no topically-matching nearby code block already covers it). Each object must have:
 - "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
 - "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption, under 100 characters.
@@ -727,11 +868,13 @@ Populate "gaps" with one object per gap (a passage that should have a screenshot
 
 Populate "suppressed_by_image" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a "verdict: matches" image already covers it. Same six fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
 
+Populate "suppressed_by_code_block" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a topically-matching nearby code block already covers it (terminal output, API/config shapes, or rendered UI source). Same six fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
+
 page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageURL), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, pageRole(pageURL), priorityRubric)
 }
 
 // fitContentToBudget returns content sized so that the assembled
@@ -739,12 +882,12 @@ When in doubt, do not flag.`, pageURL, coverageSummary, content, pageRole(pageUR
 // estimator). The returned bool is false when the prompt overhead alone — URL,
 // instructions, coverage map — already exceeds the budget; callers should skip
 // the page in that case.
-func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef, budget int) (string, bool) {
+func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef, budget int) (string, bool) {
 	// Margin absorbs (a) drift between cl100k_base and the provider's exact
 	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
 	// on repetitive content.
 	const margin = 1_000
-	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage))
+	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage, codeBlocks))
 	available := budget - overhead - margin
 	if available < 100 {
 		return "", false
@@ -793,8 +936,9 @@ func validateScreenshotGap(g ScreenshotGap) error {
 // existing image whose verdict was matches=true; counted into audit stats but
 // not rendered to screenshots.md.
 type screenshotGapsResponse struct {
-	Gaps              []screenshotResponseItem `json:"gaps"`
-	SuppressedByImage []screenshotResponseItem `json:"suppressed_by_image"`
+	Gaps                  []screenshotResponseItem `json:"gaps"`
+	SuppressedByImage     []screenshotResponseItem `json:"suppressed_by_image"`
+	SuppressedByCodeBlock []screenshotResponseItem `json:"suppressed_by_code_block"`
 }
 
 // PROMPT SCHEMA: output shape for DetectScreenshotGaps. The suppressed_by_image
@@ -836,9 +980,25 @@ var screenshotGapsSchema = JSONSchema{
             "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint", "priority", "priority_reason"],
             "additionalProperties": false
           }
+        },
+        "suppressed_by_code_block": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "quoted_passage":  {"type": "string"},
+              "should_show":     {"type": "string"},
+              "suggested_alt":   {"type": "string"},
+              "insertion_hint":  {"type": "string"},
+              "priority":        {"type": "string", "enum": ["large", "medium", "small"]},
+              "priority_reason": {"type": "string"}
+            },
+            "required": ["quoted_passage", "should_show", "suggested_alt", "insertion_hint", "priority", "priority_reason"],
+            "additionalProperties": false
+          }
         }
       },
-      "required": ["gaps", "suppressed_by_image"],
+      "required": ["gaps", "suppressed_by_image", "suppressed_by_code_block"],
       "additionalProperties": false
     }`),
 }
@@ -1081,14 +1241,16 @@ type ScreenshotResult struct {
 // ScreenshotPromptBudget so the detection LLM call was never issued; this
 // distinguishes a budget skip from a clean run with zero findings.
 type ScreenshotPageStats struct {
-	PageURL            string
-	VisionEnabled      bool
-	RelevanceBatches   int
-	ImagesSeen         int
-	ImageIssues        int
-	MissingScreenshots int
-	PossiblyCovered    int
-	DetectionSkipped   bool
+	PageURL               string
+	VisionEnabled         bool
+	RelevanceBatches      int
+	ImagesSeen            int
+	CodeBlocksSeen        int
+	ImageIssues           int
+	MissingScreenshots    int
+	PossiblyCovered       int
+	SuppressedByCodeBlock int
+	DetectionSkipped      bool
 }
 
 // detectionPass runs the text-only screenshot-gap detection LLM call for one
@@ -1112,14 +1274,15 @@ func detectionPass(
 	page DocPage,
 	refs []imageRef,
 	verdicts []ImageVerdict,
-) (gaps []ScreenshotGap, suppressed []ScreenshotGap, skipped bool, err error) {
+	codeBlocks []codeBlockRef,
+) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, err error) {
 	coverage := buildCoverageMap(refs)
-	content, ok := fitContentToBudget(page.URL, page.Content, coverage, ScreenshotPromptBudget)
+	content, ok := fitContentToBudget(page.URL, page.Content, coverage, codeBlocks, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-		return nil, nil, true, nil
+		return nil, nil, nil, true, nil
 	}
-	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts)
+	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts, codeBlocks)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
 		// Per-model budget gate fired before any wire send. Treat this
@@ -1129,14 +1292,14 @@ func detectionPass(
 		// it up.
 		if errors.Is(err, ErrTokenBudgetExceeded{}) {
 			log.Warnf("screenshot-gaps: skipping %s: %v", page.URL, err)
-			return nil, nil, true, nil
+			return nil, nil, nil, true, nil
 		}
-		return nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
+		return nil, nil, nil, false, fmt.Errorf("DetectScreenshotGaps %s: %w", page.URL, err)
 	}
 	var resp screenshotGapsResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		log.Warnf("screenshot-gaps: skipping %s: invalid JSON response: %v", page.URL, err)
-		return nil, nil, false, nil
+		return nil, nil, nil, false, nil
 	}
 	gaps = make([]ScreenshotGap, 0, len(resp.Gaps))
 	for _, it := range resp.Gaps {
@@ -1156,7 +1319,7 @@ func detectionPass(
 		}
 		gaps = append(gaps, g)
 	}
-	suppressed = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
+	suppressedByImage = make([]ScreenshotGap, 0, len(resp.SuppressedByImage))
 	for _, it := range resp.SuppressedByImage {
 		g := ScreenshotGap{
 			PageURL:        page.URL,
@@ -1172,9 +1335,27 @@ func detectionPass(
 			log.Warnf("screenshot-gaps: dropping %s suppressed item with bad priority: %v", page.URL, err)
 			continue
 		}
-		suppressed = append(suppressed, g)
+		suppressedByImage = append(suppressedByImage, g)
 	}
-	return gaps, suppressed, false, nil
+	suppressedByCodeBlock = make([]ScreenshotGap, 0, len(resp.SuppressedByCodeBlock))
+	for _, it := range resp.SuppressedByCodeBlock {
+		g := ScreenshotGap{
+			PageURL:        page.URL,
+			PagePath:       page.Path,
+			QuotedPassage:  unescapeLiteralWhitespace(it.QuotedPassage),
+			ShouldShow:     unescapeLiteralWhitespace(it.ShouldShow),
+			SuggestedAlt:   unescapeLiteralWhitespace(it.SuggestedAlt),
+			InsertionHint:  unescapeLiteralWhitespace(it.InsertionHint),
+			Priority:       it.Priority,
+			PriorityReason: unescapeLiteralWhitespace(it.PriorityReason),
+		}
+		if err := validateScreenshotGap(g); err != nil {
+			log.Warnf("screenshot-gaps: dropping %s code-block-suppressed item with bad priority: %v", page.URL, err)
+			continue
+		}
+		suppressedByCodeBlock = append(suppressedByCodeBlock, g)
+	}
+	return gaps, suppressedByImage, suppressedByCodeBlock, false, nil
 }
 
 // unescapeLiteralWhitespace converts the two-character escape sequences \n,
@@ -1276,9 +1457,11 @@ func DetectScreenshotGaps(
 		}
 
 		refs := extractImages(page.Content)
+		codeBlocks := extractCodeBlocks(page.Content)
 		stats := ScreenshotPageStats{
-			PageURL:    page.URL,
-			ImagesSeen: len(refs),
+			PageURL:        page.URL,
+			ImagesSeen:     len(refs),
+			CodeBlocksSeen: len(codeBlocks),
 		}
 
 		// Partition refs: vision-supported (and non-GIF) take the relevance
@@ -1337,13 +1520,22 @@ func DetectScreenshotGaps(
 			cancel()
 		}
 
-		gaps, suppressed, skipped, detErr := detectionPass(ctx, client, page, refs, verdicts)
+		gaps, suppressedByImage, suppressedByCodeBlock, skipped, detErr := detectionPass(ctx, client, page, refs, verdicts, codeBlocks)
 		if detErr != nil {
 			return detErr
 		}
 		stats.MissingScreenshots = len(gaps)
-		stats.PossiblyCovered = len(suppressed)
+		stats.SuppressedByCodeBlock = len(suppressedByCodeBlock)
+		stats.PossiblyCovered = len(suppressedByImage) + len(suppressedByCodeBlock)
 		stats.DetectionSkipped = skipped
+
+		// Possibly-covered union: image-suppressed + code-block-suppressed
+		// findings flow into the same user-visible "Possibly Covered" channel,
+		// matching the audit stats union above. Building this locally keeps
+		// the cache-entry construction below honest under concurrent dispatch.
+		possibly := make([]ScreenshotGap, 0, len(suppressedByImage)+len(suppressedByCodeBlock))
+		possibly = append(possibly, suppressedByImage...)
+		possibly = append(possibly, suppressedByCodeBlock...)
 
 		// Single locked region: append everything this page contributed
 		// to the shared result accumulator. LLM calls and persister/
@@ -1351,7 +1543,7 @@ func DetectScreenshotGaps(
 		resultMu.Lock()
 		result.ImageIssues = append(result.ImageIssues, pageIssues...)
 		result.MissingGaps = append(result.MissingGaps, gaps...)
-		result.PossiblyCovered = append(result.PossiblyCovered, suppressed...)
+		result.PossiblyCovered = append(result.PossiblyCovered, possibly...)
 		result.AuditStats = append(result.AuditStats, stats)
 		resultMu.Unlock()
 
@@ -1361,7 +1553,7 @@ func DetectScreenshotGaps(
 				ContentHash: contentHash,
 				Stats:       stats,
 				Missing:     append([]ScreenshotGap(nil), gaps...),
-				Possibly:    append([]ScreenshotGap(nil), suppressed...),
+				Possibly:    append([]ScreenshotGap(nil), possibly...),
 				ImageIssues: append([]ImageIssue(nil), pageIssues...),
 			}
 			if err := onPageDone(page.URL, entry); err != nil {
