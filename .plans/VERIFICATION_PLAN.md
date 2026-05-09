@@ -111,6 +111,9 @@ Before any scenario runs:
 - [ ] Second run's stdout lists `screenshots.md` without the `(skipped)` annotation.
 - [ ] Second run also writes `screenshots.json` carrying `missing_gaps`, `image_issues`, and `possibly_covered`, each with `priority` + `priority_reason`.
 - [ ] Each missing-screenshot, image-issue, and possibly-covered entry in `screenshots.md` appears under `### Large → ### Medium → ### Small` sub-headings in that order; empty buckets are omitted.
+- [ ] On a docs page that contains a terminal-output passage covered by an adjacent ```bash code block, `screenshots.md` does NOT include a missing-screenshot finding for that passage. The audit log for that page reports `code_blocks_seen >= 1` and `suppressed_by_code_block >= 1`.
+- [ ] On a docs page whose response shape is documented via prose followed by an adjacent ```json code block, no missing-screenshot finding flags the response shape. Audit log reports `suppressed_by_code_block >= 1` for that page.
+- [ ] On a docs page whose UI is described in prose followed by an adjacent ```html / ```jsx code block, no missing-screenshot finding flags the rendered UI. Audit log reports `suppressed_by_code_block >= 1` for that page.
 
 **If Blocked**: If `screenshots.md` renders on the default run, the gating is broken. Stop and ask.
 
