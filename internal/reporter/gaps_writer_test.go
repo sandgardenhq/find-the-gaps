@@ -202,7 +202,7 @@ func TestGapsWriter_byteIdenticalToWriteGaps(t *testing.T) {
 	require.NoError(t, err)
 
 	dirB := t.TempDir()
-	prefix := reporter.BuildGapsStaticPrefix(mapping, docFeatures)
+	prefix := reporter.BuildGapsStaticPrefix(mapping, docFeatures, nil)
 	w := reporter.NewGapsWriter(dirB, prefix, time.Millisecond)
 	w.Push(drift)
 	require.NoError(t, w.Close())

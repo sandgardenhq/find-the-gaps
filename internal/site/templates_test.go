@@ -34,6 +34,56 @@ func TestRenderHugoConfigMirror(t *testing.T) {
 	}
 }
 
+// TestRenderHugoConfigMirrorMenuOrder pins that the top nav links are
+// emitted in Gaps -> Screenshots -> Mapping order. The order is enforced
+// by the menu weights in hugo.toml; the simplest way to assert the
+// rendered ordering is to check that each name appears before the next
+// in the rendered config string.
+func TestRenderHugoConfigMirrorMenuOrder(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title:          "x",
+		Mode:           ModeMirror,
+		ScreenshotsRan: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gaps := strings.Index(got, `name = "Gaps"`)
+	screenshots := strings.Index(got, `name = "Screenshots"`)
+	mapping := strings.Index(got, `name = "Mapping"`)
+	if gaps < 0 || screenshots < 0 || mapping < 0 {
+		t.Fatalf("expected Gaps, Screenshots, Mapping menu entries; got:\n%s", got)
+	}
+	if !(gaps < screenshots && screenshots < mapping) {
+		t.Errorf("expected menu order Gaps -> Screenshots -> Mapping; positions gaps=%d screenshots=%d mapping=%d; got:\n%s",
+			gaps, screenshots, mapping, got)
+	}
+}
+
+// TestRenderHugoConfigExpandedMenuOrder mirrors the mirror-mode order
+// check for expanded mode, where the structural-map entry is "Features"
+// instead of "Mapping". Order: Gaps -> Screenshots -> Features.
+func TestRenderHugoConfigExpandedMenuOrder(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title:          "x",
+		Mode:           ModeExpanded,
+		ScreenshotsRan: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gaps := strings.Index(got, `name = "Gaps"`)
+	screenshots := strings.Index(got, `name = "Screenshots"`)
+	features := strings.Index(got, `name = "Features"`)
+	if gaps < 0 || screenshots < 0 || features < 0 {
+		t.Fatalf("expected Gaps, Screenshots, Features menu entries; got:\n%s", got)
+	}
+	if !(gaps < screenshots && screenshots < features) {
+		t.Errorf("expected menu order Gaps -> Screenshots -> Features; positions gaps=%d screenshots=%d features=%d; got:\n%s",
+			gaps, screenshots, features, got)
+	}
+}
+
 func TestRenderHugoConfigOmitsScreenshotsWhenNotRan(t *testing.T) {
 	got, err := renderHugoConfig(hugoConfigData{
 		Title:          "x",
@@ -273,6 +323,28 @@ func TestRenderHomeOmitsSectionsBlock(t *testing.T) {
 	}
 }
 
+// TestLayoutsRemoveSidebarEntirely pins that home, list, and single
+// layouts do NOT render the Hextra sidebar partial. The report site has
+// no nested navigation hierarchy — every link the reader needs is in the
+// top navbar — so the sidebar's left column is dead space. Removing the
+// partial drops the <aside> element entirely so the article fills the
+// available width.
+func TestLayoutsRemoveSidebarEntirely(t *testing.T) {
+	for _, p := range []string{
+		"assets/theme/hextra/layouts/single.html",
+		"assets/theme/hextra/layouts/list.html",
+		"assets/theme/hextra/layouts/home.html",
+	} {
+		body, err := themeFS.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		if strings.Contains(string(body), `partial "sidebar.html"`) {
+			t.Errorf("%s must not invoke the sidebar partial; got:\n%s", p, body)
+		}
+	}
+}
+
 // TestSingleLayoutH1IsNotCenterAligned pins that the per-page (mapping,
 // gaps, screenshots, per-feature) layout uses the default left alignment
 // for the page header instead of Hextra's stock `hx:text-center`. The
@@ -356,11 +428,96 @@ func TestRenderFeatureFull(t *testing.T) {
 		"`internal/auth/session.go`",
 		"`Login`",
 		"`Logout`",
-		"[https://example.com/docs/auth](https://example.com/docs/auth)",
+		`<a href="https://example.com/docs/auth" target="_blank" rel="noopener">https://example.com/docs/auth</a>`,
 		"old signature",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderFeatureImplementedInAndSymbolsAreCollapsible pins that the
+// per-feature page (expanded mode) wraps the file list and symbol list in
+// <details>/<summary> so they stay tucked away by default and expand on
+// click. The summary text shows the section name + the item count.
+func TestRenderFeatureImplementedInAndSymbolsAreCollapsible(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:       "User Auth",
+		Layer:      "service",
+		UserFacing: true,
+		Documented: true,
+		Files:      []string{"internal/auth/login.go", "internal/auth/session.go"},
+		Symbols:    []string{"Login", "Logout"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<details class="ftg-collapse ftg-collapse--files">`,
+		`<summary>Implemented in (2)</summary>`,
+		`<details class="ftg-collapse ftg-collapse--symbols">`,
+		`<summary>Symbols (2)</summary>`,
+		"- `internal/auth/login.go`",
+		"- `internal/auth/session.go`",
+		"- `Login`",
+		"- `Logout`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// The old plain `## Implemented in` / `## Symbols` markdown headings
+	// are replaced by <summary> labels inside <details>. They must not
+	// reappear, otherwise the page renders both a heading and a summary.
+	for _, bad := range []string{
+		"## Implemented in",
+		"## Symbols",
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("feature page should not retain plain heading %q now that the section is collapsible; got:\n%s", bad, got)
+		}
+	}
+}
+
+// TestRenderMappingPageImplementedInAndSymbolsAreCollapsible mirrors the
+// per-feature collapsibility check for the mirror-mode mapping page.
+func TestRenderMappingPageImplementedInAndSymbolsAreCollapsible(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo",
+		Features: []mappingFeature{{
+			Name:       "User Auth",
+			Layer:      "service",
+			UserFacing: true,
+			Documented: true,
+			Files:      []string{"internal/auth/login.go", "internal/auth/session.go"},
+			Symbols:    []string{"Login", "Logout"},
+			DocURLs:    []string{"https://example.com/docs/auth"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<details class="ftg-collapse ftg-collapse--files">`,
+		`<summary>Implemented in (2)</summary>`,
+		`<details class="ftg-collapse ftg-collapse--symbols">`,
+		`<summary>Symbols (2)</summary>`,
+		"- `internal/auth/login.go`",
+		"- `internal/auth/session.go`",
+		"- `Login`",
+		"- `Logout`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{
+		"#### Implemented in",
+		"#### Symbols",
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("mapping page should not retain plain heading %q now that the section is collapsible; got:\n%s", bad, got)
 		}
 	}
 }
@@ -407,6 +564,153 @@ func TestRenderFeatureFrontmatterIsValidTOML(t *testing.T) {
 	}
 }
 
+// TestRenderFeature_DocumentedOnIsCollapsible pins that the per-feature
+// page wraps the "Documented on" list in <details>/<summary>, matching
+// the Implemented in / Symbols collapsibles. The summary shows the
+// section name plus the count of doc URLs.
+func TestRenderFeature_DocumentedOnIsCollapsible(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:       "User Auth",
+		Layer:      "service",
+		UserFacing: true,
+		Documented: true,
+		DocURLs:    []string{"https://example.com/docs/auth", "https://example.com/docs/login"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<details class="ftg-collapse ftg-collapse--docs">`,
+		`<summary>Documented on (2)</summary>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "## Documented on") {
+		t.Errorf("feature page should not retain plain heading `## Documented on` now that the section is collapsible; got:\n%s", got)
+	}
+}
+
+// TestRenderMappingPage_DocumentedOnIsCollapsible mirrors the per-feature
+// check on the mirror-mode mapping page. The empty-DocURLs branch keeps
+// rendering `_(none)_` (no <details> wrapper) so that the absence is
+// visible without requiring the reader to expand anything.
+func TestRenderMappingPage_DocumentedOnIsCollapsible(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo",
+		Features: []mappingFeature{{
+			Name:       "User Auth",
+			Layer:      "service",
+			UserFacing: true,
+			Documented: true,
+			DocURLs:    []string{"https://example.com/docs/auth"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<details class="ftg-collapse ftg-collapse--docs">`,
+		`<summary>Documented on (1)</summary>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "#### Documented on") {
+		t.Errorf("mapping page should not retain plain heading `#### Documented on`; got:\n%s", got)
+	}
+}
+
+// TestRenderMappingPage_DocURLsOpenInNewTab pins that the "Documented on"
+// list on the mapping page emits raw <a target="_blank" rel="noopener">
+// rather than relying on the Hextra render-link hook to add those
+// attributes. The user reports the markdown path was not opening in a
+// new tab in practice, so the template now emits the attributes itself.
+func TestRenderMappingPage_DocURLsOpenInNewTab(t *testing.T) {
+	got, err := renderMappingPage(mappingPageData{
+		Summary: "demo",
+		Features: []mappingFeature{{
+			Name:       "User Auth",
+			Layer:      "service",
+			UserFacing: true,
+			Documented: true,
+			DocURLs:    []string{"https://example.com/docs/auth"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`href="https://example.com/docs/auth"`,
+		`target="_blank"`,
+		`rel="noopener"`,
+		`https://example.com/docs/auth`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderFeature_DocURLsOpenInNewTab mirrors the mapping-page check on
+// the per-feature page used in expanded mode.
+func TestRenderFeature_DocURLsOpenInNewTab(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:       "User Auth",
+		Layer:      "service",
+		UserFacing: true,
+		Documented: true,
+		DocURLs:    []string{"https://example.com/docs/auth"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`href="https://example.com/docs/auth"`,
+		`target="_blank"`,
+		`rel="noopener"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderFeature_DriftPageLinkOpensInNewTab pins that the raw-HTML
+// "Page" link in the drift findings list carries `target="_blank"` and
+// `rel="noopener"`. This link points at the live docs site, so it must
+// open in a new tab to keep the report site as the user's anchor.
+// Markdown doc URL links elsewhere in the templates flow through Hugo's
+// render-link hook (which already does this for external links); the
+// drift link is emitted as raw HTML and bypasses that hook, so the
+// attributes have to be on the template itself.
+func TestRenderFeature_DriftPageLinkOpensInNewTab(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:       "X",
+		Documented: true,
+		UserFacing: true,
+		Layer:      "ui",
+		Drift: []driftIssue{{
+			Page:  "https://example.com/docs/auth",
+			Issue: "old signature",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`href="https://example.com/docs/auth"`,
+		`target="_blank"`,
+		`rel="noopener"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 // TestRenderFeature_EscapesDriftFields pins that LLM-derived drift fields
 // (Issue, PriorityReason, Page) are HTML-escaped before being interpolated
 // into the raw-HTML drift cards. text/template does not auto-escape, so a
@@ -428,7 +732,7 @@ func TestRenderFeature_EscapesDriftFields(t *testing.T) {
 	}
 	for _, want := range []string{
 		"signature changed from Foo() to Foo[T any]() &lt;breaking&gt;",
-		"why: callers must update &lt;T&gt;",
+		`<p class="ftg-stale-why-text">callers must update &lt;T&gt;</p>`,
 		`href="https://example.com/p?a=1&amp;b=&lt;2&gt;"`,
 	} {
 		if !strings.Contains(got, want) {
@@ -545,20 +849,29 @@ func TestRenderMappingPageSubHeadingLists(t *testing.T) {
 		"## Features",
 		"### User Auth",
 		"> Login and session management.",
-		"- **Layer:** service",
-		"- **User-facing:** yes",
-		"- **Documentation status:** documented",
-		"#### Implemented in",
+		"<summary>Implemented in (2)</summary>",
 		"- `internal/auth/login.go`",
 		"- `internal/auth/session.go`",
-		"#### Symbols",
+		"<summary>Symbols (2)</summary>",
 		"- `Login`",
 		"- `Logout`",
-		"#### Documented on",
-		"- [https://example.com/docs/auth](https://example.com/docs/auth)",
+		"<summary>Documented on (1)</summary>",
+		`- <a href="https://example.com/docs/auth" target="_blank" rel="noopener">https://example.com/docs/auth</a>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// The Layer / User-facing / Documentation status bullet list was a
+	// duplicate of the badges row at the top of each feature card; the
+	// badges are the canonical surface, so the bullets must be gone.
+	for _, bad := range []string{
+		"- **Layer:**",
+		"- **User-facing:**",
+		"- **Documentation status:**",
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("mapping page should no longer contain duplicate bullet %q (badges already cover it); got:\n%s", bad, got)
 		}
 	}
 }
@@ -603,10 +916,10 @@ func TestRenderMappingPageOmitsEmptyFilesAndSymbols(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, "#### Implemented in") {
+	if strings.Contains(got, "ftg-collapse--files") {
 		t.Errorf("Implemented in should be omitted when Files is empty; got:\n%s", got)
 	}
-	if strings.Contains(got, "#### Symbols") {
+	if strings.Contains(got, "ftg-collapse--symbols") {
 		t.Errorf("Symbols should be omitted when Symbols is empty; got:\n%s", got)
 	}
 }

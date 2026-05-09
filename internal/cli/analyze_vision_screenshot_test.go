@@ -168,6 +168,9 @@ func TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues(t *testing.T) {
 		case strings.Contains(s, `"name":"synthesize_response"`),
 			strings.Contains(s, `"name": "synthesize_response"`):
 			respond(`{"description":"A test product.","features":["feature-one"]}`)
+		case strings.Contains(s, `"name":"why_document_response"`),
+			strings.Contains(s, `"name": "why_document_response"`):
+			respond(`{"rationales":[{"name":"feature-one","rationale":"test rationale"}]}`)
 		case strings.Contains(s, `"name":"analyze_page_response"`),
 			strings.Contains(s, `"name": "analyze_page_response"`):
 			respond(`{"summary":"Settings page.","features":["settings"],"is_docs":true}`)
@@ -308,6 +311,9 @@ func TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass(t *testing.T) {
 		case strings.Contains(s, `"name":"synthesize_response"`),
 			strings.Contains(s, `"name": "synthesize_response"`):
 			respond(`{"description":"A test product.","features":["feature-one"]}`)
+		case strings.Contains(s, `"name":"why_document_response"`),
+			strings.Contains(s, `"name": "why_document_response"`):
+			respond(`{"rationales":[{"name":"feature-one","rationale":"test rationale"}]}`)
 		case strings.Contains(s, `"name":"analyze_page_response"`),
 			strings.Contains(s, `"name": "analyze_page_response"`):
 			respond(`{"summary":"Settings page.","features":["settings"],"is_docs":true}`)

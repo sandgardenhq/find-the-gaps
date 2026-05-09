@@ -433,6 +433,16 @@ func TestAnalyze_allCached_noLLMCalls(t *testing.T) {
 	if err := saveDocsFeatureMapCache(filepath.Join(projectDir, "docsfeaturemap.json"), []string{"feature-one"}, docsFM); err != nil {
 		t.Fatal(err)
 	}
+	// Pre-cache the WhyDocument rationale for the undocumented feature so
+	// the small-tier call is skipped on this all-cached run.
+	whyEntry := whyDocumentCacheEntry{
+		Name:      "feature-one",
+		Hash:      whyDocumentInputHash(codeFeatures[0]),
+		Rationale: "cached rationale.",
+	}
+	if err := saveWhyDocumentCache(filepath.Join(projectDir, "why-document.json"), map[string]whyDocumentCacheEntry{"feature-one": whyEntry}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Fake server that fails loudly if any LLM request arrives — none should.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -529,6 +539,14 @@ func TestAnalyze_writesSiteAfterReports(t *testing.T) {
 	}
 	docsFM := analyzer.DocsFeatureMap{{Feature: "feature-one", Pages: nil}}
 	if err := saveDocsFeatureMapCache(filepath.Join(projectDir, "docsfeaturemap.json"), []string{"feature-one"}, docsFM); err != nil {
+		t.Fatal(err)
+	}
+	whyEntry := whyDocumentCacheEntry{
+		Name:      "feature-one",
+		Hash:      whyDocumentInputHash(codeFeatures[0]),
+		Rationale: "cached rationale.",
+	}
+	if err := saveWhyDocumentCache(filepath.Join(projectDir, "why-document.json"), map[string]whyDocumentCacheEntry{"feature-one": whyEntry}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -152,6 +152,11 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 			// Synthesize fires because at least one page was analyzed fresh
 			// this run; return a stable summary so the run progresses.
 			respond(`{"description":"A test product.","features":["feature-one"]}`)
+		case strings.Contains(s, `"name":"why_document_response"`),
+			strings.Contains(s, `"name": "why_document_response"`):
+			// WhyDocument fires for undocumented user-facing features.
+			// Return a stable rationale stub so the run progresses.
+			respond(`{"rationales":[{"name":"feature-one","rationale":"test rationale"}]}`)
 		case strings.Contains(s, `"name":"analyze_page_response"`),
 			strings.Contains(s, `"name": "analyze_page_response"`):
 			switch {
