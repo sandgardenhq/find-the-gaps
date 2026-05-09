@@ -280,6 +280,26 @@ func TestBuildScreenshotPrompt_EmptyHeadingFallback(t *testing.T) {
 	assert.Contains(t, got, `section "(no heading)"`)
 }
 
+func TestBuildScreenshotPrompt_GeneralizesCoveredRuleToCodeBlocks(t *testing.T) {
+	got := buildScreenshotPrompt("https://x/p", "content", nil, nil)
+	// Coverage rule must explicitly call out code-block coverage:
+	assert.Contains(t, got, "code block")
+	// Do NOT flag list expanded:
+	assert.Contains(t, got, "API responses, config files, or data shapes")
+	assert.Contains(t, got, "Rendered UI whose source is already shown")
+}
+
+func TestBuildDetectionPromptWithVerdicts_GeneralizesCoveredRule(t *testing.T) {
+	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, nil)
+	assert.Contains(t, got, "code block")
+	assert.Contains(t, got, "API responses, config files, or data shapes")
+	assert.Contains(t, got, "Rendered UI whose source is already shown")
+	// Verdict-aware prompt must also instruct the model to populate the new array:
+	assert.Contains(t, got, `"suppressed_by_code_block"`)
+}
+
 // fakeLLMClient collects calls and returns canned responses per call index.
 // Responses are in the wrapped {"gaps":[...]} format; use `{"gaps":[]}` for
 // the empty case. When responses is shorter than the call count, `{"gaps":[]}`
@@ -729,7 +749,7 @@ func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 				"prompt should still tell the model not to flag single-action UI moments")
 			assert.Contains(t, prompt, `click Save`,
 				"prompt should keep the canonical 'click Save' example")
-			assert.Contains(t, prompt, `Terminal sessions whose output is already shown inline in a code block`,
+			assert.Contains(t, prompt, `Terminal sessions whose output is shown inline in a nearby code block`,
 				"prompt should still exclude terminal sessions already shown inline as code")
 			assert.Contains(t, prompt, `API signatures, option tables, type listings`,
 				"prompt should keep the reference-material exclusion")

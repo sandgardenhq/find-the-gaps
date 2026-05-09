@@ -693,7 +693,7 @@ func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageR
 
 	codeBlocksSummary := renderCodeBlockCoverage(codeBlocks)
 
-	// PROMPT: Identifies passages in a documentation page where a screenshot earns its place — multi-step flows, non-obvious UI layouts, visual-recognition asks, first-run confirmations whose target state is hard to describe in words. Applies a locality rule: a passage may be covered when an existing image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
+	// PROMPT: Identifies passages in a documentation page where a screenshot earns its place — multi-step flows, non-obvious UI layouts, visual-recognition asks, first-run confirmations whose target state is hard to describe in words. Applies a generalized locality rule: a passage may be covered EITHER by a topically-matching nearby image OR by a topically-matching nearby code block (e.g., a bash/console block covering terminal output, a json/yaml block covering an API or config response shape, an html/jsx block covering rendered UI source). Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
 
 URL: %s
@@ -707,7 +707,10 @@ Existing code blocks on this page (if any):
 Page content:
 %s
 
-A passage may already be visually covered by an existing image, but ONLY when the image's alt text and src plausibly describe the same UI moment as the passage AND the image appears in the same section heading or within 3 paragraphs before/after. An off-topic nearby image (e.g., an architecture diagram next to UI-walkthrough prose) does NOT cover the passage.
+A passage may already be visually covered by an existing image OR a nearby code block.
+- Image coverage: an image's alt text and src plausibly describe the same UI moment AND the image appears in the same section heading or within 3 paragraphs before/after.
+- Code-block coverage: a code block sits in the same section heading or within 3 paragraphs AND its language plausibly matches the moment in prose — `+"`bash`/`console`/`shell`/`text`/`sh`"+` for terminal output; `+"`json`/`yaml`/`toml`/`xml`"+` for response or config shapes; `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` for rendered UI source. The full block content appears verbatim in the page content above; judge topical fit by reading it directly.
+An off-topic nearby image OR an off-topic nearby code block does NOT cover the passage.
 
 Flag a passage ONLY when at least one is true AND the prose by itself leaves a competent reader unable to picture the result:
 1. MULTI-STEP FLOW: a sequence of two or more user actions across changing UI states where the reader needs to see intermediate states to stay oriented (a wizard, an OAuth handshake, guided onboarding).
@@ -717,12 +720,14 @@ Flag a passage ONLY when at least one is true AND the prose by itself leaves a c
 
 Do NOT flag:
 - Single-action interactions ("click Save", "press Enter", "fill in the email field").
-- Terminal sessions whose output is already shown inline in a code block.
+- Terminal sessions whose output is shown inline in a nearby code block.
+- API responses, config files, or data shapes already shown verbatim in a nearby `+"`json`/`yaml`/`toml`/`xml`"+` code block under the locality rule above.
+- Rendered UI whose source is already shown in a nearby `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` code block where the prose describes how the resulting UI looks.
 - Reference material (API signatures, option tables, type listings).
 - Pure conceptual prose with no UI moment.
 - Generic "you'll see the result" sentences where the result is already described in prose or shown in a code block.
 - Any UI moment a competent reader can picture from the prose alone.
-- Passages already covered by a topically-matching image under the locality rule above.
+- Passages already covered by a topically-matching image or code block under the locality rule above.
 
 Populate "gaps" with one object per gap. Each object must have:
 - "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
@@ -809,7 +814,7 @@ func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, 
 
 	codeBlocksSummary := renderCodeBlockCoverage(codeBlocks)
 
-	// PROMPT: Verdict-enriched screenshot-gap detection. A vision model has already inspected each existing image and emitted an authoritative verdict. The first question for every UI moment in the prose is: is there an existing image on this page whose verdict is "matches" and that sits near the passage? If yes, suppress (record under "suppressed_by_image"). If no, only THEN consider whether a screenshot would earn its place under the selective triggers below. "verdict: does not match" images do NOT cover their surrounding prose — treat them as if absent. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
+	// PROMPT: Verdict-enriched screenshot-gap detection. A vision model has already inspected each existing image and emitted an authoritative verdict. For every UI moment in the prose the model must ask: is there an existing image on this page whose verdict is "matches" and that sits near the passage, OR is there a topically-matching nearby code block (bash/console terminal output, json/yaml response or config shape, html/jsx rendered UI source) under the locality rule? If yes to either, suppress (record under "suppressed_by_image" or "suppressed_by_code_block" respectively). If no, only THEN consider whether a screenshot would earn its place under the selective triggers below. "verdict: does not match" images do NOT cover their surrounding prose — treat them as if absent. Selective by design: most pages should produce zero gaps. When in doubt, do not flag.
 	return fmt.Sprintf(`You are reviewing a documentation page to find the small number of places where a screenshot would meaningfully help the reader — places where prose alone leaves a real gap. Be selective. Most pages should produce zero gaps.
 
 URL: %s
@@ -828,7 +833,12 @@ The verdicts above are AUTHORITATIVE. Do not second-guess them based on filename
 - "verdict: does not match" — the image's actual contents do NOT depict what the surrounding prose describes. Treat the passage as uncovered, exactly as if the image were absent.
 - "verdict: unknown" — fall back to the locality rule: a passage is covered only when an image's alt text plausibly matches the topic AND the image appears in the same section heading or within 3 paragraphs before/after.
 
-KEY QUESTION for every UI moment in the prose: is there an existing image on this page whose verdict is "matches" and that sits in the same section heading or within 3 paragraphs of the passage? If yes, the passage is already covered — do NOT add it to "gaps"; record it in "suppressed_by_image" instead. If no, only THEN consider whether a screenshot would earn its place under the selective triggers below.
+A passage may already be visually covered by an existing image OR a nearby code block.
+- Image coverage: an image's alt text and src plausibly describe the same UI moment AND the image appears in the same section heading or within 3 paragraphs before/after.
+- Code-block coverage: a code block sits in the same section heading or within 3 paragraphs AND its language plausibly matches the moment in prose — `+"`bash`/`console`/`shell`/`text`/`sh`"+` for terminal output; `+"`json`/`yaml`/`toml`/`xml`"+` for response or config shapes; `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` for rendered UI source. The full block content appears verbatim in the page content above; judge topical fit by reading it directly.
+An off-topic nearby image OR an off-topic nearby code block does NOT cover the passage.
+
+KEY QUESTION for every UI moment in the prose: is there an existing image on this page whose verdict is "matches" and that sits in the same section heading or within 3 paragraphs of the passage, OR is there a topically-matching nearby code block under the code-block-coverage rule above? If yes to the image, the passage is already covered — do NOT add it to "gaps"; record it in "suppressed_by_image" instead. If yes to the code block, do NOT add it to "gaps"; record it in "suppressed_by_code_block" instead. If no to both, only THEN consider whether a screenshot would earn its place under the selective triggers below.
 
 Flag a passage ONLY when at least one is true AND the prose by itself leaves a competent reader unable to picture the result:
 1. MULTI-STEP FLOW: a sequence of two or more user actions across changing UI states where the reader needs to see intermediate states to stay oriented (a wizard, an OAuth handshake, guided onboarding).
@@ -838,14 +848,17 @@ Flag a passage ONLY when at least one is true AND the prose by itself leaves a c
 
 Do NOT flag:
 - Single-action interactions ("click Save", "press Enter", "fill in the email field").
-- Terminal sessions whose output is already shown inline in a code block.
+- Terminal sessions whose output is shown inline in a nearby code block.
+- API responses, config files, or data shapes already shown verbatim in a nearby `+"`json`/`yaml`/`toml`/`xml`"+` code block under the locality rule above.
+- Rendered UI whose source is already shown in a nearby `+"`html`/`jsx`/`tsx`/`vue`/`svelte`/`css`"+` code block where the prose describes how the resulting UI looks.
 - Reference material (API signatures, option tables, type listings).
 - Pure conceptual prose with no UI moment.
 - Generic "you'll see the result" sentences where the result is already described in prose or shown in a code block.
 - Any UI moment a competent reader can picture from the prose alone.
 - Passages where a "verdict: matches" image already sits in the same section heading or within 3 paragraphs (record these in "suppressed_by_image" instead of "gaps").
+- Passages already covered by a topically-matching nearby code block (record these in "suppressed_by_code_block" instead of "gaps").
 
-Populate "gaps" with one object per gap (a passage that should have a screenshot AND no "verdict: matches" image already covers it). Each object must have:
+Populate "gaps" with one object per gap (a passage that should have a screenshot AND no "verdict: matches" image and no topically-matching nearby code block already covers it). Each object must have:
 - "quoted_passage": the exact verbatim quote from the page. Do not paraphrase.
 - "should_show": specific description of the screenshot — name visible elements, values, states, panels. Not "a screenshot of the feature".
 - "suggested_alt": alt text / caption, under 100 characters.
@@ -854,6 +867,8 @@ Populate "gaps" with one object per gap (a passage that should have a screenshot
 - "priority_reason": one sentence explaining the rating.
 
 Populate "suppressed_by_image" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a "verdict: matches" image already covers it. Same six fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
+
+Populate "suppressed_by_code_block" with one object per moment that you WOULD have flagged under the rules above EXCEPT that a topically-matching nearby code block already covers it (terminal output, API/config shapes, or rendered UI source). Same six fields as "gaps". This list is for audit stats only; it is NOT rendered to users.
 
 page_role: %s
 
