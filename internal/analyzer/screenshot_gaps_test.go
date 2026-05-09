@@ -184,6 +184,40 @@ func TestExtractCodeBlocks_UnclosedFenceIsIgnored(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+// TestExtractCodeBlocks_TrimsLanguageInfoString pins that the captured
+// Language is the first whitespace-bounded token of the fence info string.
+// CommonMark / Hugo allow tagged info strings like ```go {linenos=true}; the
+// downstream coverage matcher keys on bare language equality (e.g. "go",
+// "bash") and would never match a tagged string left intact.
+func TestExtractCodeBlocks_TrimsLanguageInfoString(t *testing.T) {
+	md := "# X\n\n```go {linenos=true}\nfmt.Println(\"hi\")\n```\n"
+	got := extractCodeBlocks(md)
+	require.Len(t, got, 1)
+	assert.Equal(t, "go", got[0].Language)
+}
+
+// TestExtractCodeBlocks_ParagraphIndexParityWithImages locks the paragraph-
+// index semantics shared between extractImages and extractCodeBlocks. Both
+// walkers must use the same blank-line-separated block scheme so a
+// downstream consumer can compare image and code-block locality apples-to-
+// apples without two divergent indices to reconcile.
+func TestExtractCodeBlocks_ParagraphIndexParityWithImages(t *testing.T) {
+	md := "# H\n\nintro\n\n![pic](a.png)\n\nnext\n\n" +
+		"```bash\ncmd\n```\n\nafter\n"
+	imgs := extractImages(md)
+	blocks := extractCodeBlocks(md)
+	require.Len(t, imgs, 1)
+	require.Len(t, blocks, 1)
+	// Heading is paragraph 0; intro is 1; the image lives in paragraph 2;
+	// "next" is 3; the code block is 4. The exact value matters less than
+	// the parity contract, but pin both so a future walker change has to
+	// update both call sites in lockstep.
+	assert.Equal(t, 2, imgs[0].ParagraphIndex,
+		"image paragraph index should be the blank-line-separated block position")
+	assert.Equal(t, 4, blocks[0].ParagraphIndex,
+		"code block paragraph index should use the same blank-line-separated scheme")
+}
+
 func TestBuildCoverageMap_GroupsBySection(t *testing.T) {
 	refs := []imageRef{
 		{Src: "a.png", SectionHeading: "Intro", ParagraphIndex: 1},

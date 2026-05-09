@@ -261,7 +261,17 @@ func extractCodeBlocks(md string) []codeBlockRef {
 				if strings.HasPrefix(trimmed, "~~~") {
 					marker = "~~~"
 				}
-				fenceLang = strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
+				// CommonMark / Hugo info strings can carry attributes after the
+				// language token (e.g. ```go {linenos=true}). Downstream
+				// matchers key on the bare language, so capture only the first
+				// whitespace-delimited token. strings.Fields collapses any
+				// leading/trailing/internal whitespace; an empty info string
+				// yields no fields, leaving Language as "".
+				info := strings.TrimPrefix(trimmed, marker)
+				fenceLang = ""
+				if fields := strings.Fields(info); len(fields) > 0 {
+					fenceLang = fields[0]
+				}
 				fenceLines = 0
 				inFence = true
 				hadContentInBlock = true
