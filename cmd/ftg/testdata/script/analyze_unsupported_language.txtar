@@ -4,7 +4,7 @@ mkdir repo
 cp README.md repo/README.md
 cp data.json repo/data.json
 
-! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs-url https://example.com/docs
+! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://example.com/docs
 stderr 'no supported programming languages'
 stderr 'Go, Python, TypeScript'
 stderr 'https://github.com/sandgardenhq/find-the-gaps/issues'

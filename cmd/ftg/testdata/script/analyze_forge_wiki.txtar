@@ -8,7 +8,7 @@ exec git -c user.email=a@b -c user.name=a commit --allow-empty -q -m init
 exec git remote add origin https://github.com/foo/bar.git
 cd ..
 
-! exec ftg analyze --repo repo --docs-url https://github.com/foo/bar/wiki --cache-dir $WORK/cache --no-site
+! exec ftg analyze --repo repo --docs https://github.com/foo/bar/wiki --cache-dir $WORK/cache --no-site
 stderr 'Find the Gaps can.t crawl source-control forges'
 
 -- repo/main.go --

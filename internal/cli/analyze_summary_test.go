@@ -30,7 +30,7 @@ func TestAnalyze_printsScanSummary(t *testing.T) {
 	cmd.SetArgs([]string{
 		"--repo", dir,
 		"--cache-dir", filepath.Join(t.TempDir(), "cache"),
-		"--docs-url", "https://docs.example.invalid",
+		"--docs", "https://docs.example.invalid",
 	})
 	// Scan summary prints before the docs path runs; ignore the eventual error.
 	_ = cmd.Execute()
@@ -58,7 +58,7 @@ func TestAnalyze_quietSuppressesSummary(t *testing.T) {
 	cmd.SetArgs([]string{
 		"--repo", dir,
 		"--cache-dir", filepath.Join(t.TempDir(), "cache"),
-		"--docs-url", "https://docs.example.invalid",
+		"--docs", "https://docs.example.invalid",
 	})
 	_ = cmd.Execute()
 

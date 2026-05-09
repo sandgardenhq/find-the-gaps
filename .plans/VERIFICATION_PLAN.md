@@ -22,7 +22,7 @@ Before any scenario runs:
 **Context**: Fixture repo and docs site are in known-good sync (pinned commit + matching docs snapshot).
 
 **Steps**:
-1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<known-good-docs>`.
+1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<known-good-docs>`.
 2. Let the tool run to completion.
 3. Inspect the generated report.
 
@@ -41,7 +41,7 @@ Before any scenario runs:
 
 **Steps**:
 1. In the fixture repo, add a new exported function (e.g., `func Frobnicate(x string) error { ... }`) in a real package. Do NOT modify the docs site.
-2. Re-run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<known-good-docs>`.
+2. Re-run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<known-good-docs>`.
 3. Inspect the report.
 
 **Success Criteria**:
@@ -98,7 +98,7 @@ Before any scenario runs:
 **Context**: Known-good fixture + docs site, but a page describes a UI moment with no nearby image. The screenshot pass is experimental and off by default — verification covers both the default-off path and the explicit opt-in.
 
 **Steps**:
-1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>` (no extra flags).
+1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs>` (no extra flags).
 2. Inspect `<projectDir>/`.
 3. Re-run with `--experimental-check-screenshots`.
 4. Inspect `<projectDir>/screenshots.md`.
@@ -191,7 +191,7 @@ Before any scenario runs:
 **Steps**:
 1. Pick a small, real open-source Go project with a public docs site (documented in `testdata/README.md`).
 2. Clone the repo at a pinned commit.
-3. Run `find-the-gaps analyze --repo <path> --docs-url <url> -v`.
+3. Run `find-the-gaps analyze --repo <path> --docs <url> -v`.
 4. Wait for mdfetch ingestion + analysis to complete.
 5. Inspect the report.
 6. Re-run the same command against the same fixture, with `-v`, capturing stdout to a file.
@@ -213,7 +213,7 @@ Before any scenario runs:
 
 **Steps**:
 1. Tag a release of this repo (or use the most recent published tag).
-2. In a fixture GitHub repository, add a workflow that calls `sandgardenhq/find-the-gaps@<tag>` with a real `docs-url`, `ANTHROPIC_API_KEY` secret, `create-issue: 'true'`.
+2. In a fixture GitHub repository, add a workflow that calls `sandgardenhq/find-the-gaps@<tag>` with a real `docs` input, `ANTHROPIC_API_KEY` secret, `create-issue: 'true'`.
 3. Trigger the workflow via `workflow_dispatch`.
 4. Wait for completion. Inspect: artifact, issues tab, run logs.
 5. Manually edit the fixture repo to introduce a new exported function (mirrors Scenario 2).
@@ -239,7 +239,7 @@ Before any scenario runs:
 **Context**: Verify the analyze command produces a deployable Hugo site in both `mirror` and `expanded` modes, and that all flag combinations behave as documented.
 
 **Steps**:
-1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs>` (default `--site-mode=mirror`).
+1. Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs>` (default `--site-mode=mirror`).
 2. Run a static server in `<projectDir>/site/` (e.g., `python3 -m http.server`) and load `/`, `/mapping/`, `/gaps/`.
 3. Re-run with `--site-mode=expanded`.
 4. Crawl every link in `<projectDir>/site/gaps/index.html` and confirm each resolves.
@@ -270,7 +270,7 @@ Before any scenario runs:
 **Steps**:
 1. Pick a real open-source project whose docs site fits the criteria (suggested: Cobra, Bubble Tea, or any project with `/blog/` alongside `/docs/`).
 2. Clone the repo at a pinned commit.
-3. Run `find-the-gaps analyze --repo <path> --docs-url <url>`.
+3. Run `find-the-gaps analyze --repo <path> --docs <url>`.
 4. Inspect stdout for the classification summary line.
 5. Re-run with `-v` and capture the per-URL non-docs list.
 6. Inspect `<projectDir>/gaps.md` for any drift findings whose page URL is under blog/team/careers/legal paths.
@@ -294,7 +294,7 @@ Before any scenario runs:
 **Context**: Verifies that the screenshot pass auto-engages a vision-aware branch when the small tier resolves to a vision-capable model, that the vision-off branch is unchanged, and that Groq's 5-image-per-request cap is handled by transparent batching. All sub-cases run against a real public docs site that contains both prose-with-images passages (so `## Image Issues` has something to flag) and at least one page with more than five images (so batching is observable).
 
 **Steps**:
-1. **Sub-case (a) — Anthropic vision.** Set `ANTHROPIC_API_KEY`. Run `find-the-gaps analyze --repo <fixture> --docs-url <url> --llm-small=anthropic/claude-haiku-4-5 -v`.
+1. **Sub-case (a) — Anthropic vision.** Set `ANTHROPIC_API_KEY`. Run `find-the-gaps analyze --repo <fixture> --docs <url> --llm-small=anthropic/claude-haiku-4-5 -v`.
 2. Inspect `<projectDir>/screenshots.md` and the per-page audit log lines.
 3. **Sub-case (b) — Ollama no-vision.** With a local Ollama running, re-run with `--llm-small=ollama/llama3` (typical and large still on Anthropic). Inspect `<projectDir>/screenshots.md` and the audit log.
 4. **Sub-case (c) — Groq vision with batching.** Set `GROQ_API_KEY`. Re-run with `--llm-small=groq/meta-llama/llama-4-scout-17b-16e-instruct -v`. Pick a page with `images_seen > 5` from earlier audit output. Inspect the audit log for that page and the resulting `screenshots.md`.
@@ -320,7 +320,7 @@ Before any scenario runs:
 **Context**: Same fixture and docs site as Scenario 9. Verifies that the LLM-judged `priority` field on every prioritized finding is plausibly calibrated against a real codebase, not collapsed onto a single bucket.
 
 **Steps**:
-1. Run `find-the-gaps analyze --repo <path> --docs-url <url> --experimental-check-screenshots`.
+1. Run `find-the-gaps analyze --repo <path> --docs <url> --experimental-check-screenshots`.
 2. Inspect `<projectDir>/drift.json` and `<projectDir>/screenshots.json`.
 3. Inspect the analyze command's stdout `reports:` block (lines like `gaps.md (12 issues: 3L · 5M · 4S)`).
 
@@ -342,7 +342,7 @@ Before any scenario runs:
 NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. It is distinct from the reporter's user-visible flat-findings file `<projectDir>/screenshots.json` — they cannot share a filename without clobbering each other's shape. (See commit `c8f6713` for the rename.)
 
 **Steps**:
-1. From a clean fixture state (`rm -rf <projectDir>`), run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs-url https://<docs> --workers=8 -v` and time it (e.g., `time ftg analyze ...` or capture `$SECONDS`). Save reports to `<projectDir>-parallel/`.
+1. From a clean fixture state (`rm -rf <projectDir>`), run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs> --workers=8 -v` and time it (e.g., `time ftg analyze ...` or capture `$SECONDS`). Save reports to `<projectDir>-parallel/`.
 2. From a clean fixture state again (`rm -rf <projectDir>`), run the same command with `--workers=1` and time it. Save reports to `<projectDir>-serial/`.
 3. Compare timings. The parallel run should be meaningfully faster than the serial run on a fixture with at least a handful of feature mappings + drift candidates.
 4. Sort findings within each report by feature name / page URL, then byte-compare across the two runs:
@@ -354,7 +354,7 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
    - `screenshots-cache.json` (sorted by page URL key)
 
    Content must match modulo within-bucket ordering. Priority bucketing is deterministic; ordering inside a single priority bucket may shift under parallel dispatch, which is why the comparison sorts before diffing.
-5. Start a fresh parallel run on a clean fixture: `find-the-gaps analyze --repo <fixture> --docs-url <url> --workers=8 -v`. Wait until the screenshot pass starts emitting `screenshot cache miss:` log lines, then send SIGINT (`Ctrl-C` or `kill -INT`). Confirm `<projectDir>/screenshots-cache.json` exists and contains entries for the pages that finished before the signal.
+5. Start a fresh parallel run on a clean fixture: `find-the-gaps analyze --repo <fixture> --docs <url> --workers=8 -v`. Wait until the screenshot pass starts emitting `screenshot cache miss:` log lines, then send SIGINT (`Ctrl-C` or `kill -INT`). Confirm `<projectDir>/screenshots-cache.json` exists and contains entries for the pages that finished before the signal.
 6. Re-run the same command (no `--no-cache`). Count fresh LLM calls in the screenshot phase via the `-v` audit log lines (look for `screenshot cache miss:` vs `screenshot cache hit:` markers). Only un-cached pages should re-run.
 
 **Success Criteria**:
@@ -413,7 +413,7 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 **Steps**:
 1. Create a fixture directory containing only `README.md` + a few `.json` / `.yaml` files (no source code).
-2. Run `find-the-gaps analyze --repo <fixture> --docs-url https://example.com/docs -v`.
+2. Run `find-the-gaps analyze --repo <fixture> --docs https://example.com/docs -v`.
 3. Inspect the exit code and stderr.
 4. Inspect the project directory under `<cache>/<projectName>/`.
 

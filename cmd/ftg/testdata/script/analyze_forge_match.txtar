@@ -19,7 +19,7 @@ cd ..
 
 env ANTHROPIC_API_KEY=stub
 
-exec ftg analyze --repo repo --docs-url https://github.com/foo/bar --cache-dir $WORK/cache --no-site
+exec ftg analyze --repo repo --docs https://github.com/foo/bar --cache-dir $WORK/cache --no-site
 stdout 'reading markdown from'
 ! stdout 'crawling https://github.com/foo/bar'
 ! stderr 'crawling https://github.com/foo/bar'

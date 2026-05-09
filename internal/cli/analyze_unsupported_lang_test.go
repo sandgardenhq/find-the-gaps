@@ -51,7 +51,7 @@ func TestAnalyze_haltsOnUnsupportedLanguageRepo(t *testing.T) {
 		"analyze",
 		"--repo", repo,
 		"--cache-dir", cacheBase,
-		"--docs-url", "https://example.com/docs",
+		"--docs", "https://example.com/docs",
 	})
 	if code == 0 {
 		t.Fatalf("expected non-zero exit; stdout=%q stderr=%q", stdout.String(), stderr.String())

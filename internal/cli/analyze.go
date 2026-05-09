@@ -106,8 +106,8 @@ func newAnalyzeCmd() *cobra.Command {
 		experimentalCheckScreenshots bool
 		siteMode                     string
 		noSite                       bool
+		noServe                      bool
 		keepSiteSource               bool
-		forgeFlag                    string
 	)
 
 	cmd := &cobra.Command{
@@ -162,7 +162,7 @@ func newAnalyzeCmd() *cobra.Command {
 			// to the work we will actually do: mdfetch is only needed when we
 			// crawl the live site, not when on-disk mode synthesizes pages
 			// from the repo.
-			resolved, err := forge.Resolve(docsURL, repoPath, forgeFlag)
+			resolved, err := forge.Resolve(docsURL, repoPath)
 			if err != nil {
 				if errors.Is(err, forge.ErrForgeNotIngestable) {
 					// Capitalized leading word is intentional: "Find the Gaps"
@@ -705,6 +705,14 @@ func newAnalyzeCmd() *cobra.Command {
 				len(scan.Files), len(pages), len(featureMap),
 				projectDir, gapsLine, screenshotsLine, siteLine, extraLine)
 
+			decision := decideAutoServe(noSite, noServe, humanPresent(), os.Getenv)
+			if decision.Serve {
+				siteDir := filepath.Join(projectDir, "site")
+				if err := runAutoServe(cmd.Context(), cmd.OutOrStdout(), siteDir); err != nil {
+					return fmt.Errorf("preview server: %w", err)
+				}
+			}
+
 			return nil
 		},
 	}
@@ -712,8 +720,8 @@ func newAnalyzeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repoPath, "repo", ".", "path to the repository to analyze")
 	cmd.Flags().StringVar(&cacheDir, "cache-dir", ".find-the-gaps", "base directory for all cached results")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "force full re-scan, ignoring any cached results")
-	cmd.Flags().StringVar(&docsURL, "docs-url", "", "URL of the documentation site to analyze")
-	_ = cmd.MarkFlagRequired("docs-url")
+	cmd.Flags().StringVar(&docsURL, "docs", "",
+		"URL or local path of docs to analyze (default: scan --repo on disk)")
 	cmd.Flags().IntVar(&workers, "workers", 5, "number of parallel mdfetch workers")
 	cmd.Flags().StringVar(&llmSmall, "llm-small", "",
 		"small-tier model as \"provider/model\" (default: anthropic/claude-haiku-4-5)")
@@ -726,10 +734,11 @@ func newAnalyzeCmd() *cobra.Command {
 		"enable experimental missing-screenshot detection pass")
 	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
 	cmd.Flags().BoolVar(&noSite, "no-site", false, "skip the Hugo site build; markdown reports still emitted")
+	cmd.Flags().BoolVar(&noServe, "no-serve", false,
+		"skip starting the local preview server after analyze completes "+
+			"(default: false; --no-site, CI=*, FIND_THE_GAPS_QUIET=1, and a non-interactive stdin also skip)")
 	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true,
 		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
-	cmd.Flags().StringVar(&forgeFlag, "forge", "",
-		"override forge detection: github|gitlab|bitbucket|gitea|forgejo|gogs (use for self-hosted forges)")
 
 	return cmd
 }

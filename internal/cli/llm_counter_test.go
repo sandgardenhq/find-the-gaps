@@ -272,7 +272,7 @@ func TestAnalyze_verbose_logsCallCountsOnNonSuccessPath(t *testing.T) {
 		"--verbose", "analyze",
 		"--repo", repo,
 		"--cache-dir", cacheBase,
-		"--docs-url", "http://127.0.0.1:1/does-not-exist",
+		"--docs", "http://127.0.0.1:1/does-not-exist",
 		"--no-site",
 	})
 	if !strings.Contains(stderr.String(), "LLM call counts") {

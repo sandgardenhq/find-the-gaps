@@ -121,7 +121,7 @@ func TestAnalyze_finalGapsMdMatchesWriteGaps(t *testing.T) {
 		"analyze",
 		"--repo", repoDir,
 		"--cache-dir", cacheBase,
-		"--docs-url", docsURL,
+		"--docs", docsURL,
 		"--no-site",
 	}
 
