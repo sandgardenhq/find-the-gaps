@@ -21,3 +21,6 @@ stderr 'Pass --no-site to skip Hugo'
 ! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://example.com/docs --no-site
 stderr 'mdfetch'
 ! stderr 'Pass --no-site to skip Hugo'
+
+-- repo/main.go --
+package main

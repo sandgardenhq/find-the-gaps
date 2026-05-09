@@ -234,6 +234,9 @@ func TestAnalyze_llmClientError_returnsError(t *testing.T) {
 
 	docsURL := "https://docs.example.com/page"
 	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cacheBase := t.TempDir()
 	projectName := filepath.Base(filepath.Clean(repoDir))
 	prepareDocsCache(t, cacheBase, projectName, docsURL, "# Doc page\nSome content.")

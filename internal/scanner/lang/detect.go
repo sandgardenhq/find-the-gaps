@@ -50,3 +50,14 @@ func Detect(path string) Extractor {
 	}
 	return &GenericExtractor{}
 }
+
+// Languages returns the human-readable names of every registered extractor,
+// in the order they were registered. Used by callers that need to enumerate
+// the set of supported languages (e.g. error messages).
+func Languages() []string {
+	out := make([]string, 0, len(registry))
+	for _, e := range registry {
+		out = append(out, e.Language())
+	}
+	return out
+}

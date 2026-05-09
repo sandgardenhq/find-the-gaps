@@ -7,4 +7,7 @@ env ANTHROPIC_API_KEY=stub
 env PATH=$FTG_BIN_DIR
 mkdir repo
 ! exec ftg analyze --repo repo --cache-dir $WORK/cache --docs https://docs.example.invalid --llm-small anthropic/claude-haiku-4-5 --llm-typical anthropic/claude-sonnet-4-6 --llm-large anthropic/claude-opus-4-7
-stdout 'scanned 0 files'
+stdout 'scanned 1 files'
+
+-- repo/main.go --
+package main

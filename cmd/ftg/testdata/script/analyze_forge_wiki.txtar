@@ -10,3 +10,6 @@ cd ..
 
 ! exec ftg analyze --repo repo --docs https://github.com/foo/bar/wiki --cache-dir $WORK/cache --no-site
 stderr 'Find the Gaps can.t crawl source-control forges'
+
+-- repo/main.go --
+package main

@@ -14,3 +14,6 @@ cd ..
 # apostrophes awkward to escape.
 stderr 'Find the Gaps can.t crawl source-control forges'
 stderr 'clone the repo locally'
+
+-- repo/main.go --
+package main

@@ -1,5 +1,15 @@
 # Progress
 
+## Task: Halt on Unsupported-Language Repo - COMPLETE
+- Started: 2026-05-08
+- Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)
+- Coverage: `internal/cli` 88.7% statements; `internal/scanner/lang` 90.4% statements
+- Build: ✅ Successful (`go build ./...` clean)
+- Linting: ✅ Clean — no errors introduced by this branch. (`golangci-lint run` reports 2 pre-existing staticcheck QF1008 hints in `internal/analyzer/bifrost_client_test.go:608-609`, untouched by this branch.)
+- Completed: 2026-05-08
+- Notes: Strict halt; no override flag. Scan cache and project.md still
+  written before halt by design. Verification Scenario 17 added.
+
 ## Fix: Drift judge tolerates extra fields in JSON response — COMPLETE
 - Started: 2026-05-06
 - Completed: 2026-05-06
