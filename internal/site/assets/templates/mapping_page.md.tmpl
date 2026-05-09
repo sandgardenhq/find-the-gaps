@@ -18,29 +18,32 @@
 {{ if .Description }}> {{ .Description }}
 
 {{ end -}}
-{{ if .Layer }}- **Layer:** {{ .Layer }}
-{{ end -}}
-- **User-facing:** {{ if .UserFacing }}yes{{ else }}no{{ end }}
-- **Documentation status:** {{ if .Documented }}documented{{ else }}undocumented{{ end }}
-
 {{ if .Files -}}
-#### Implemented in
+<details class="ftg-collapse ftg-collapse--files"><summary>Implemented in ({{ len .Files }})</summary>
 
 {{ range .Files }}- `{{ . }}`
 {{ end }}
+</details>
+
 {{ end -}}
 {{ if .Symbols -}}
-#### Symbols
+<details class="ftg-collapse ftg-collapse--symbols"><summary>Symbols ({{ len .Symbols }})</summary>
 
 {{ range .Symbols }}- `{{ . }}`
 {{ end }}
+</details>
+
 {{ end -}}
+{{ if .DocURLs -}}
+<details class="ftg-collapse ftg-collapse--docs"><summary>Documented on ({{ len .DocURLs }})</summary>
+
+{{ range .DocURLs }}- <a href="{{ . | html }}" target="_blank" rel="noopener">{{ . | html }}</a>
+{{ end }}
+</details>
+
+{{ else -}}
 #### Documented on
 
-{{ if .DocURLs -}}
-{{ range .DocURLs }}- [{{ . }}]({{ . }})
-{{ end }}
-{{ else -}}
 _(none)_
 
 {{ end }}

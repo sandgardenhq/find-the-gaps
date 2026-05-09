@@ -5,7 +5,15 @@
  * regenerate the theme's hugo_stats.json + recompile Tailwind every time
  * we touch a template. */
 
+html,
+body {
+  font-family: "Inter", -apple-system, system-ui, sans-serif;
+}
+
 :root {
+  --hx-font-sans: "Inter", -apple-system, system-ui, sans-serif;
+  --hx-default-font-family: "Inter", -apple-system, system-ui, sans-serif;
+
   --ftg-good: #16a34a;
   --ftg-good-bg: #dcfce7;
   --ftg-good-border: #86efac;
@@ -256,18 +264,56 @@
   color: var(--ftg-bad);
 }
 
+/* ---------- Collapsible Implemented in / Symbols sections ---------- */
+
+.ftg-collapse {
+  margin: 1.25rem 0 0.5rem;
+}
+
+.ftg-collapse + .ftg-collapse {
+  margin-top: 0.5rem;
+}
+
+.ftg-collapse > summary {
+  font-size: 1.125rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  margin-bottom: 0.125rem;
+}
+
+.ftg-collapse[open] > summary {
+  margin-bottom: 0.25rem;
+}
+
+.ftg-collapse ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.ftg-collapse li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--ftg-card-border);
+  margin: 0;
+}
+
+.ftg-collapse li:last-child {
+  border-bottom: none;
+}
+
 /* ---------- Gaps: undocumented-feature problem callouts ---------- */
 
 .ftg-undoc-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
   margin: 1rem 0 1.5rem;
 }
 
 .ftg-undoc {
   position: relative;
-  padding: 0.875rem 1rem 0.875rem 2.5rem;
+  padding: 1.25rem 1.5rem 1.25rem 3.5rem;
   border: 1px solid var(--ftg-bad-border);
   border-left: 4px solid var(--ftg-bad);
   border-radius: 0.5rem;
@@ -279,29 +325,71 @@
 .ftg-undoc::before {
   content: "!";
   position: absolute;
-  top: 50%;
-  left: 0.875rem;
-  transform: translateY(-50%);
+  top: 1.4rem;
+  left: 1.25rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 9999px;
   background: var(--ftg-bad);
   color: #ffffff;
   font-weight: 700;
-  font-size: 0.875rem;
+  font-size: 1rem;
   line-height: 1;
 }
 
-.ftg-undoc-name {
-  font-weight: 600;
+.ftg-undoc-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
 }
 
-.ftg-undoc-msg {
-  margin-left: 0.25rem;
+.ftg-undoc-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: inherit;
+}
+
+.ftg-undoc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ftg-undoc-description {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.ftg-undoc-rationale {
+  padding: 0.625rem 0.875rem;
+  border-left: 2px solid var(--ftg-bad-border);
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 0.25rem;
+}
+
+.dark .ftg-undoc-rationale {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.ftg-undoc-rationale-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ftg-bad);
+  margin-bottom: 0.25rem;
+}
+
+.ftg-undoc-rationale p {
+  margin: 0;
   color: var(--ftg-muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
 }
 
 /* ---------- Priority headers (Large / Medium / Small) ---------- */
@@ -393,11 +481,32 @@
 }
 
 .ftg-stale-why {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 2px solid var(--ftg-card-border);
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 0.25rem;
+}
+
+.dark .ftg-stale-why {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.ftg-stale-why-label {
   display: block;
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--ftg-muted);
-  font-style: italic;
+  margin-bottom: 0.25rem;
+}
+
+.ftg-stale-why-text {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: inherit;
 }
 
 /* ---------- Screenshot-finding cards ---------- */

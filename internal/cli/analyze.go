@@ -478,7 +478,50 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 
 			if !driftSkipped {
-				gapsPrefix := reporter.BuildGapsStaticPrefix(featureMap, docCoveredFeatures)
+				// Per-feature rationales for the Undocumented Features section
+				// of gaps.md. We cache rationales by hash(name+description+layer)
+				// so unchanged features skip the LLM call on rerun. Only newly
+				// undocumented or content-changed features hit the small tier.
+				// A failure degrades gracefully — the reporter falls back to
+				// a generic blurb when a key is missing.
+				whyCachePath := filepath.Join(projectDir, "why-document.json")
+				whyCache := loadWhyDocumentCache(whyCachePath)
+				undocFeatures := reporter.UndocumentedFeatures(featureMap, docCoveredFeatures)
+				whyRationales := make(map[string]string, len(undocFeatures))
+				var toFetch []analyzer.CodeFeature
+				freshCache := make(map[string]whyDocumentCacheEntry, len(undocFeatures))
+				for _, e := range undocFeatures {
+					hash := whyDocumentInputHash(e.Feature)
+					if cached, ok := whyCache[e.Feature.Name]; ok && cached.Hash == hash && cached.Rationale != "" {
+						whyRationales[e.Feature.Name] = cached.Rationale
+						freshCache[e.Feature.Name] = cached
+						continue
+					}
+					toFetch = append(toFetch, e.Feature)
+				}
+				if len(toFetch) > 0 {
+					fresh, whyErr := analyzer.WhyDocument(ctx, tiering, toFetch)
+					if whyErr != nil {
+						log.Warnf("WhyDocument failed; falling back to generic rationale: %v", whyErr)
+					} else {
+						for _, f := range toFetch {
+							if r, ok := fresh[f.Name]; ok && r != "" {
+								whyRationales[f.Name] = r
+								freshCache[f.Name] = whyDocumentCacheEntry{
+									Name:      f.Name,
+									Hash:      whyDocumentInputHash(f),
+									Rationale: r,
+								}
+							}
+						}
+					}
+				}
+				if len(undocFeatures) > 0 {
+					if err := saveWhyDocumentCache(whyCachePath, freshCache); err != nil {
+						log.Warnf("save why-document cache: %v", err)
+					}
+				}
+				gapsPrefix := reporter.BuildGapsStaticPrefix(featureMap, docCoveredFeatures, whyRationales)
 				gapsWriter := reporter.NewGapsWriter(projectDir, gapsPrefix, 500*time.Millisecond)
 				// Seed the writer with an empty slice so a run that produces
 				// zero findings still emits a gaps.md (matches the prior

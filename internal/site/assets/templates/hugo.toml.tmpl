@@ -13,38 +13,29 @@ status       = "statuses"
 user_facing  = "user_facing"
 {{- end }}
 
+[[menu.main]]
+name = "Gaps"
+url = "/gaps/"
+weight = 10
+
+{{- if .ScreenshotsRan }}
+
+[[menu.main]]
+name = "Screenshots"
+url = "/screenshots/"
+weight = 20
+{{- end }}
+
 {{- if not .Expanded }}
+
 [[menu.main]]
 name = "Mapping"
 url = "/mapping/"
-weight = 10
-
-[[menu.main]]
-name = "Gaps"
-url = "/gaps/"
-weight = 20
-
-{{- if .ScreenshotsRan }}
-[[menu.main]]
-name = "Screenshots"
-url = "/screenshots/"
 weight = 30
-{{- end }}
 {{- else }}
+
 [[menu.main]]
 name = "Features"
 url = "/features/"
-weight = 10
-
-[[menu.main]]
-name = "Gaps"
-url = "/gaps/"
-weight = 20
-
-{{- if .ScreenshotsRan }}
-[[menu.main]]
-name = "Screenshots"
-url = "/screenshots/"
 weight = 30
-{{- end }}
 {{- end }}

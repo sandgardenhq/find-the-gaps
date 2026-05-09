@@ -16,19 +16,28 @@ tags = ["layer:{{ .Layer }}", "status:{{ $status }}", "user-facing:{{ $uf }}"]
 - **Documentation status:** {{ if .Documented }}documented{{ else }}undocumented{{ end }}
 
 {{ if .Files }}
-## Implemented in
+<details class="ftg-collapse ftg-collapse--files"><summary>Implemented in ({{ len .Files }})</summary>
+
 {{ range .Files }}- `{{ . }}`
-{{ end }}{{ end }}
+{{ end }}
+</details>
+{{ end }}
 
 {{ if .Symbols }}
-## Symbols
+<details class="ftg-collapse ftg-collapse--symbols"><summary>Symbols ({{ len .Symbols }})</summary>
+
 {{ range .Symbols }}- `{{ . }}`
-{{ end }}{{ end }}
+{{ end }}
+</details>
+{{ end }}
 
 {{ if .DocURLs }}
-## Documented on
-{{ range .DocURLs }}- [{{ . }}]({{ . }})
-{{ end }}{{ end }}
+<details class="ftg-collapse ftg-collapse--docs"><summary>Documented on ({{ len .DocURLs }})</summary>
+
+{{ range .DocURLs }}- <a href="{{ . | html }}" target="_blank" rel="noopener">{{ . | html }}</a>
+{{ end }}
+</details>
+{{ end }}
 
 {{ if .DriftBuckets }}
 ## Drift findings
@@ -42,8 +51,8 @@ tags = ["layer:{{ .Layer }}", "status:{{ $status }}", "user-facing:{{ $uf }}"]
 <div class="ftg-stale-list">
 
 {{ range .Issues }}<div class="ftg-stale ftg-stale--{{ $class }}">
-<span class="ftg-stale-issue">{{ if .Page }}<a class="ftg-stale-page" href="{{ .Page | html }}">{{ .Page | html }}</a> — {{ end }}{{ .Issue | html }}</span>
-{{ if .PriorityReason }}<span class="ftg-stale-why">why: {{ .PriorityReason | html }}</span>{{ end }}
+<span class="ftg-stale-issue">{{ if .Page }}<a class="ftg-stale-page" href="{{ .Page | html }}" target="_blank" rel="noopener">{{ .Page | html }}</a> — {{ end }}{{ .Issue | html }}</span>
+{{ if .PriorityReason }}<div class="ftg-stale-why"><span class="ftg-stale-why-label">Why</span><p class="ftg-stale-why-text">{{ .PriorityReason | html }}</p></div>{{ end }}
 </div>
 
 {{ end }}
