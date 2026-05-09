@@ -127,6 +127,38 @@ func TestEmitScreenshotAuditLog_DetectionSkippedSurfaces(t *testing.T) {
 		"expected detection_skipped=false exactly once; full output:\n%s", out)
 }
 
+// TestEmitScreenshotAuditLog_IncludesCodeBlockFields verifies that the audit
+// log line surfaces the new code-block coverage signals (code_blocks_seen and
+// suppressed_by_code_block) in stable column positions so log scrapers can
+// pick them up alongside the existing fields.
+func TestEmitScreenshotAuditLog_IncludesCodeBlockFields(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	prevLevel := log.GetLevel()
+	log.SetLevel(log.InfoLevel)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(prevLevel)
+	})
+
+	stats := []analyzer.ScreenshotPageStats{
+		{
+			PageURL:               "https://example.com/p",
+			VisionEnabled:         true,
+			ImagesSeen:            2,
+			CodeBlocksSeen:        3,
+			PossiblyCovered:       2,
+			SuppressedByCodeBlock: 1,
+		},
+	}
+
+	emitScreenshotAuditLog(stats)
+
+	out := buf.String()
+	assert.Contains(t, out, "code_blocks_seen=3", "audit log missing code_blocks_seen=3; full output:\n%s", out)
+	assert.Contains(t, out, "suppressed_by_code_block=1", "audit log missing suppressed_by_code_block=1; full output:\n%s", out)
+}
+
 // TestAnalyze_EmitsScreenshotAuditLine_OneLinePerPage confirms each page's
 // stats land on their own line so downstream log scrapers can parse them.
 func TestAnalyze_EmitsScreenshotAuditLine_OneLinePerPage(t *testing.T) {
