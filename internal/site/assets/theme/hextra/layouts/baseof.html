@@ -7,6 +7,7 @@
     </a>
     {{- partial "banner.html" . -}}
     {{- partial "navbar.html" . -}}
+    {{- partial "ftg-disclaimer.html" . -}}
     {{- block "main" . }}{{ end -}}
     {{- if or (eq .Site.Params.footer.enable nil) (.Site.Params.footer.enable) }}
       {{ partial "footer.html" . }}

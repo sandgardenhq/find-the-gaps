@@ -84,6 +84,25 @@ func TestRenderHugoConfigExpandedMenuOrder(t *testing.T) {
 	}
 }
 
+// TestRenderHugoConfigDisablesPoweredByHextra pins that the rendered hugo
+// config disables Hextra's "Powered by Hextra" footer credit. The default
+// is true, so the param has to be explicitly set to false in our config.
+func TestRenderHugoConfigDisablesPoweredByHextra(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title: "x",
+		Mode:  ModeMirror,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "[params.footer]") {
+		t.Errorf("expected [params.footer] section in:\n%s", got)
+	}
+	if !strings.Contains(got, "displayPoweredBy = false") {
+		t.Errorf("expected `displayPoweredBy = false` to suppress Hextra credit; got:\n%s", got)
+	}
+}
+
 func TestRenderHugoConfigOmitsScreenshotsWhenNotRan(t *testing.T) {
 	got, err := renderHugoConfig(hugoConfigData{
 		Title:          "x",
@@ -266,6 +285,57 @@ func TestRenderHomeGeneratedAtAtBottom(t *testing.T) {
 	}
 }
 
+// TestRenderHomeIncludesDocHolidayHero pins the marketing hero block that
+// must appear between the product summary and the "At a glance" heading.
+// Copy is product-approved — the test pins each load-bearing sentence and
+// the structural placement (after summary, before stats).
+func TestRenderHomeIncludesDocHolidayHero(t *testing.T) {
+	in := homeData{
+		ProjectName:  "demo",
+		GeneratedAt:  time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Summary:      "A small CLI demo.",
+		FeatureCount: 3,
+		Mode:         ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		`class="ftg-hero"`,
+		// "Find the Gaps" is bolded inline, so the literal product name
+		// is wrapped in <strong>. The remainder of the lead-in sits
+		// outside the tag.
+		"<strong>Find the Gaps</strong> is brought to you by Doc Holiday.",
+		"Use FTG to identify places where documentation can improve; buy Doc Holiday to ensure it never deviates again.",
+		"support@doc.holiday",
+		"doc.holiday",
+		// The Doc Holiday brand icon is rendered inline next to the copy
+		// so the hero matches the global footer treatment. The brand
+		// cyan fill is unique to the mark — pin it so a regression that
+		// drops the SVG is caught.
+		"<svg",
+		"#1BB7D1",
+		`class="ftg-hero__icon"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	hero := strings.Index(got, `class="ftg-hero"`)
+	summary := strings.Index(got, "A small CLI demo.")
+	glance := strings.Index(got, "## At a glance")
+	if hero < 0 || summary < 0 || glance < 0 {
+		t.Fatalf("expected hero, summary, and at-a-glance heading in output; got:\n%s", got)
+	}
+	if summary >= hero || hero >= glance {
+		t.Errorf("hero must sit between summary and at-a-glance heading; positions summary=%d hero=%d glance=%d in:\n%s",
+			summary, hero, glance, got)
+	}
+}
+
 func TestRenderHomeOmitsScreenshotsWhenNotRan(t *testing.T) {
 	in := homeData{
 		ProjectName:    "demo",
@@ -342,6 +412,38 @@ func TestLayoutsRemoveSidebarEntirely(t *testing.T) {
 		if strings.Contains(string(body), `partial "sidebar.html"`) {
 			t.Errorf("%s must not invoke the sidebar partial; got:\n%s", p, body)
 		}
+	}
+}
+
+// TestSidebarThemeToggleHasNoTopBorder pins removal of Hextra's stock
+// `hx:border-t` rule on the sticky bottom panel that holds the language
+// switcher and the light/dark/system theme toggle. The border drew a thin
+// horizontal line right above the theme indicator that read as a stray
+// separator in the rendered site, so we strip it from the sidebar partial.
+func TestSidebarThemeToggleHasNoTopBorder(t *testing.T) {
+	body, err := themeFS.ReadFile("assets/theme/hextra/layouts/_partials/sidebar.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+
+	// The sticky bottom panel is uniquely identified by its
+	// `data-toggle-animation="show"` hook. Find that element's opening tag
+	// and assert it does NOT carry `hx:border-t`. We restrict the check to
+	// that single element so unrelated `hx:border-t` usages elsewhere in
+	// the partial (none today, but possible in the future) do not trip us.
+	idx := strings.Index(src, `data-toggle-animation="show"`)
+	if idx < 0 {
+		t.Fatalf("could not find the theme-toggle sticky container marker; sidebar.html may have been restructured")
+	}
+	tagStart := strings.LastIndex(src[:idx], "<")
+	tagEnd := strings.Index(src[idx:], ">")
+	if tagStart < 0 || tagEnd < 0 {
+		t.Fatalf("could not isolate the theme-toggle container tag")
+	}
+	tag := src[tagStart : idx+tagEnd+1]
+	if strings.Contains(tag, "hx:border-t") {
+		t.Errorf("theme-toggle sticky container must not carry hx:border-t (top border above the theme indicator); got tag:\n%s", tag)
 	}
 }
 
