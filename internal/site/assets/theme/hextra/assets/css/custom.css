@@ -10,6 +10,26 @@ body {
   font-family: "Inter", -apple-system, system-ui, sans-serif;
 }
 
+/* Sticky footer: on short pages the page content can total less than
+ * 100vh, leaving the body's default background visible below the gray
+ * Hextra footer. Make the body a min-100vh flex column and push the
+ * footer down with margin-top: auto so it always meets the viewport
+ * bottom. The article's own `min-h-[calc(100vh-...)]` still controls
+ * tall pages — this only kicks in when content under-fills. */
+html,
+body {
+  min-height: 100vh;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+body > .hextra-footer {
+  margin-top: auto;
+}
+
 :root {
   --hx-font-sans: "Inter", -apple-system, system-ui, sans-serif;
   --hx-default-font-family: "Inter", -apple-system, system-ui, sans-serif;
@@ -584,4 +604,166 @@ body {
   max-width: 100%;
   border: 1px solid var(--ftg-card-border);
   border-radius: 0.375rem;
+}
+
+/* Site-wide disclaimer banner. Sits below the navbar on every page,
+ * spans the full viewport width, and is non-dismissible by design.
+ * The banner-to-content gap below comes from `margin-bottom` on the
+ * outer band so the page header has room to breathe before the article
+ * heading lands. */
+.ftg-disclaimer {
+  width: 100%;
+  background: var(--ftg-warn-bg);
+  border-top: 1px solid var(--ftg-warn-border);
+  border-bottom: 1px solid var(--ftg-warn-border);
+  color: #78350f;
+  margin-bottom: 1.5rem;
+}
+
+.dark .ftg-disclaimer {
+  color: #fde68a;
+}
+
+.ftg-disclaimer-inner {
+  max-width: 90rem;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.ftg-disclaimer-inner p {
+  margin: 0;
+}
+
+.ftg-disclaimer-inner p + p {
+  margin-top: 0.375rem;
+}
+
+.ftg-disclaimer-inner a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+.ftg-disclaimer-label {
+  font-weight: 700;
+  color: var(--ftg-warn);
+  background: rgba(217, 119, 6, 0.18);
+  padding: 0 0.3rem;
+  border-radius: 0.25rem;
+  margin-right: 0.15rem;
+}
+
+.dark .ftg-disclaimer-label {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.2);
+}
+
+/* Doc Holiday brand footer rendered via Hextra's `custom/footer.html` slot.
+ * Sits at the bottom of every page above Hextra's optional copyright row
+ * (which we keep disabled). */
+.ftg-doc-holiday-footer {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  max-width: 90rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 1.75rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ftg-muted);
+}
+
+.ftg-doc-holiday-footer__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ftg-doc-holiday-footer__icon svg {
+  width: 4rem;
+  height: auto;
+  display: block;
+}
+
+.ftg-doc-holiday-footer__text {
+  margin: 0;
+}
+
+.ftg-doc-holiday-footer__text a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+.dark .ftg-doc-holiday-footer {
+  color: #94a3b8;
+}
+
+@media (max-width: 640px) {
+  .ftg-doc-holiday-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .ftg-doc-holiday-footer__icon svg {
+    width: 3rem;
+  }
+}
+
+/* Doc Holiday hero block on the index page. Sits between the product
+ * summary and the at-a-glance section. */
+.ftg-hero {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin: 1.25rem 0 1.5rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(217, 70, 239, 0.08));
+  border: 1px solid var(--ftg-card-border);
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.dark .ftg-hero {
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.12), rgba(232, 121, 249, 0.12));
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.ftg-hero__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ftg-hero__icon svg {
+  width: 4.5rem;
+  height: auto;
+  display: block;
+}
+
+.ftg-hero__text {
+  margin: 0;
+}
+
+.ftg-hero a {
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .ftg-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .ftg-hero__icon svg {
+    width: 3rem;
+  }
 }

@@ -9,6 +9,114 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
+// TestMaterializePageWeightsOrderSidebar pins the per-page `weight` values in
+// content frontmatter. The Hextra desktop sidebar gathers section pages from
+// the home section and renders them in `ByWeight` order — separate from the
+// navbar's `[[menu.main]]` weight in hugo.toml. To make the sidebar match the
+// navbar (Gaps -> Screenshots -> Mapping), the page weights must be:
+//
+//	gaps.md         = 10
+//	screenshots.md  = 20
+//	mapping.md      = 30
+//
+// (The navbar order is pinned separately in templates_test.go.)
+func TestMaterializePageWeightsOrderSidebar(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+		if err := os.WriteFile(filepath.Join(projectDir, name),
+			[]byte("# "+name+"\n\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	in := Inputs{
+		Summary:        analyzer.ProductSummary{Description: "demo"},
+		Mapping:        analyzer.FeatureMap{},
+		ScreenshotsRan: true,
+	}
+	opts := BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC),
+	}
+
+	if err := materialize(srcDir, in, opts); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		file   string
+		weight string
+	}{
+		{"gaps.md", "weight = 10"},
+		{"screenshots.md", "weight = 20"},
+		{"mapping.md", "weight = 30"},
+	} {
+		body, err := os.ReadFile(filepath.Join(srcDir, "content", c.file))
+		if err != nil {
+			t.Errorf("read %s: %v", c.file, err)
+			continue
+		}
+		if !contains(string(body), c.weight) {
+			t.Errorf("%s must declare %q so the desktop sidebar orders Gaps -> Screenshots -> Mapping; got frontmatter:\n%s",
+				c.file, c.weight, string(body)[:min(len(body), 200)])
+		}
+	}
+}
+
+// TestMaterializeExpandedPageWeightsOrderSidebar mirrors the mirror-mode
+// check for expanded mode. The expanded site swaps Mapping for Features, but
+// the gaps + screenshots ordering relative to the rest of the sidebar still
+// has to match the top nav (Gaps -> Screenshots).
+func TestMaterializeExpandedPageWeightsOrderSidebar(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+		if err := os.WriteFile(filepath.Join(projectDir, name),
+			[]byte("# "+name+"\n\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	in := Inputs{
+		Summary:        analyzer.ProductSummary{Description: "demo"},
+		Mapping:        analyzer.FeatureMap{},
+		ScreenshotsRan: true,
+	}
+	opts := BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC),
+	}
+
+	if err := materialize(srcDir, in, opts); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		file   string
+		weight string
+	}{
+		{"gaps.md", "weight = 10"},
+		{filepath.Join("screenshots", "_index.md"), "weight = 20"},
+	} {
+		body, err := os.ReadFile(filepath.Join(srcDir, "content", c.file))
+		if err != nil {
+			t.Errorf("read %s: %v", c.file, err)
+			continue
+		}
+		if !contains(string(body), c.weight) {
+			t.Errorf("%s must declare %q; got frontmatter:\n%s",
+				c.file, c.weight, string(body)[:min(len(body), 200)])
+		}
+	}
+}
+
 func TestMaterializeMirrorWritesExpectedTree(t *testing.T) {
 	srcDir := t.TempDir()
 	projectDir := t.TempDir()
