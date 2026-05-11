@@ -1604,3 +1604,21 @@ A new `--forge` flag covers self-hosted forges on custom domains
 - Wiki ingestion is out of scope — wikis halt with a hint to clone
   `<repo>.wiki.git` and treat it as the `--repo` for a wiki-only run.
 - SourceHut on-disk path support is also deferred (different URL shape).
+
+## Task: Content-Based Page Role Detection - COMPLETE
+- Started: 2026-05-11
+- Implementation Plan: .plans/IMPLEMENTATION_PLAN_PAGE_ROLE.md
+- Design: .plans/2026-05-11-page-role-from-content-design.md
+- Commits on branch improve-page-role-detection: 12
+- Tests: 1321 passing, 0 failing
+- Coverage (internal/analyzer): 93.2%
+- Build: Successful
+- Linting: Clean (no new issues introduced; 4 pre-existing staticcheck QF1001/QF1008 hints present at baseline 78c00b0)
+- Completed: 2026-05-11
+- Notes:
+  - URL-only pageRole() replaced with content-classified role on PageAnalysis
+  - role field added to spider cache (idx.Analysis / idx.RecordAnalysis)
+  - RoleResolver threaded through drift judge prompt and three screenshot prompt builders
+  - DocPage gains Role; CLI hoists rolesByURL build out of the drift block
+  - screenshotsCacheKey includes role so reclassification on unchanged content invalidates
+  - priorityRubric updated to reference the new 9-label enum
