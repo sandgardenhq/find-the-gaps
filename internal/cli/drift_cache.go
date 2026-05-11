@@ -24,11 +24,15 @@ type driftCacheFile struct {
 }
 
 type driftCacheEntry struct {
-	Feature       string                `json:"feature"`
-	Files         []string              `json:"files"`
-	FilteredPages []string              `json:"filteredPages,omitempty"`
-	Pages         []string              `json:"pages"`
-	Issues        []analyzer.DriftIssue `json:"issues"`
+	Feature       string   `json:"feature"`
+	Files         []string `json:"files"`
+	FilteredPages []string `json:"filteredPages,omitempty"`
+	Pages         []string `json:"pages"`
+	// RolesHash is the FilteredPagesRolesHash fingerprint. Empty on legacy
+	// caches written before role-aware invalidation shipped — those entries
+	// miss the cache once on the next run and repopulate with the hash.
+	RolesHash string                `json:"rolesHash,omitempty"`
+	Issues    []analyzer.DriftIssue `json:"issues"`
 }
 
 // driftComplete is the completion sentinel written by saveDriftCacheComplete.
@@ -60,18 +64,21 @@ func seedDriftLiveCache(cached map[string]analyzer.CachedDriftEntry, featureMap 
 	return live
 }
 
-// isDriftCacheHit reports whether cached has an entry for name whose Files
-// and FilteredPages match the given slices exactly. Both inputs and the
-// cached entry's slices must be sorted ascending; this is element-wise
-// comparison. A nil cached map always returns false. The page key is the
-// post-filterDriftPages, pre-classify list — see DetectDrift for the same
-// equality check on the analyzer side.
-func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, files, filteredPages []string) bool {
+// isDriftCacheHit reports whether cached has an entry for name whose Files,
+// FilteredPages, and RolesHash match the given values exactly. Both input
+// slices and the cached entry's slices must be sorted ascending; this is
+// element-wise comparison. A nil cached map always returns false. The page
+// key is the post-filterDriftPages, pre-classify list — see DetectDrift for
+// the same equality check on the analyzer side. rolesHash invalidates the
+// hit when role classification has changed even on stable files+pages.
+func isDriftCacheHit(cached map[string]analyzer.CachedDriftEntry, name string, files, filteredPages []string, rolesHash string) bool {
 	c, ok := cached[name]
 	if !ok {
 		return false
 	}
-	return stringSliceEqual(c.Files, files) && stringSliceEqual(c.FilteredPages, filteredPages)
+	return stringSliceEqual(c.Files, files) &&
+		stringSliceEqual(c.FilteredPages, filteredPages) &&
+		c.RolesHash == rolesHash
 }
 
 // newDriftCachePersister returns the analyzer.DriftFeatureDoneFunc used during
@@ -88,10 +95,10 @@ func newDriftCachePersister(
 	hits, fresh *int,
 ) analyzer.DriftFeatureDoneFunc {
 	var mu sync.Mutex
-	return func(name string, files, filteredPages, pages []string, issues []analyzer.DriftIssue) error {
+	return func(name string, files, filteredPages, pages []string, rolesHash string, issues []analyzer.DriftIssue) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if isDriftCacheHit(cached, name, files, filteredPages) {
+		if isDriftCacheHit(cached, name, files, filteredPages, rolesHash) {
 			*hits++
 			return nil
 		}
@@ -100,6 +107,7 @@ func newDriftCachePersister(
 			Files:         files,
 			FilteredPages: filteredPages,
 			Pages:         pages,
+			RolesHash:     rolesHash,
 			Issues:        issues,
 		}
 		return saveDriftCache(driftCachePath, liveCache)
@@ -137,10 +145,13 @@ func loadDriftCache(path string) (map[string]analyzer.CachedDriftEntry, bool) {
 		// FilteredPages intentionally NOT nil-normalized: old caches without
 		// the field must stay nil so the cache-key check misses on the next
 		// run and the entry recomputes once with FilteredPages populated.
+		// RolesHash similarly stays "" for legacy entries so they miss and
+		// repopulate with the current run's role fingerprint.
 		out[e.Feature] = analyzer.CachedDriftEntry{
 			Files:         files,
 			FilteredPages: e.FilteredPages,
 			Pages:         pages,
+			RolesHash:     e.RolesHash,
 			Issues:        issues,
 		}
 	}
@@ -191,6 +202,7 @@ func saveDriftCacheComplete(path string, current map[string]analyzer.CachedDrift
 			Files:         c.Files,
 			FilteredPages: c.FilteredPages,
 			Pages:         c.Pages,
+			RolesHash:     c.RolesHash,
 			Issues:        issues,
 		})
 	}
@@ -294,6 +306,7 @@ func driftCacheEntriesToMap(entries []driftCacheEntry) map[string]analyzer.Cache
 			Files:         files,
 			FilteredPages: e.FilteredPages,
 			Pages:         pages,
+			RolesHash:     e.RolesHash,
 			Issues:        issues,
 		}
 	}

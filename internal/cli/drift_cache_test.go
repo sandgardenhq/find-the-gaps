@@ -122,6 +122,7 @@ func TestIsDriftCacheHit(t *testing.T) {
 		key           string
 		files         []string
 		filteredPages []string
+		rolesHash     string
 		wantHit       bool
 		assertion     string
 	}{
@@ -187,9 +188,37 @@ func TestIsDriftCacheHit(t *testing.T) {
 		},
 	}
 
+	// Add a roles-hash-aware case: cached entry stamped with "hash-1",
+	// query comes in with "hash-2" → miss even though files+pages match.
+	cases = append(cases, struct {
+		name          string
+		mapArg        map[string]analyzer.CachedDriftEntry
+		key           string
+		files         []string
+		filteredPages []string
+		rolesHash     string
+		wantHit       bool
+		assertion     string
+	}{
+		name: "rolesHash differs → miss",
+		mapArg: map[string]analyzer.CachedDriftEntry{
+			"auth": {
+				Files:         []string{"auth.go", "session.go"},
+				FilteredPages: []string{"https://docs.example.com/auth"},
+				RolesHash:     "hash-1",
+			},
+		},
+		key:           "auth",
+		files:         []string{"auth.go", "session.go"},
+		filteredPages: []string{"https://docs.example.com/auth"},
+		rolesHash:     "hash-2",
+		wantHit:       false,
+		assertion:     "role reclassification on stable files+pages must invalidate the cache",
+	})
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isDriftCacheHit(tc.mapArg, tc.key, tc.files, tc.filteredPages)
+			got := isDriftCacheHit(tc.mapArg, tc.key, tc.files, tc.filteredPages, tc.rolesHash)
 			assert.Equal(t, tc.wantHit, got, tc.assertion)
 		})
 	}
@@ -349,6 +378,7 @@ func TestNewDriftCachePersister_CacheHit_DoesNotRewriteFile(t *testing.T) {
 		[]string{"auth.go"},
 		[]string{"https://docs.example.com/auth"}, // filteredPages
 		[]string{"https://docs.example.com/auth"}, // pages
+		"", // rolesHash matches the cached entry's empty hash
 		nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, hits)
@@ -373,6 +403,7 @@ func TestNewDriftCachePersister_CacheMiss_NoEntry_Saves(t *testing.T) {
 		[]string{"auth.go"},
 		[]string{"https://docs.example.com/auth"}, // filteredPages
 		[]string{"https://docs.example.com/auth"}, // pages
+		"fresh-roles-hash",
 		issues)
 	require.NoError(t, err)
 	assert.Equal(t, 0, hits)
@@ -383,6 +414,7 @@ func TestNewDriftCachePersister_CacheMiss_NoEntry_Saves(t *testing.T) {
 	require.Contains(t, got, "auth")
 	assert.Equal(t, []string{"auth.go"}, got["auth"].Files)
 	assert.Equal(t, []string{"https://docs.example.com/auth"}, got["auth"].FilteredPages)
+	assert.Equal(t, "fresh-roles-hash", got["auth"].RolesHash)
 	assert.Equal(t, issues, got["auth"].Issues)
 }
 
@@ -405,6 +437,7 @@ func TestNewDriftCachePersister_CacheMiss_FilesChanged_Saves(t *testing.T) {
 		[]string{"auth.go", "session.go"},
 		[]string{"https://docs.example.com/auth"}, // filteredPages
 		[]string{"https://docs.example.com/auth"}, // pages
+		"",
 		nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, hits)
@@ -429,6 +462,7 @@ func TestNewDriftCachePersister_SaveError_Propagated(t *testing.T) {
 		[]string{"auth.go"},
 		[]string{"https://docs.example.com/auth"}, // filteredPages
 		[]string{"https://docs.example.com/auth"}, // pages
+		"",
 		nil)
 	require.Error(t, err)
 	assert.Equal(t, 1, fresh, "fresh increment happens before save attempt")
@@ -598,7 +632,7 @@ func TestDriftCachePersister_concurrentCallersDoNotLoseUpdates(t *testing.T) {
 	for i := range 32 {
 		wg.Go(func() {
 			name := fmt.Sprintf("f%02d", i)
-			_ = persist(name, []string{"a.go"}, []string{"p"}, []string{"p"}, nil)
+			_ = persist(name, []string{"a.go"}, []string{"p"}, []string{"p"}, "", nil)
 		})
 	}
 	wg.Wait()

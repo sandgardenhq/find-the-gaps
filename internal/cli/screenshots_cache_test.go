@@ -228,6 +228,42 @@ func TestComputeScreenshotsInputHash_roleAffectsHash(t *testing.T) {
 		"hash must differ when only Role differs; otherwise a role reclassification silently drops findings")
 }
 
+// TestLoadScreenshotsCache_LegacyEntryNormalizesRoleOnLoad pins that an
+// on-disk entry written before the role-aware cache key shipped (no `role`
+// field, so it unmarshals with Role="") is normalized to "other" at load
+// time. Without this, the entry is keyed `url|hash|` and current lookups
+// (which always pass NormalizeRole(page.Role) == "other") miss forever,
+// leaving the legacy record as a permanent orphan that bloats the cache
+// file. Mirrors the analyzer-side NormalizeRole behavior.
+func TestLoadScreenshotsCache_LegacyEntryNormalizesRoleOnLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "screenshots.json")
+	// Hand-write a legacy file: entry has no role field (omitempty kept it
+	// out on the save path that produced it).
+	raw := `{
+	  "pages": ["https://docs.example.com/legacy"],
+	  "entries": [
+	    {
+	      "url": "https://docs.example.com/legacy",
+	      "contentHash": "legacy-hash",
+	      "stats": {"pageUrl": "https://docs.example.com/legacy"},
+	      "missing": [],
+	      "possiblyCovered": [],
+	      "imageIssues": []
+	    }
+	  ]
+	}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o644))
+
+	got, ok := loadScreenshotsCache(path)
+	require.True(t, ok)
+	require.Len(t, got, 1)
+
+	// Current lookup paths always use the normalized role.
+	wantKey := screenshotsCacheKey("https://docs.example.com/legacy", "legacy-hash", analyzer.NormalizeRole(""))
+	require.Contains(t, got, wantKey, "legacy entry without `role` must be reachable via the normalized lookup key")
+	assert.Equal(t, "other", got[wantKey].Role, "legacy Role must be normalized to \"other\" on load")
+}
+
 func TestScreenshotsCachePages_listedSortedByURL(t *testing.T) {
 	// Pages list mirrors sorted entry URLs.
 	path := filepath.Join(t.TempDir(), "screenshots.json")

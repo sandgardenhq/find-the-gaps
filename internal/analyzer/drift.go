@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,7 +60,14 @@ type CachedDriftEntry struct {
 	Files         []string
 	FilteredPages []string
 	Pages         []string
-	Issues        []DriftIssue
+	// RolesHash is the hex SHA-256 fingerprint of the URL→role mapping for
+	// FilteredPages, as produced by FilteredPagesRolesHash. The judge prompt
+	// embeds these roles in its priority rubric, so a stale RolesHash means
+	// the cached Issues' priorities reflect a prior classification and must
+	// be recomputed. Empty (the zero value) on entries written before this
+	// field shipped — those entries always miss and recompute once.
+	RolesHash string
+	Issues    []DriftIssue
 }
 
 // DriftFeatureDoneFunc fires after DetectDrift decides a feature's drift
@@ -70,8 +79,12 @@ type CachedDriftEntry struct {
 // cache key. pages is the post-classify list that the investigator+judge
 // actually saw. On a cache hit, pages is the previously persisted value.
 //
+// rolesHash is the FilteredPagesRolesHash computed against the run's role
+// resolver and the same sorted filteredPages list. Persisters MUST store it
+// so the next run can invalidate when role classification changes.
+//
 // Return non-nil to abort detection.
-type DriftFeatureDoneFunc func(feature string, files, filteredPages, pages []string, issues []DriftIssue) error
+type DriftFeatureDoneFunc func(feature string, files, filteredPages, pages []string, rolesHash string, issues []DriftIssue) error
 
 // budgetForFeature returns the investigator round budget for a single
 // feature's drift check. Each read_file and read_page tool call costs one
@@ -190,10 +203,17 @@ func DetectDrift(
 		sortedFiltered := job.sortedFiltered
 		pages := job.pages
 
+		// Fingerprint of the URL→role mapping the judge prompt will see.
+		// Folded into the cache key so a role reclassification on stable
+		// files+pages forces a re-judge instead of replaying stale
+		// priorities. See FilteredPagesRolesHash.
+		currentRolesHash := FilteredPagesRolesHash(roles, sortedFiltered)
+
 		if cached != nil {
 			if c, ok := cached[entry.Feature.Name]; ok &&
 				equalStringSlice(c.Files, sortedFiles) &&
 				equalStringSlice(c.FilteredPages, sortedFiltered) &&
+				c.RolesHash == currentRolesHash &&
 				!cacheNeedsRecompute(c) {
 				log.Debugf("  drift cache hit: %s", entry.Feature.Name)
 				issues := c.Issues
@@ -206,7 +226,7 @@ func DetectDrift(
 					}
 				}
 				if onFeatureDone != nil {
-					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, c.Pages, issues); err != nil {
+					if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, c.Pages, currentRolesHash, issues); err != nil {
 						return fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 					}
 				}
@@ -221,7 +241,7 @@ func DetectDrift(
 			// keyed on FilteredPages with empty Pages so the next run skips
 			// the classifier instead of re-running it on the same content.
 			if onFeatureDone != nil {
-				if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, []string{}, nil); err != nil {
+				if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, []string{}, currentRolesHash, nil); err != nil {
 					return fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 				}
 			}
@@ -257,7 +277,7 @@ func DetectDrift(
 			}
 		}
 		if onFeatureDone != nil {
-			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, sortedPages, issues); err != nil {
+			if err := onFeatureDone(entry.Feature.Name, sortedFiles, sortedFiltered, sortedPages, currentRolesHash, issues); err != nil {
 				return fmt.Errorf("DetectDrift: onFeatureDone: %w", err)
 			}
 		}
@@ -532,6 +552,33 @@ func uniqueObservationPages(observations []driftObservation) []string {
 		out = append(out, o.Page)
 	}
 	return out
+}
+
+// FilteredPagesRolesHash returns a deterministic hex SHA-256 over the
+// URL→role mapping that the judge prompt will see for sortedFilteredPages.
+// The drift cache stores this fingerprint per feature so a role
+// reclassification on stable files+pages (or the first warm-cache run after
+// upgrading from URL-heuristic to content-based roles) forces a re-judge
+// instead of replaying stale priorities. sortedFilteredPages MUST be sorted
+// ascending; callers in DetectDrift use sortedCopy(filteredPages).
+//
+// Exported so persisters and tests can recompute the same fingerprint
+// without reimplementing the encoding.
+func FilteredPagesRolesHash(roles RoleResolver, sortedFilteredPages []string) string {
+	if roles == nil {
+		roles = NewRoleResolver(nil)
+	}
+	type entry struct {
+		URL  string `json:"url"`
+		Role string `json:"role"`
+	}
+	out := make([]entry, 0, len(sortedFilteredPages))
+	for _, p := range sortedFilteredPages {
+		out = append(out, entry{URL: p, Role: roles(p)})
+	}
+	data, _ := json.Marshal(out)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // cacheNeedsRecompute reports whether a cached drift entry must be discarded

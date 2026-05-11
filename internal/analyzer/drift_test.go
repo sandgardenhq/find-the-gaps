@@ -1205,7 +1205,7 @@ func TestDetectDrift_SkipsUninvestigatedFeatureWithoutAborting(t *testing.T) {
 	pageReader := func(_ string) (string, error) { return "# Huge", nil }
 
 	var doneCalls int
-	onDone := func(_ string, _, _, _ []string, _ []analyzer.DriftIssue) error {
+	onDone := func(_ string, _, _, _ []string, _ string, _ []analyzer.DriftIssue) error {
 		doneCalls++
 		return nil
 	}
@@ -1259,11 +1259,13 @@ func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
 	}
 	pageReader := func(_ string) (string, error) { return "# Auth", nil }
 
+	roles := analyzer.NewRoleResolver(nil)
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
 			Files:         []string{"auth.go"},
 			FilteredPages: []string{"https://docs.example.com/auth"},
 			Pages:         []string{"https://docs.example.com/auth"},
+			RolesHash:     analyzer.FilteredPagesRolesHash(roles, []string{"https://docs.example.com/auth"}),
 			Issues: []analyzer.DriftIssue{{
 				Page: "https://docs.example.com/auth", Issue: "stale signature",
 				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
@@ -1274,7 +1276,7 @@ func TestDetectDrift_CacheHit_SkipsLLM(t *testing.T) {
 	findings, err := analyzer.DetectDrift(
 		context.Background(),
 		&fakeTiering{small: small, typical: typical, large: large},
-		featureMap, docsMap, pageReader, analyzer.NewRoleResolver(nil), "/repo",
+		featureMap, docsMap, pageReader, roles, "/repo",
 		1, cached, nil, nil,
 	)
 	require.NoError(t, err)
@@ -1366,6 +1368,111 @@ func TestDetectDrift_CacheMissByPages_RecomputesFresh(t *testing.T) {
 	assert.Greater(t, typical.calls, 0, "investigator must run on page mismatch")
 }
 
+// TestDetectDrift_CacheMissByRoles_RecomputesFresh pins the symmetry with
+// the screenshot cache: a cached drift entry whose RolesHash does not match
+// the current run's role classification must be recomputed, not replayed.
+// Without this check, content-classified roles never reach the priority
+// rubric for cache-hit features — the judge is skipped and the cached
+// priorities (computed under the prior role hints) are replayed verbatim.
+func TestDetectDrift_CacheMissByRoles_RecomputesFresh(t *testing.T) {
+	typical := &driftStubClient{
+		responses: []analyzer.ChatMessage{
+			noteObservation("https://docs.example.com/auth", "old", "new", "drift"),
+			driftDone(),
+		},
+	}
+	large := &driftStubClient{completeFunc: judgeJSON("https://docs.example.com/auth", "Pages drifted.")}
+	small := &driftStubClient{completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil }}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	// Stale RolesHash on disk — Files + FilteredPages match the current run,
+	// Issues carry valid priorities, but the page was previously classified
+	// under a different role. The fresh judge must rerun.
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			RolesHash:     "stale-role-hash-from-prior-run",
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/auth", Issue: "stale priority",
+				Priority: analyzer.PriorityMedium, PriorityReason: "computed under prior role",
+			}},
+		},
+	}
+
+	roles := analyzer.NewRoleResolver(map[string]string{
+		"https://docs.example.com/auth": "quickstart",
+	})
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, roles, "/repo",
+		1, cached, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Greater(t, typical.calls, 0, "investigator must run on roles-hash mismatch")
+	assert.Greater(t, large.completeCalls, 0, "judge must rerun so priorities reflect the new role")
+}
+
+// TestDetectDrift_CacheHit_RolesHashMatch confirms the positive case: when
+// the cached RolesHash matches the current run's hash, the cache short-
+// circuits the investigator and judge as before. Mirrors TestDetectDrift_
+// CacheHit_SkipsLLM but with an explicit roles match.
+func TestDetectDrift_CacheHit_RolesHashMatch(t *testing.T) {
+	typical := &driftStubClient{} // empty responses; any call exhausts and panics
+	large := &driftStubClient{}   // judge must never run
+	small := &driftStubClient{
+		completeFunc: func(_ context.Context, _ string) (string, error) { return "no", nil },
+	}
+
+	featureMap := analyzer.FeatureMap{
+		{Feature: analyzer.CodeFeature{Name: "auth"}, Files: []string{"auth.go"}},
+	}
+	docsMap := analyzer.DocsFeatureMap{
+		{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+	}
+	pageReader := func(_ string) (string, error) { return "# Auth", nil }
+
+	roles := analyzer.NewRoleResolver(map[string]string{
+		"https://docs.example.com/auth": "quickstart",
+	})
+	currentHash := analyzer.FilteredPagesRolesHash(roles, []string{"https://docs.example.com/auth"})
+
+	cached := map[string]analyzer.CachedDriftEntry{
+		"auth": {
+			Files:         []string{"auth.go"},
+			FilteredPages: []string{"https://docs.example.com/auth"},
+			Pages:         []string{"https://docs.example.com/auth"},
+			RolesHash:     currentHash,
+			Issues: []analyzer.DriftIssue{{
+				Page: "https://docs.example.com/auth", Issue: "stale signature",
+				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
+			}},
+		},
+	}
+
+	findings, err := analyzer.DetectDrift(
+		context.Background(),
+		&fakeTiering{small: small, typical: typical, large: large},
+		featureMap, docsMap, pageReader, roles, "/repo",
+		1, cached, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.Equal(t, 0, typical.calls, "investigator must not run on roles-hash match")
+	assert.Equal(t, 0, large.completeCalls, "judge must not run on roles-hash match")
+}
+
 func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 	// Three features:
 	// 1. "fresh-with-issues"  — no cache entry, investigator emits an observation, judge issues.
@@ -1397,11 +1504,13 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 	}
 	pageReader := func(_ string) (string, error) { return "# Page", nil }
 
+	roles := analyzer.NewRoleResolver(nil)
 	cached := map[string]analyzer.CachedDriftEntry{
 		"cached": {
 			Files:         []string{"c.go"},
 			FilteredPages: []string{"https://docs.example.com/c"},
 			Pages:         []string{"https://docs.example.com/c"},
+			RolesHash:     analyzer.FilteredPagesRolesHash(roles, []string{"https://docs.example.com/c"}),
 			Issues: []analyzer.DriftIssue{{
 				Page: "https://docs.example.com/c", Issue: "Cached drift.",
 				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
@@ -1414,7 +1523,7 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 		issuesCount int
 	}
 	var recorded []record
-	onFeatureDone := func(name string, _, _, _ []string, issues []analyzer.DriftIssue) error {
+	onFeatureDone := func(name string, _, _, _ []string, _ string, issues []analyzer.DriftIssue) error {
 		recorded = append(recorded, record{name: name, issuesCount: len(issues)})
 		return nil
 	}
@@ -1422,7 +1531,7 @@ func TestDetectDrift_OnFeatureDone_FiresForAllCompletions(t *testing.T) {
 	_, err := analyzer.DetectDrift(
 		context.Background(),
 		&fakeTiering{small: small, typical: typical, large: large},
-		featureMap, docsMap, pageReader, analyzer.NewRoleResolver(nil), "/repo",
+		featureMap, docsMap, pageReader, roles, "/repo",
 		1, cached, nil, onFeatureDone,
 	)
 	require.NoError(t, err)
@@ -1452,7 +1561,7 @@ func TestDetectDrift_OnFeatureDoneError_Aborts(t *testing.T) {
 	pageReader := func(_ string) (string, error) { return "# Page", nil }
 
 	calls := 0
-	onFeatureDone := func(_ string, _, _, _ []string, _ []analyzer.DriftIssue) error {
+	onFeatureDone := func(_ string, _, _, _ []string, _ string, _ []analyzer.DriftIssue) error {
 		calls++
 		return errors.New("disk full")
 	}
@@ -1491,11 +1600,13 @@ func TestDetectDrift_CacheHit_DoesNotCallClassifier(t *testing.T) {
 	}
 	pageReader := func(_ string) (string, error) { return "# Auth", nil }
 
+	roles := analyzer.NewRoleResolver(nil)
 	cached := map[string]analyzer.CachedDriftEntry{
 		"auth": {
 			Files:         []string{"auth.go"},
 			FilteredPages: []string{"https://docs.example.com/auth"},
 			Pages:         []string{"https://docs.example.com/auth"},
+			RolesHash:     analyzer.FilteredPagesRolesHash(roles, []string{"https://docs.example.com/auth"}),
 			Issues: []analyzer.DriftIssue{{
 				Page: "https://docs.example.com/auth", Issue: "Cached drift.",
 				Priority: analyzer.PriorityMedium, PriorityReason: "test stub",
@@ -1506,7 +1617,7 @@ func TestDetectDrift_CacheHit_DoesNotCallClassifier(t *testing.T) {
 	findings, err := analyzer.DetectDrift(
 		context.Background(),
 		&fakeTiering{small: small, typical: typical, large: large},
-		featureMap, docsMap, pageReader, analyzer.NewRoleResolver(nil), "/repo",
+		featureMap, docsMap, pageReader, roles, "/repo",
 		1, cached, nil, nil,
 	)
 	require.NoError(t, err)
@@ -1556,7 +1667,7 @@ func TestDetectDrift_OnFeatureDone_ReceivesFilteredAndClassifiedPages(t *testing
 		filtered, pages []string
 	}
 	var got record
-	onFeatureDone := func(_ string, _, filtered, pages []string, _ []analyzer.DriftIssue) error {
+	onFeatureDone := func(_ string, _, filtered, pages []string, _ string, _ []analyzer.DriftIssue) error {
 		got = record{filtered: filtered, pages: pages}
 		return nil
 	}
@@ -1604,13 +1715,14 @@ func TestDetectDrift_EmptyAfterClassify_StillCachesFilteredPages(t *testing.T) {
 
 	type record struct {
 		filtered, pages []string
+		rolesHash       string
 		issues          []analyzer.DriftIssue
 	}
 	var got record
 	var doneCalls int
-	onFeatureDone := func(_ string, _, filtered, pages []string, issues []analyzer.DriftIssue) error {
+	onFeatureDone := func(_ string, _, filtered, pages []string, rolesHash string, issues []analyzer.DriftIssue) error {
 		doneCalls++
-		got = record{filtered: filtered, pages: pages, issues: issues}
+		got = record{filtered: filtered, pages: pages, rolesHash: rolesHash, issues: issues}
 		return nil
 	}
 
@@ -1633,6 +1745,7 @@ func TestDetectDrift_EmptyAfterClassify_StillCachesFilteredPages(t *testing.T) {
 			Files:         []string{"auth.go"},
 			FilteredPages: got.filtered,
 			Pages:         got.pages,
+			RolesHash:     got.rolesHash,
 			Issues:        nil,
 		},
 	}
@@ -1691,9 +1804,9 @@ func TestDetectDrift_CacheWithoutFilteredPages_RecomputesOnce(t *testing.T) {
 	}
 
 	var captured analyzer.CachedDriftEntry
-	onFeatureDone := func(_ string, files, filtered, pages []string, issues []analyzer.DriftIssue) error {
+	onFeatureDone := func(_ string, files, filtered, pages []string, rolesHash string, issues []analyzer.DriftIssue) error {
 		captured = analyzer.CachedDriftEntry{
-			Files: files, FilteredPages: filtered, Pages: pages, Issues: issues,
+			Files: files, FilteredPages: filtered, Pages: pages, RolesHash: rolesHash, Issues: issues,
 		}
 		return nil
 	}

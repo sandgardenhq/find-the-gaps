@@ -72,11 +72,20 @@ func TestAnalyze_finalGapsMdMatchesWriteGaps(t *testing.T) {
 
 	// Seed drift.json with cache entries (no Complete sentinel) so DetectDrift
 	// takes the live path and onFinding fires for each cache hit.
+	// RolesHash MUST mirror what the live run will compute from the
+	// page-analysis cache (above: RecordAnalysis stamps role="reference"),
+	// otherwise the per-feature cache check misses on roles-hash mismatch
+	// and the investigator runs.
+	rolesHash := analyzer.FilteredPagesRolesHash(
+		analyzer.NewRoleResolver(map[string]string{docsURL: "reference"}),
+		[]string{docsURL},
+	)
 	driftCache := map[string]analyzer.CachedDriftEntry{
 		"feature-one": {
 			Files:         []string{"main.go"},
 			FilteredPages: []string{docsURL},
 			Pages:         []string{docsURL},
+			RolesHash:     rolesHash,
 			Issues: []analyzer.DriftIssue{{
 				Page:           docsURL,
 				Issue:          "feature-one signature out of date",
@@ -88,6 +97,7 @@ func TestAnalyze_finalGapsMdMatchesWriteGaps(t *testing.T) {
 			Files:         []string{"main.go"},
 			FilteredPages: []string{docsURL},
 			Pages:         []string{docsURL},
+			RolesHash:     rolesHash,
 			Issues: []analyzer.DriftIssue{{
 				Page:           docsURL,
 				Issue:          "feature-two example missing argument",
@@ -99,6 +109,7 @@ func TestAnalyze_finalGapsMdMatchesWriteGaps(t *testing.T) {
 			Files:         []string{"main.go"},
 			FilteredPages: []string{docsURL},
 			Pages:         []string{docsURL},
+			RolesHash:     rolesHash,
 			Issues: []analyzer.DriftIssue{{
 				Page:           docsURL,
 				Issue:          "feature-three deprecated note absent",

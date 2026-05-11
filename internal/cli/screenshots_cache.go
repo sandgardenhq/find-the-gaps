@@ -110,10 +110,17 @@ func screenshotsCacheEntriesToMap(entries []screenshotsCacheEntry) map[string]sc
 		if issues == nil {
 			issues = []analyzer.ImageIssue{}
 		}
-		m[screenshotsCacheKey(e.URL, e.ContentHash, e.Role)] = screenshotsCacheEntry{
+		// Normalize role at load time so legacy entries (written before the
+		// role-aware key shipped, no `role` field on disk → Role == "") are
+		// keyed the same way every current lookup keys them — i.e. via
+		// analyzer.NormalizeRole(page.Role), which maps "" → "other". Without
+		// this, legacy records key `url|hash|`, but lookups always go to
+		// `url|hash|other`, so the entries become permanent orphans.
+		role := analyzer.NormalizeRole(e.Role)
+		m[screenshotsCacheKey(e.URL, e.ContentHash, role)] = screenshotsCacheEntry{
 			URL:         e.URL,
 			ContentHash: e.ContentHash,
-			Role:        e.Role,
+			Role:        role,
 			Stats:       e.Stats,
 			Missing:     missing,
 			Possibly:    possibly,
