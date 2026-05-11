@@ -23,14 +23,18 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
-// normalizeRole maps a stored DocPage.Role string into the value emitted by
+// NormalizeRole maps a stored DocPage.Role string into the value emitted by
 // the screenshot prompts' `page_role:` hint. The CLI stamps Role from the
 // per-page analyses cache; pages skipped by the analysis pass (token-budget
 // skip, old cached responses missing the field) end up with the zero value
 // "". We normalize to "other" — the same inclusive-by-default rule AnalyzePage
 // applies when its structured response omits the field — so the prompt never
 // emits a bare `page_role:` line that could confuse the model.
-func normalizeRole(r string) string {
+//
+// Exported so the CLI can apply the same normalization at its own call sites
+// (the cache adapter and the completion-sentinel hasher) without inlining
+// "" -> "other" everywhere.
+func NormalizeRole(r string) string {
 	if r == "" {
 		return "other"
 	}
@@ -64,7 +68,7 @@ type ScreenshotsCachedPage struct {
 // entry. The pipe separator is illegal in URLs and hex hashes so the
 // concatenation is unambiguous. Mirrors the cli helper of the same shape.
 //
-// role MUST be the normalized role string (see normalizeRole). Including it
+// role MUST be the normalized role string (see NormalizeRole). Including it
 // in the key means that a page whose role is reclassified between runs
 // (content unchanged) no longer replays cached findings that were produced
 // under the prior role's prompt context — their priority / priority_reason
@@ -694,7 +698,7 @@ func renderCodeBlockCoverage(blocks []codeBlockRef) string {
 
 // buildScreenshotPrompt assembles the LLM prompt for one docs page. The role
 // hint comes from page.Role (stamped by the CLI from the page-analysis cache);
-// normalizeRole maps the zero value to "other" for un-analyzed pages.
+// NormalizeRole maps the zero value to "other" for un-analyzed pages.
 func buildScreenshotPrompt(page DocPage, coverage map[string][]imageRef, codeBlocks []codeBlockRef) string {
 	pageURL := page.URL
 	content := page.Content
@@ -771,7 +775,7 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, normalizeRole(page.Role), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, NormalizeRole(page.Role), priorityRubric)
 }
 
 // buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
@@ -906,7 +910,7 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, normalizeRole(page.Role), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, NormalizeRole(page.Role), priorityRubric)
 }
 
 // fitContentToBudget returns content sized so that the assembled
@@ -1187,7 +1191,7 @@ page_role: %s
 
 %s
 
-If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content, normalizeRole(page.Role), priorityRubric)
+If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content, NormalizeRole(page.Role), priorityRubric)
 }
 
 // relevancePass walks the page's images in batches of <=5 (Groq cap), issues
@@ -1254,7 +1258,7 @@ type DocPage struct {
 	// Role is the content-classified role from AnalyzePage (e.g.
 	// "quickstart", "reference", "concept"). The CLI stamps it from the
 	// per-page analyses cache before the screenshot pass. A zero value
-	// ("") is normalized to "other" by normalizeRole at the prompt
+	// ("") is normalized to "other" by NormalizeRole at the prompt
 	// builders — so un-analyzed pages (token-budget skips, hash mismatch)
 	// degrade to the same default as old caches.
 	Role string
@@ -1486,7 +1490,7 @@ func DetectScreenshotGaps(
 		// so we can append directly.
 		contentHash := hashScreenshotPageContent(page.Content)
 		if cached != nil {
-			if c, ok := cached[screenshotsCacheKey(page.URL, contentHash, normalizeRole(page.Role))]; ok {
+			if c, ok := cached[screenshotsCacheKey(page.URL, contentHash, NormalizeRole(page.Role))]; ok {
 				resultMu.Lock()
 				result.MissingGaps = append(result.MissingGaps, c.Missing...)
 				result.PossiblyCovered = append(result.PossiblyCovered, c.Possibly...)
@@ -1599,7 +1603,7 @@ func DetectScreenshotGaps(
 			entry := ScreenshotsCachedPage{
 				URL:         page.URL,
 				ContentHash: contentHash,
-				Role:        normalizeRole(page.Role),
+				Role:        NormalizeRole(page.Role),
 				Stats:       stats,
 				Missing:     append([]ScreenshotGap(nil), gaps...),
 				Possibly:    append([]ScreenshotGap(nil), possibly...),

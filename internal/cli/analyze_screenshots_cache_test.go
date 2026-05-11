@@ -138,10 +138,14 @@ func TestAnalyze_screenshotsSkipOnCachedComplete(t *testing.T) {
 		map[string]string{docsURL: pageContent})
 
 	llmSmall := "ollama/test"
+	// Role must mirror what seedScreenshotsFixture stores in the
+	// page-analysis cache so the sentinel hash matches what analyze
+	// will compute when it stamps Role onto docPages from that cache.
 	docPages := []analyzer.DocPage{{
 		URL:     docsURL,
 		Path:    filepath.Join(projectDir, "docs", spider.URLToFilename(docsURL)),
 		Content: pageContent,
+		Role:    "reference",
 	}}
 	wantHash := computeScreenshotsInputHash(docPages, llmSmall)
 

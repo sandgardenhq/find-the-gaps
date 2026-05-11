@@ -62,11 +62,11 @@ func TestDetectScreenshotGaps_cacheHitSkipsLLM(t *testing.T) {
 
 	cached := map[string]ScreenshotsCachedPage{}
 	for i := 0; i < 3; i++ {
-		key := screenshotsCacheKey(pages[i].URL, hashPageContent(pages[i].Content), normalizeRole(pages[i].Role))
+		key := screenshotsCacheKey(pages[i].URL, hashPageContent(pages[i].Content), NormalizeRole(pages[i].Role))
 		cached[key] = ScreenshotsCachedPage{
 			URL:         pages[i].URL,
 			ContentHash: hashPageContent(pages[i].Content),
-			Role:        normalizeRole(pages[i].Role),
+			Role:        NormalizeRole(pages[i].Role),
 			Stats: ScreenshotPageStats{
 				PageURL:            pages[i].URL,
 				MissingScreenshots: 1,
@@ -166,11 +166,11 @@ func TestDetectScreenshotGaps_cachedHitsContributeToResult(t *testing.T) {
 	pages := makeScreenshotPages(5)
 	cached := map[string]ScreenshotsCachedPage{}
 	for i, p := range pages {
-		key := screenshotsCacheKey(p.URL, hashPageContent(p.Content), normalizeRole(p.Role))
+		key := screenshotsCacheKey(p.URL, hashPageContent(p.Content), NormalizeRole(p.Role))
 		cached[key] = ScreenshotsCachedPage{
 			URL:         p.URL,
 			ContentHash: hashPageContent(p.Content),
-			Role:        normalizeRole(p.Role),
+			Role:        NormalizeRole(p.Role),
 			Stats:       ScreenshotPageStats{PageURL: p.URL, MissingScreenshots: 1},
 			Missing: []ScreenshotGap{{
 				PageURL:        p.URL,
@@ -211,10 +211,10 @@ func TestDetectScreenshotGaps_contentHashChangeDefeatsCacheHit(t *testing.T) {
 	pages := makeScreenshotPages(1)
 	// Cache entry for the URL but with a deliberately mismatched hash.
 	cached := map[string]ScreenshotsCachedPage{
-		screenshotsCacheKey(pages[0].URL, "stale-hash", normalizeRole(pages[0].Role)): {
+		screenshotsCacheKey(pages[0].URL, "stale-hash", NormalizeRole(pages[0].Role)): {
 			URL:         pages[0].URL,
 			ContentHash: "stale-hash",
-			Role:        normalizeRole(pages[0].Role),
+			Role:        NormalizeRole(pages[0].Role),
 		},
 	}
 	client := &fakeLLMClient{responses: []string{`{"gaps":[]}`}}

@@ -177,6 +177,57 @@ func TestScreenshotsCache_entriesAreSortedByURL(t *testing.T) {
 	assert.Less(t, iMango, iZebra)
 }
 
+// TestScreenshotsCachedFromCli_preservesRole guards against an asymmetry
+// between the cli<->analyzer adapter pair: screenshotsCacheEntryFromAnalyzer
+// already copies Role, but screenshotsCachedFromCli used to drop it. Cache
+// lookup keys embed role separately so the bug was latent at runtime, but
+// any future reader of ScreenshotsCachedPage.Role on a cache-hit path would
+// see the zero value instead of the actual stored role.
+func TestScreenshotsCachedFromCli_preservesRole(t *testing.T) {
+	in := map[string]screenshotsCacheEntry{
+		screenshotsCacheKey("https://docs.example.com/q", "h1", "quickstart"): {
+			URL:         "https://docs.example.com/q",
+			ContentHash: "h1",
+			Role:        "quickstart",
+			Stats:       analyzer.ScreenshotPageStats{PageURL: "https://docs.example.com/q"},
+			Missing:     []analyzer.ScreenshotGap{},
+			Possibly:    []analyzer.ScreenshotGap{},
+			ImageIssues: []analyzer.ImageIssue{},
+		},
+	}
+	out := screenshotsCachedFromCli(in)
+	require.Len(t, out, 1)
+	for _, v := range out {
+		assert.Equal(t, "quickstart", v.Role)
+	}
+}
+
+// TestComputeScreenshotsInputHash_roleAffectsHash guards the completion
+// sentinel against a silent-drop trap: when a docs page's role is
+// reclassified between runs (content unchanged, model unchanged), the
+// sentinel hash MUST change so the screenshot pass re-runs the page.
+// Without role in the sentinel, the per-page cache's role-aware key
+// would miss while the sentinel match short-circuits the whole pass —
+// dropping the page's findings entirely.
+func TestComputeScreenshotsInputHash_roleAffectsHash(t *testing.T) {
+	pagesA := []analyzer.DocPage{{
+		URL:     "https://docs.example.com/p",
+		Content: "# Page\n\nHello.\n",
+		Role:    "quickstart",
+	}}
+	pagesB := []analyzer.DocPage{{
+		URL:     "https://docs.example.com/p",
+		Content: "# Page\n\nHello.\n",
+		Role:    "reference",
+	}}
+	llmSmall := "anthropic/claude-haiku-4-5"
+
+	hashA := computeScreenshotsInputHash(pagesA, llmSmall)
+	hashB := computeScreenshotsInputHash(pagesB, llmSmall)
+	assert.NotEqual(t, hashA, hashB,
+		"hash must differ when only Role differs; otherwise a role reclassification silently drops findings")
+}
+
 func TestScreenshotsCachePages_listedSortedByURL(t *testing.T) {
 	// Pages list mirrors sorted entry URLs.
 	path := filepath.Join(t.TempDir(), "screenshots.json")

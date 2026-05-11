@@ -205,15 +205,21 @@ func saveScreenshotsCacheComplete(path string, current map[string]screenshotsCac
 }
 
 // computeScreenshotsInputHash returns a hex SHA-256 over the inputs the
-// screenshot pass consumes from upstream (page URLs + content hash + small-tier
-// model identity). It is independent of slice iteration order — pages are
-// sorted by URL before hashing. The model identity is folded in so a model
-// change forces a re-run (different vision behavior produces different audit
-// stats and findings).
+// screenshot pass consumes from upstream (page URLs + content hash +
+// normalized role + small-tier model identity). It is independent of slice
+// iteration order — pages are sorted by URL before hashing. The model
+// identity is folded in so a model change forces a re-run (different vision
+// behavior produces different audit stats and findings); the normalized
+// role is folded in so a role reclassification on stable content + model
+// invalidates the completion sentinel and forces a fresh pass — otherwise
+// the per-page cache's role-aware key (URL|Hash|Role) would miss while the
+// sentinel match short-circuits the whole pass, silently dropping that
+// page's findings.
 func computeScreenshotsInputHash(docPages []analyzer.DocPage, llmSmall string) string {
 	type pEntry struct {
 		URL  string `json:"url"`
 		Hash string `json:"hash"`
+		Role string `json:"role"`
 	}
 	type payload struct {
 		Pages []pEntry `json:"pages"`
@@ -223,7 +229,11 @@ func computeScreenshotsInputHash(docPages []analyzer.DocPage, llmSmall string) s
 	entries := make([]pEntry, 0, len(docPages))
 	for _, p := range docPages {
 		sum := sha256.Sum256([]byte(p.Content))
-		entries = append(entries, pEntry{URL: p.URL, Hash: hex.EncodeToString(sum[:])})
+		entries = append(entries, pEntry{
+			URL:  p.URL,
+			Hash: hex.EncodeToString(sum[:]),
+			Role: analyzer.NormalizeRole(p.Role),
+		})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].URL < entries[j].URL })
 
@@ -242,6 +252,7 @@ func screenshotsCachedFromCli(in map[string]screenshotsCacheEntry) map[string]an
 		out[k] = analyzer.ScreenshotsCachedPage{
 			URL:         v.URL,
 			ContentHash: v.ContentHash,
+			Role:        v.Role,
 			Stats:       v.Stats,
 			Missing:     v.Missing,
 			Possibly:    v.Possibly,
@@ -275,14 +286,7 @@ func screenshotResultFromCache(cache map[string]screenshotsCacheEntry, docPages 
 	for _, p := range docPages {
 		sum := sha256.Sum256([]byte(p.Content))
 		hash := hex.EncodeToString(sum[:])
-		// Inline the same empty -> "other" normalization the analyzer's
-		// normalizeRole helper applies, so cache hits/misses match across
-		// both packages without exporting the helper.
-		role := p.Role
-		if role == "" {
-			role = "other"
-		}
-		c, ok := cache[screenshotsCacheKey(p.URL, hash, role)]
+		c, ok := cache[screenshotsCacheKey(p.URL, hash, analyzer.NormalizeRole(p.Role))]
 		if !ok {
 			continue
 		}
