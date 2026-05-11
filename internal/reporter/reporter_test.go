@@ -1033,10 +1033,10 @@ func TestWriteScreenshots_GroupsByPriority(t *testing.T) {
 
 func TestBuildGapsStaticPrefix_includesUndocumentedFeatures(t *testing.T) {
 	mapping := analyzer.FeatureMap{
-		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},        // undocumented user-facing → shown
-		{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: false}, Files: []string{"b.go"}},        // non-user-facing → excluded by policy
-		{Feature: analyzer.CodeFeature{Name: "gamma", UserFacing: true}, Files: []string{"c.go"}},        // documented (in allDocFeatures) → not undoc
-		{Feature: analyzer.CodeFeature{Name: "delta", UserFacing: true}, Files: []string{}},              // no code mapping → not undoc
+		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}}, // undocumented user-facing → shown
+		{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: false}, Files: []string{"b.go"}}, // non-user-facing → excluded by policy
+		{Feature: analyzer.CodeFeature{Name: "gamma", UserFacing: true}, Files: []string{"c.go"}}, // documented (in allDocFeatures) → not undoc
+		{Feature: analyzer.CodeFeature{Name: "delta", UserFacing: true}, Files: []string{}},       // no code mapping → not undoc
 	}
 	docFeatures := []string{"gamma", "epsilon"} // epsilon is doc-only — main removed the Unmapped Features section
 	got := reporter.BuildGapsStaticPrefix(mapping, docFeatures, nil)

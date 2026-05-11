@@ -28,12 +28,12 @@ import (
 //   - method                 — `def name …`; field name=identifier
 //   - singleton_method       — `def self.foo …`; fields object=self, name=identifier
 //   - identifier             — appears standalone in a class/module body when
-//                              a bare `private` or `protected` directive is
-//                              written. This is the unique Ruby "directive"
-//                              shape — it is NOT a `call`.
+//     a bare `private` or `protected` directive is
+//     written. This is the unique Ruby "directive"
+//     shape — it is NOT a `call`.
 //   - call                   — `require 'x'`, `require_relative 'x'`, or
-//                              `private :foo`; fields method=identifier,
-//                              arguments=argument_list
+//     `private :foo`; fields method=identifier,
+//     arguments=argument_list
 //   - string / string_content — string literal and its inner text
 //   - comment                — a `#`-prefixed line
 //   - body_statement         — wraps statements inside a class/module body

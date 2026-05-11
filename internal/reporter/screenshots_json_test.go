@@ -21,7 +21,7 @@ func TestWriteScreenshotsJSON(t *testing.T) {
 			Priority: analyzer.PriorityMedium, PriorityReason: "r2",
 		}},
 		PossiblyCovered: []analyzer.ScreenshotGap{{
-			PageURL: "u",
+			PageURL:  "u",
 			Priority: analyzer.PrioritySmall, PriorityReason: "r3",
 		}},
 	}

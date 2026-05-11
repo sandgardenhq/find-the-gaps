@@ -14,10 +14,10 @@ func mapEnv(m map[string]string) func(string) string {
 
 func TestShouldSkip_HappyPath(t *testing.T) {
 	skip, reason := ShouldSkip(GateInputs{
-		Env:           mapEnv(nil),
-		Version:       "v1.3.0",
-		Command:       "analyze",
-		StderrIsTTY:   true,
+		Env:         mapEnv(nil),
+		Version:     "v1.3.0",
+		Command:     "analyze",
+		StderrIsTTY: true,
 	})
 	assert.False(t, skip, "default conditions should not skip; reason=%q", reason)
 }

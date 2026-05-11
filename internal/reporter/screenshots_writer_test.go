@@ -76,9 +76,9 @@ func TestScreenshotsWriter_rearmsTimerOnSubsequentPush(t *testing.T) {
 	w := reporter.NewScreenshotsWriter(dir, debounce)
 	t.Cleanup(func() { _ = w.Close() })
 
-	w.Push(makeScreenshotResult(1))           // passage 0
-	time.Sleep(debounce / 2)                  // timer is armed but not yet fired
-	w.Push(makeScreenshotResult(2))           // passages 0 and 1
+	w.Push(makeScreenshotResult(1)) // passage 0
+	time.Sleep(debounce / 2)        // timer is armed but not yet fired
+	w.Push(makeScreenshotResult(2)) // passages 0 and 1
 
 	// Wait past the second debounce window. The timer was rearmed by the
 	// second Push; we expect exactly one flush carrying the second payload.

@@ -23,9 +23,9 @@ func TestFetchLatestTag_Success(t *testing.T) {
 	defer srv.Close()
 
 	tag, err := FetchLatestTag(context.Background(), Fetcher{
-		BaseURL:        srv.URL,
-		UserAgent:      "find-the-gaps/v1.3.0",
-		Timeout:        2 * time.Second,
+		BaseURL:   srv.URL,
+		UserAgent: "find-the-gaps/v1.3.0",
+		Timeout:   2 * time.Second,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "v1.4.2", tag)

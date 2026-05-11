@@ -396,11 +396,11 @@ func TestDetectScreenshotGaps_VisionVerdictIndicesMatchUnfilteredRefs(t *testing
 // HTML/JSX rendered UI source.
 func TestDetectScreenshotGaps_NoFalsePositiveOnTerminalOutput(t *testing.T) {
 	cases := []struct {
-		name           string
-		content        string
-		wantSection    string
-		wantLanguage   string
-		wantLineCount  string
+		name          string
+		content       string
+		wantSection   string
+		wantLanguage  string
+		wantLineCount string
 	}{
 		{
 			name: "bash terminal output",

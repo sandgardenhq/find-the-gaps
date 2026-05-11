@@ -17,7 +17,7 @@ func TestClipObservationQuotes_PreservesUTF8Boundary(t *testing.T) {
 	// Build a string whose byte length, with the multi-byte rune at the
 	// boundary, forces clipObservationQuotes to cut inside the rune.
 	prefix := strings.Repeat("a", 1499) // 1499 ASCII bytes
-	emDash := "—"                  // 3 bytes (E2 80 94)
+	emDash := "—"                       // 3 bytes (E2 80 94)
 	suffix := "tail"
 	input := prefix + emDash + suffix
 	// max = 1500 lands inside the em-dash rune (between E2 and 80).

@@ -27,43 +27,43 @@ import (
 //
 //   - translation_unit            — root
 //   - preproc_include             — same shape as C; `path` field child is a
-//                                   `system_lib_string` or `string_literal`
+//     `system_lib_string` or `string_literal`
 //   - preproc_def                 — #define; skipped
 //   - using_declaration           — TWO shapes:
-//                                     (a) `using std::string;` — children:
-//                                         `using` keyword, `qualified_identifier`
-//                                         (→ `namespace_identifier(std)` ::
-//                                         `identifier(string)`), `;`.
-//                                     (b) `using namespace X;` — children:
-//                                         `using` keyword, `namespace` keyword,
-//                                         then `identifier(X)` OR
-//                                         `qualified_identifier(foo::bar)`, `;`.
-//                                     The presence of the `namespace` keyword
-//                                     child distinguishes (b) from (a).
+//     (a) `using std::string;` — children:
+//     `using` keyword, `qualified_identifier`
+//     (→ `namespace_identifier(std)` ::
+//     `identifier(string)`), `;`.
+//     (b) `using namespace X;` — children:
+//     `using` keyword, `namespace` keyword,
+//     then `identifier(X)` OR
+//     `qualified_identifier(foo::bar)`, `;`.
+//     The presence of the `namespace` keyword
+//     child distinguishes (b) from (a).
 //   - namespace_definition        — optional `name` field (absent = anonymous);
-//                                   `body` field = `declaration_list`.
+//     `body` field = `declaration_list`.
 //   - class_specifier             — `class X { ... }`; first keyword child's
-//                                   Type() is `"class"`. `name` field =
-//                                   `type_identifier`; `body` field =
-//                                   `field_declaration_list`.
+//     Type() is `"class"`. `name` field =
+//     `type_identifier`; `body` field =
+//     `field_declaration_list`.
 //   - struct_specifier            — `struct X { ... }`; first keyword child's
-//                                   Type() is `"struct"`. Same layout as
-//                                   class_specifier. (union_specifier also
-//                                   exists and is treated like a C union →
-//                                   KindClass; no members extracted.)
+//     Type() is `"struct"`. Same layout as
+//     class_specifier. (union_specifier also
+//     exists and is treated like a C union →
+//     KindClass; no members extracted.)
 //   - access_specifier            — inside a class/struct body. Contains a
-//                                   single keyword token whose Type() is
-//                                   `"public"` / `"private"` / `"protected"`.
-//                                   The trailing colon is a separate `:` token
-//                                   sibling.
+//     single keyword token whose Type() is
+//     `"public"` / `"private"` / `"protected"`.
+//     The trailing colon is a separate `:` token
+//     sibling.
 //   - field_declaration           — a class/struct member (function prototype
-//                                   or variable). Member function's name lives
-//                                   in `function_declarator > field_identifier`.
+//     or variable). Member function's name lives
+//     in `function_declarator > field_identifier`.
 //   - function_definition         — a function body. Out-of-class member
-//                                   definitions (`int A::m(int) { ... }`)
-//                                   reach here with a
-//                                   `function_declarator > qualified_identifier`
-//                                   whose `scope` = class, `name` = method.
+//     definitions (`int A::m(int) { ... }`)
+//     reach here with a
+//     `function_declarator > qualified_identifier`
+//     whose `scope` = class, `name` = method.
 type CPPExtractor struct{}
 
 func (e *CPPExtractor) Language() string { return "C++" }

@@ -578,10 +578,10 @@ func TestFilterVisionSupportedImages_EmptyAndNil(t *testing.T) {
 func TestResolveImageSrc(t *testing.T) {
 	const pageURL = "https://docs.example.com/guide/intro/"
 	for _, tc := range []struct {
-		name    string
-		src     string
-		want    string
-		wantOK  bool
+		name   string
+		src    string
+		want   string
+		wantOK bool
 	}{
 		{"absolute https", "https://cdn.example.com/img/dash.png", "https://cdn.example.com/img/dash.png", true},
 		{"absolute http", "http://other.test/x.png", "http://other.test/x.png", true},
