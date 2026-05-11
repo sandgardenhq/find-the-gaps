@@ -147,9 +147,10 @@ func TestAnalyze_screenshotsSkipOnCachedComplete(t *testing.T) {
 
 	screenshotsCachePath := filepath.Join(projectDir, "screenshots-cache.json")
 	live := map[string]screenshotsCacheEntry{
-		screenshotsCacheKey(docsURL, hashStr(pageContent)): {
+		screenshotsCacheKey(docsURL, hashStr(pageContent), "reference"): {
 			URL:         docsURL,
 			ContentHash: hashStr(pageContent),
+			Role:        "reference",
 			Stats: analyzer.ScreenshotPageStats{
 				PageURL:            docsURL,
 				MissingScreenshots: 0,
@@ -234,9 +235,10 @@ func TestAnalyze_screenshotsResumesAfterPartialCache(t *testing.T) {
 	// Pre-seed cache with the A entry only; no completion sentinel.
 	screenshotsCachePath := filepath.Join(projectDir, "screenshots-cache.json")
 	live := map[string]screenshotsCacheEntry{
-		screenshotsCacheKey(docsURLA, hashStr(contentA)): {
+		screenshotsCacheKey(docsURLA, hashStr(contentA), "reference"): {
 			URL:         docsURLA,
 			ContentHash: hashStr(contentA),
+			Role:        "reference",
 			Stats: analyzer.ScreenshotPageStats{
 				PageURL:            docsURLA,
 				MissingScreenshots: 0,
@@ -281,4 +283,3 @@ func TestAnalyze_screenshotsResumesAfterPartialCache(t *testing.T) {
 	require.NotEmpty(t, file.Complete.Hash)
 	assert.Len(t, file.Entries, 2, "final cache must contain both pages")
 }
-

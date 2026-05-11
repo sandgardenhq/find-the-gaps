@@ -27,11 +27,14 @@ type screenshotsCacheFile struct {
 }
 
 // screenshotsCacheEntry is one cached page result. The composite key is
-// URL+ContentHash so a docs page whose content has changed produces a fresh
-// entry rather than reusing a stale one.
+// URL+ContentHash+Role so a docs page whose content has changed produces a
+// fresh entry rather than reusing a stale one — and so a page whose role is
+// reclassified between runs (content unchanged) does NOT replay findings
+// whose priority / priority_reason were produced under the prior role.
 type screenshotsCacheEntry struct {
 	URL         string                       `json:"url"`
 	ContentHash string                       `json:"contentHash"`
+	Role        string                       `json:"role"`
 	Stats       analyzer.ScreenshotPageStats `json:"stats"`
 	Missing     []analyzer.ScreenshotGap     `json:"missing"`
 	Possibly    []analyzer.ScreenshotGap     `json:"possiblyCovered"`
@@ -50,8 +53,13 @@ type screenshotsComplete struct {
 // screenshotsCacheKey returns the composite map key for a screenshots cache
 // entry. The pipe separator is illegal in URLs and hex hashes so the
 // concatenation is unambiguous.
-func screenshotsCacheKey(url, contentHash string) string {
-	return url + "|" + contentHash
+//
+// role MUST be the same normalized value the analyzer stamps onto its
+// ScreenshotsCachedPage entries (empty -> "other"). Including it in the key
+// makes role reclassification between runs invalidate cached findings whose
+// priority / priority_reason were computed under the prior role.
+func screenshotsCacheKey(url, contentHash, role string) string {
+	return url + "|" + contentHash + "|" + role
 }
 
 // loadScreenshotsCacheFile returns the full screenshotsCacheFile (entries +
@@ -102,9 +110,10 @@ func screenshotsCacheEntriesToMap(entries []screenshotsCacheEntry) map[string]sc
 		if issues == nil {
 			issues = []analyzer.ImageIssue{}
 		}
-		m[screenshotsCacheKey(e.URL, e.ContentHash)] = screenshotsCacheEntry{
+		m[screenshotsCacheKey(e.URL, e.ContentHash, e.Role)] = screenshotsCacheEntry{
 			URL:         e.URL,
 			ContentHash: e.ContentHash,
+			Role:        e.Role,
 			Stats:       e.Stats,
 			Missing:     missing,
 			Possibly:    possibly,
@@ -154,6 +163,7 @@ func saveScreenshotsCacheComplete(path string, current map[string]screenshotsCac
 		entries = append(entries, screenshotsCacheEntry{
 			URL:         c.URL,
 			ContentHash: c.ContentHash,
+			Role:        c.Role,
 			Stats:       c.Stats,
 			Missing:     missing,
 			Possibly:    possibly,
@@ -248,6 +258,7 @@ func screenshotsCacheEntryFromAnalyzer(in analyzer.ScreenshotsCachedPage) screen
 	return screenshotsCacheEntry{
 		URL:         in.URL,
 		ContentHash: in.ContentHash,
+		Role:        in.Role,
 		Stats:       in.Stats,
 		Missing:     in.Missing,
 		Possibly:    in.Possibly,
@@ -264,7 +275,14 @@ func screenshotResultFromCache(cache map[string]screenshotsCacheEntry, docPages 
 	for _, p := range docPages {
 		sum := sha256.Sum256([]byte(p.Content))
 		hash := hex.EncodeToString(sum[:])
-		c, ok := cache[screenshotsCacheKey(p.URL, hash)]
+		// Inline the same empty -> "other" normalization the analyzer's
+		// normalizeRole helper applies, so cache hits/misses match across
+		// both packages without exporting the helper.
+		role := p.Role
+		if role == "" {
+			role = "other"
+		}
+		c, ok := cache[screenshotsCacheKey(p.URL, hash, role)]
 		if !ok {
 			continue
 		}
@@ -288,7 +306,7 @@ func newScreenshotsCachePersister(live map[string]screenshotsCacheEntry, path st
 	return func(entry screenshotsCacheEntry) error {
 		mu.Lock()
 		defer mu.Unlock()
-		live[screenshotsCacheKey(entry.URL, entry.ContentHash)] = entry
+		live[screenshotsCacheKey(entry.URL, entry.ContentHash, entry.Role)] = entry
 		return saveScreenshotsCache(path, live)
 	}
 }

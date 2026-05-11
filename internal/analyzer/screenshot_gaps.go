@@ -46,8 +46,14 @@ func normalizeRole(r string) string {
 // against; the lookup key is URL+ContentHash so a content change drops the
 // cached entry and forces re-analysis.
 type ScreenshotsCachedPage struct {
-	URL         string              `json:"url"`
-	ContentHash string              `json:"contentHash"`
+	URL         string `json:"url"`
+	ContentHash string `json:"contentHash"`
+	// Role is the normalized DocPage.Role under which this entry was
+	// produced. It joins URL+ContentHash in the composite cache key so a
+	// page whose role is reclassified between runs (content unchanged)
+	// produces a fresh entry rather than replaying findings whose
+	// priority / priority_reason were computed under the prior role.
+	Role        string              `json:"role"`
 	Stats       ScreenshotPageStats `json:"stats"`
 	Missing     []ScreenshotGap     `json:"missing"`
 	Possibly    []ScreenshotGap     `json:"possiblyCovered"`
@@ -57,8 +63,14 @@ type ScreenshotsCachedPage struct {
 // screenshotsCacheKey is the composite map key for a screenshots cache
 // entry. The pipe separator is illegal in URLs and hex hashes so the
 // concatenation is unambiguous. Mirrors the cli helper of the same shape.
-func screenshotsCacheKey(url, contentHash string) string {
-	return url + "|" + contentHash
+//
+// role MUST be the normalized role string (see normalizeRole). Including it
+// in the key means that a page whose role is reclassified between runs
+// (content unchanged) no longer replays cached findings that were produced
+// under the prior role's prompt context — their priority / priority_reason
+// would otherwise be wrong for the new role.
+func screenshotsCacheKey(url, contentHash, role string) string {
+	return url + "|" + contentHash + "|" + role
 }
 
 // hashScreenshotPageContent returns a hex SHA-256 of the page content. It
@@ -1474,7 +1486,7 @@ func DetectScreenshotGaps(
 		// so we can append directly.
 		contentHash := hashScreenshotPageContent(page.Content)
 		if cached != nil {
-			if c, ok := cached[screenshotsCacheKey(page.URL, contentHash)]; ok {
+			if c, ok := cached[screenshotsCacheKey(page.URL, contentHash, normalizeRole(page.Role))]; ok {
 				resultMu.Lock()
 				result.MissingGaps = append(result.MissingGaps, c.Missing...)
 				result.PossiblyCovered = append(result.PossiblyCovered, c.Possibly...)
@@ -1587,6 +1599,7 @@ func DetectScreenshotGaps(
 			entry := ScreenshotsCachedPage{
 				URL:         page.URL,
 				ContentHash: contentHash,
+				Role:        normalizeRole(page.Role),
 				Stats:       stats,
 				Missing:     append([]ScreenshotGap(nil), gaps...),
 				Possibly:    append([]ScreenshotGap(nil), possibly...),

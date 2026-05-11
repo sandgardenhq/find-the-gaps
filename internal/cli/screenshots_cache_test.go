@@ -16,9 +16,10 @@ import (
 func TestScreenshotsCache_roundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "screenshots.json")
 	in := map[string]screenshotsCacheEntry{
-		screenshotsCacheKey("https://docs.example.com/auth", "hash-auth"): {
+		screenshotsCacheKey("https://docs.example.com/auth", "hash-auth", "other"): {
 			URL:         "https://docs.example.com/auth",
 			ContentHash: "hash-auth",
+			Role:        "other",
 			Stats: analyzer.ScreenshotPageStats{
 				PageURL:            "https://docs.example.com/auth",
 				VisionEnabled:      true,
@@ -49,9 +50,10 @@ func TestScreenshotsCache_roundTrip(t *testing.T) {
 				PriorityReason:  "misleading users",
 			}},
 		},
-		screenshotsCacheKey("https://docs.example.com/search", "hash-search"): {
+		screenshotsCacheKey("https://docs.example.com/search", "hash-search", "other"): {
 			URL:         "https://docs.example.com/search",
 			ContentHash: "hash-search",
+			Role:        "other",
 			Stats: analyzer.ScreenshotPageStats{
 				PageURL:       "https://docs.example.com/search",
 				VisionEnabled: false,
@@ -67,7 +69,7 @@ func TestScreenshotsCache_roundTrip(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, got, 2)
 
-	authKey := screenshotsCacheKey("https://docs.example.com/auth", "hash-auth")
+	authKey := screenshotsCacheKey("https://docs.example.com/auth", "hash-auth", "other")
 	require.Contains(t, got, authKey)
 	assert.Equal(t, in[authKey].URL, got[authKey].URL)
 	assert.Equal(t, in[authKey].ContentHash, got[authKey].ContentHash)
@@ -128,9 +130,10 @@ func TestScreenshotsCachePersister_concurrentCallersDoNotLoseUpdates(t *testing.
 func TestScreenshotsCacheComplete_roundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "screenshots.json")
 	in := map[string]screenshotsCacheEntry{
-		screenshotsCacheKey("https://x/auth", "h1"): {
+		screenshotsCacheKey("https://x/auth", "h1", "other"): {
 			URL:         "https://x/auth",
 			ContentHash: "h1",
+			Role:        "other",
 			Stats:       analyzer.ScreenshotPageStats{PageURL: "https://x/auth"},
 			Missing:     []analyzer.ScreenshotGap{},
 			Possibly:    []analyzer.ScreenshotGap{},
@@ -151,14 +154,14 @@ func TestScreenshotsCacheComplete_roundTrip(t *testing.T) {
 func TestScreenshotsCache_entriesAreSortedByURL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "screenshots.json")
 	in := map[string]screenshotsCacheEntry{
-		screenshotsCacheKey("https://docs.example.com/zebra", "hz"): {
-			URL: "https://docs.example.com/zebra", ContentHash: "hz",
+		screenshotsCacheKey("https://docs.example.com/zebra", "hz", "other"): {
+			URL: "https://docs.example.com/zebra", ContentHash: "hz", Role: "other",
 		},
-		screenshotsCacheKey("https://docs.example.com/alpha", "ha"): {
-			URL: "https://docs.example.com/alpha", ContentHash: "ha",
+		screenshotsCacheKey("https://docs.example.com/alpha", "ha", "other"): {
+			URL: "https://docs.example.com/alpha", ContentHash: "ha", Role: "other",
 		},
-		screenshotsCacheKey("https://docs.example.com/mango", "hm"): {
-			URL: "https://docs.example.com/mango", ContentHash: "hm",
+		screenshotsCacheKey("https://docs.example.com/mango", "hm", "other"): {
+			URL: "https://docs.example.com/mango", ContentHash: "hm", Role: "other",
 		},
 	}
 	require.NoError(t, saveScreenshotsCache(path, in))
@@ -178,8 +181,8 @@ func TestScreenshotsCachePages_listedSortedByURL(t *testing.T) {
 	// Pages list mirrors sorted entry URLs.
 	path := filepath.Join(t.TempDir(), "screenshots.json")
 	in := map[string]screenshotsCacheEntry{
-		screenshotsCacheKey("https://x/zebra", "hz"): {URL: "https://x/zebra", ContentHash: "hz"},
-		screenshotsCacheKey("https://x/alpha", "ha"): {URL: "https://x/alpha", ContentHash: "ha"},
+		screenshotsCacheKey("https://x/zebra", "hz", "other"): {URL: "https://x/zebra", ContentHash: "hz", Role: "other"},
+		screenshotsCacheKey("https://x/alpha", "ha", "other"): {URL: "https://x/alpha", ContentHash: "ha", Role: "other"},
 	}
 	require.NoError(t, saveScreenshotsCache(path, in))
 	file, ok := loadScreenshotsCacheFile(path)

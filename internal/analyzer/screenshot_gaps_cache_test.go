@@ -22,6 +22,22 @@ func hashPageContent(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// TestScreenshotsCacheKey_RoleIsPartOfKey pins that two pages sharing a URL
+// and content hash but classified into different roles MUST produce distinct
+// cache keys. Without this, a page whose role is reclassified between runs
+// (content unchanged) silently replays findings produced under the prior
+// role's prompt context — wrong priority/priority_reason for any drift in
+// role classification.
+func TestScreenshotsCacheKey_RoleIsPartOfKey(t *testing.T) {
+	const url = "https://x/p"
+	const hash = "deadbeef"
+	a := screenshotsCacheKey(url, hash, "quickstart")
+	b := screenshotsCacheKey(url, hash, "reference")
+	if a == b {
+		t.Fatalf("expected role-differentiated keys; got %q == %q", a, b)
+	}
+}
+
 // makeScreenshotPages builds n DocPages with deterministic content/url so
 // tests can map between cached and fresh entries by index.
 func makeScreenshotPages(n int) []DocPage {
@@ -46,10 +62,11 @@ func TestDetectScreenshotGaps_cacheHitSkipsLLM(t *testing.T) {
 
 	cached := map[string]ScreenshotsCachedPage{}
 	for i := 0; i < 3; i++ {
-		key := pages[i].URL + "|" + hashPageContent(pages[i].Content)
+		key := screenshotsCacheKey(pages[i].URL, hashPageContent(pages[i].Content), normalizeRole(pages[i].Role))
 		cached[key] = ScreenshotsCachedPage{
 			URL:         pages[i].URL,
 			ContentHash: hashPageContent(pages[i].Content),
+			Role:        normalizeRole(pages[i].Role),
 			Stats: ScreenshotPageStats{
 				PageURL:            pages[i].URL,
 				MissingScreenshots: 1,
@@ -149,10 +166,11 @@ func TestDetectScreenshotGaps_cachedHitsContributeToResult(t *testing.T) {
 	pages := makeScreenshotPages(5)
 	cached := map[string]ScreenshotsCachedPage{}
 	for i, p := range pages {
-		key := p.URL + "|" + hashPageContent(p.Content)
+		key := screenshotsCacheKey(p.URL, hashPageContent(p.Content), normalizeRole(p.Role))
 		cached[key] = ScreenshotsCachedPage{
 			URL:         p.URL,
 			ContentHash: hashPageContent(p.Content),
+			Role:        normalizeRole(p.Role),
 			Stats:       ScreenshotPageStats{PageURL: p.URL, MissingScreenshots: 1},
 			Missing: []ScreenshotGap{{
 				PageURL:        p.URL,
@@ -193,9 +211,10 @@ func TestDetectScreenshotGaps_contentHashChangeDefeatsCacheHit(t *testing.T) {
 	pages := makeScreenshotPages(1)
 	// Cache entry for the URL but with a deliberately mismatched hash.
 	cached := map[string]ScreenshotsCachedPage{
-		pages[0].URL + "|stale-hash": {
+		screenshotsCacheKey(pages[0].URL, "stale-hash", normalizeRole(pages[0].Role)): {
 			URL:         pages[0].URL,
 			ContentHash: "stale-hash",
+			Role:        normalizeRole(pages[0].Role),
 		},
 	}
 	client := &fakeLLMClient{responses: []string{`{"gaps":[]}`}}
@@ -275,12 +294,13 @@ func TestDetectScreenshotGaps_runsPagesConcurrently(t *testing.T) {
 // the cli-side cache entry. If the analyzer ever drifts, this fails.
 var _ = func() bool {
 	type want struct {
-		URL         string                `json:"url"`
-		ContentHash string                `json:"contentHash"`
-		Stats       ScreenshotPageStats   `json:"stats"`
-		Missing     []ScreenshotGap       `json:"missing"`
-		Possibly    []ScreenshotGap       `json:"possiblyCovered"`
-		ImageIssues []ImageIssue          `json:"imageIssues"`
+		URL         string              `json:"url"`
+		ContentHash string              `json:"contentHash"`
+		Role        string              `json:"role"`
+		Stats       ScreenshotPageStats `json:"stats"`
+		Missing     []ScreenshotGap     `json:"missing"`
+		Possibly    []ScreenshotGap     `json:"possiblyCovered"`
+		ImageIssues []ImageIssue        `json:"imageIssues"`
 	}
 	_ = want{}
 	_, _ = json.Marshal(ScreenshotsCachedPage{})
