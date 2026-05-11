@@ -27,10 +27,3 @@ func NewRoleResolver(roles map[string]string) RoleResolver {
 		return role
 	}
 }
-
-// Deprecated: superseded by RoleResolver. Will be removed in Task 6 once
-// all callers have been migrated to RoleResolver.
-//
-// Kept temporarily so drift.go and screenshot_gaps.go still compile during
-// the staged migration.
-func pageRole(_ string) string { return "other" }
