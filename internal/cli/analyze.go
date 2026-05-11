@@ -259,13 +259,14 @@ func newAnalyzeCmd() *cobra.Command {
 			}
 			jobs := make([]pageJob, 0, len(pages))
 			for url, filePath := range pages {
-				if summary, features, isDocs, ok := idx.Analysis(url); ok {
+				if summary, features, isDocs, role, ok := idx.Analysis(url); ok {
 					log.Debug("page cache hit", "url", url)
 					analyses = append(analyses, analyzer.PageAnalysis{
 						URL:      url,
 						Summary:  summary,
 						Features: features,
 						IsDocs:   isDocs,
+						Role:     role,
 					})
 					continue
 				}
@@ -285,7 +286,7 @@ func newAnalyzeCmd() *cobra.Command {
 					log.Warnf("skipping %s: %v", j.url, analyzeErr)
 					return nil
 				}
-				if recErr := idx.RecordAnalysis(j.url, pa.Summary, pa.Features, pa.IsDocs); recErr != nil {
+				if recErr := idx.RecordAnalysis(j.url, pa.Summary, pa.Features, pa.IsDocs, pa.Role); recErr != nil {
 					return fmt.Errorf("record analysis: %w", recErr)
 				}
 				analysesMu.Lock()

@@ -27,6 +27,12 @@ type indexEntry struct {
 	// legacy caches written before the docs classifier shipped. See
 	// .plans/DOCS_CLASSIFIER_DESIGN.md "Edge cases".
 	IsDocs *bool `json:"is_docs,omitempty"`
+	// Role is the LLM-classified page role (e.g. "quickstart", "reference",
+	// "tutorial", "other"). Empty/missing on disk ↔ "other" in memory: the
+	// inclusive-by-default safety net for legacy caches written before the
+	// content-based role classifier shipped. See
+	// .plans/2026-05-11-page-role-from-content-design.md.
+	Role string `json:"role,omitempty"`
 }
 
 type indexJSON struct {
@@ -91,38 +97,48 @@ func (idx *Index) Record(rawURL, filename string) error {
 	return idx.save()
 }
 
-// RecordAnalysis stores the LLM-produced summary, features, and docs
-// classification for rawURL. isDocs is recorded explicitly (even when false) so
-// nil remains reserved for "never written" — see Analysis for the legacy-cache
-// safety net.
-func (idx *Index) RecordAnalysis(rawURL, summary string, features []string, isDocs bool) error {
+// RecordAnalysis stores the LLM-produced summary, features, docs
+// classification, and page role for rawURL. isDocs is recorded explicitly
+// (even when false) so nil remains reserved for "never written" — see
+// Analysis for the legacy-cache safety net. role is recorded verbatim; an
+// empty string round-trips to "other" on read.
+func (idx *Index) RecordAnalysis(rawURL, summary string, features []string, isDocs bool, role string) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	e := idx.entries[rawURL]
 	e.Summary = summary
 	e.Features = features
 	e.IsDocs = &isDocs
+	e.Role = role
 	idx.entries[rawURL] = e
 	return idx.save()
 }
 
-// Analysis returns the cached summary, features, and docs classification for
-// rawURL, if present. When the on-disk entry has no is_docs field (a cache
-// written before the classifier shipped), isDocs is reported as true — the
-// inclusive-by-default safety net that prevents a legacy cache from silently
-// dropping every page out of the report.
-func (idx *Index) Analysis(rawURL string) (summary string, features []string, isDocs bool, ok bool) {
+// Analysis returns the cached summary, features, docs classification, and
+// role for rawURL, if present. When the on-disk entry has no is_docs field
+// (a cache written before the classifier shipped), isDocs is reported as
+// true — the inclusive-by-default safety net that prevents a legacy cache
+// from silently dropping every page out of the report. When the on-disk
+// entry has no role field (a cache written before the content-based role
+// classifier shipped), role is reported as "other" — the same
+// inclusive-by-default rule, so warm-cache reruns keep flowing through the
+// downstream pipeline rather than silently degrading to the Go zero value.
+func (idx *Index) Analysis(rawURL string) (summary string, features []string, isDocs bool, role string, ok bool) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	e, found := idx.entries[rawURL]
 	if !found || e.Summary == "" {
-		return "", nil, false, false
+		return "", nil, false, "", false
 	}
 	is := true // inclusive-by-default for old cache entries (nil on disk)
 	if e.IsDocs != nil {
 		is = *e.IsDocs
 	}
-	return e.Summary, e.Features, is, true
+	r := e.Role
+	if r == "" {
+		r = "other" // inclusive-by-default for legacy cache entries (no role field)
+	}
+	return e.Summary, e.Features, is, r, true
 }
 
 // SetProductSummary stores the product-level summary and feature list.

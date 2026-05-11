@@ -40,7 +40,7 @@ func TestAnalyze_finalGapsMdMatchesWriteGaps(t *testing.T) {
 		[]byte("# Doc page\n\nFeature one, feature two, feature three are documented.\n"), 0o644))
 	require.NoError(t, idx.Record(docsURL, filename))
 	require.NoError(t, idx.RecordAnalysis(docsURL, "Covers all features.",
-		[]string{"feature-one", "feature-two", "feature-three"}, true))
+		[]string{"feature-one", "feature-two", "feature-three"}, true, "reference"))
 	require.NoError(t, idx.SetProductSummary("A test product.",
 		[]string{"feature-one", "feature-two", "feature-three"}))
 

@@ -179,7 +179,7 @@ func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
 	if err := idx.Record("https://example.com", "abc.md"); err != nil {
 		t.Fatal(err)
 	}
-	if err := idx.RecordAnalysis("https://example.com", "Covers install.", []string{"Homebrew install"}, true); err != nil {
+	if err := idx.RecordAnalysis("https://example.com", "Covers install.", []string{"Homebrew install"}, true, "reference"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +189,7 @@ func TestIndex_RecordAnalysis_PersistsAndLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, features, _, ok := idx2.Analysis("https://example.com")
+	summary, features, _, _, ok := idx2.Analysis("https://example.com")
 	if !ok {
 		t.Fatal("expected analysis to be found")
 	}
@@ -206,16 +206,61 @@ func TestIndex_RecordAnalysis_PersistsIsDocs(t *testing.T) {
 	idx, err := LoadIndex(dir)
 	require.NoError(t, err)
 	require.NoError(t, idx.Record("https://x/a", "a.md"))
-	require.NoError(t, idx.RecordAnalysis("https://x/a", "summary", []string{"f"}, false))
+	require.NoError(t, idx.RecordAnalysis("https://x/a", "summary", []string{"f"}, false, "reference"))
 
 	// Reload from disk
 	idx2, err := LoadIndex(dir)
 	require.NoError(t, err)
-	summary, features, isDocs, ok := idx2.Analysis("https://x/a")
+	summary, features, isDocs, _, ok := idx2.Analysis("https://x/a")
 	require.True(t, ok)
 	assert.Equal(t, "summary", summary)
 	assert.Equal(t, []string{"f"}, features)
 	assert.False(t, isDocs)
+}
+
+func TestIndex_RecordAnalysis_PersistsRole(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := LoadIndex(dir)
+	require.NoError(t, err)
+	require.NoError(t, idx.Record("https://x/a", "a.md"))
+	require.NoError(t, idx.RecordAnalysis("https://x/a", "summary", []string{"f"}, true, "quickstart"))
+
+	// Reload from disk
+	idx2, err := LoadIndex(dir)
+	require.NoError(t, err)
+	summary, features, isDocs, role, ok := idx2.Analysis("https://x/a")
+	require.True(t, ok)
+	assert.Equal(t, "summary", summary)
+	assert.Equal(t, []string{"f"}, features)
+	assert.True(t, isDocs)
+	assert.Equal(t, "quickstart", role)
+}
+
+func TestIndex_RecordAnalysis_LegacyEntry_DefaultsRoleOther(t *testing.T) {
+	// Simulate a cache file written by a previous build with no role field.
+	// Critical invariant: empty/missing on disk ↔ "other" in memory — the
+	// inclusive-by-default safety net mirroring the is_docs migration. If
+	// this regresses, every cache-hit page on a warm-cache run becomes
+	// untyped, silently neutering the content-based role classifier.
+	dir := t.TempDir()
+	raw := `{
+	  "pages": {
+	    "https://x/a": {
+	      "filename": "a.md",
+	      "fetched_at": "2025-01-01T00:00:00Z",
+	      "summary": "old",
+	      "features": ["f"],
+	      "is_docs": true
+	    }
+	  }
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.json"), []byte(raw), 0o644))
+
+	idx, err := LoadIndex(dir)
+	require.NoError(t, err)
+	_, _, _, role, ok := idx.Analysis("https://x/a")
+	require.True(t, ok)
+	assert.Equal(t, "other", role, "old cache without role must default to \"other\" (inclusive)")
 }
 
 func TestIndex_Analysis_OldCacheWithoutIsDocs_DefaultsTrue(t *testing.T) {
@@ -238,7 +283,7 @@ func TestIndex_Analysis_OldCacheWithoutIsDocs_DefaultsTrue(t *testing.T) {
 
 	idx, err := LoadIndex(dir)
 	require.NoError(t, err)
-	_, _, isDocs, ok := idx.Analysis("https://x/a")
+	_, _, isDocs, _, ok := idx.Analysis("https://x/a")
 	require.True(t, ok)
 	assert.True(t, isDocs, "old cache without is_docs must default to true (inclusive)")
 }

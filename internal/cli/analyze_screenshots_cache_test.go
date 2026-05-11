@@ -94,7 +94,7 @@ func seedScreenshotsFixture(t *testing.T, repoDir, projectDir string, urls []str
 		filename := spider.URLToFilename(url)
 		require.NoError(t, os.WriteFile(filepath.Join(docsDir, filename), []byte(contentByURL[url]), 0o644))
 		require.NoError(t, idx.Record(url, filename))
-		require.NoError(t, idx.RecordAnalysis(url, "doc page.", []string{"feature-one"}, true))
+		require.NoError(t, idx.RecordAnalysis(url, "doc page.", []string{"feature-one"}, true, "reference"))
 	}
 	require.NoError(t, idx.SetProductSummary("A test product.", []string{"feature-one"}))
 

@@ -96,7 +96,7 @@ func seedFreshCountFixture(t *testing.T, repoDir, projectDir string, cacheHitURL
 		filename := spider.URLToFilename(u)
 		require.NoError(t, os.WriteFile(filepath.Join(docsDir, filename), []byte("# Cached page\n\nFeature one.\n"), 0o644))
 		require.NoError(t, idx.Record(u, filename))
-		require.NoError(t, idx.RecordAnalysis(u, "Cached summary.", []string{"feature-one"}, true))
+		require.NoError(t, idx.RecordAnalysis(u, "Cached summary.", []string{"feature-one"}, true, "reference"))
 	}
 	for _, u := range freshURLs {
 		filename := spider.URLToFilename(u)
