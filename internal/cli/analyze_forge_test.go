@@ -64,7 +64,7 @@ func fakeAnalyzeServer(t *testing.T) *httptest.Server {
 		case strings.Contains(s, "synthesize_response"):
 			respond(`{"description":"A test product.","features":["feature-one"]}`)
 		case strings.Contains(s, "analyze_page_response"):
-			respond(`{"summary":"Doc page.","features":["feature-one"],"is_docs":true}`)
+			respond(`{"summary":"Doc page.","features":["feature-one"],"is_docs":true,"role":"reference"}`)
 		case strings.Contains(s, "screenshot_gaps_response"):
 			respond(`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`)
 		default:
@@ -307,7 +307,7 @@ func TestAnalyze_forgeURL_onDiskCache_secondRunSkipsAnalyze(t *testing.T) {
 		switch {
 		case strings.Contains(s, "analyze_page_response"):
 			analyzeCalls++
-			respond(`{"summary":"Doc page.","features":["feature-one"],"is_docs":true}`)
+			respond(`{"summary":"Doc page.","features":["feature-one"],"is_docs":true,"role":"reference"}`)
 		case strings.Contains(s, "synthesize_response"):
 			respond(`{"description":"P","features":["feature-one"]}`)
 		default:

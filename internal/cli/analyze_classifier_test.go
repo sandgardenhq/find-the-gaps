@@ -161,11 +161,11 @@ func TestAnalyzeEndToEnd_FiltersNonDocs(t *testing.T) {
 			strings.Contains(s, `"name": "analyze_page_response"`):
 			switch {
 			case strings.Contains(s, teamURL):
-				respond(`{"summary":"Meet the team.","features":[],"is_docs":false}`)
+				respond(`{"summary":"Meet the team.","features":[],"is_docs":false,"role":"other"}`)
 			case strings.Contains(s, apiURL):
-				respond(`{"summary":"API reference.","features":["widgets api"],"is_docs":true}`)
+				respond(`{"summary":"API reference.","features":["widgets api"],"is_docs":true,"role":"reference"}`)
 			case strings.Contains(s, changelogURL):
-				respond(`{"summary":"Changelog.","features":["run helper"],"is_docs":true}`)
+				respond(`{"summary":"Changelog.","features":["run helper"],"is_docs":true,"role":"changelog"}`)
 			default:
 				t.Errorf("unexpected analyze_page request URL; body=%s", s)
 				http.Error(w, "unexpected", http.StatusInternalServerError)

@@ -173,7 +173,7 @@ func TestVisionScreenshotEndToEnd_VisionOnEmitsImageIssues(t *testing.T) {
 			respond(`{"rationales":[{"name":"feature-one","rationale":"test rationale"}]}`)
 		case strings.Contains(s, `"name":"analyze_page_response"`),
 			strings.Contains(s, `"name": "analyze_page_response"`):
-			respond(`{"summary":"Settings page.","features":["settings"],"is_docs":true}`)
+			respond(`{"summary":"Settings page.","features":["settings"],"is_docs":true,"role":"reference"}`)
 		default:
 			t.Errorf("unexpected LLM request body: %s", s)
 			http.Error(w, "unexpected", http.StatusInternalServerError)
@@ -316,7 +316,7 @@ func TestVisionScreenshotEndToEnd_VisionOffSkipsRelevancePass(t *testing.T) {
 			respond(`{"rationales":[{"name":"feature-one","rationale":"test rationale"}]}`)
 		case strings.Contains(s, `"name":"analyze_page_response"`),
 			strings.Contains(s, `"name": "analyze_page_response"`):
-			respond(`{"summary":"Settings page.","features":["settings"],"is_docs":true}`)
+			respond(`{"summary":"Settings page.","features":["settings"],"is_docs":true,"role":"reference"}`)
 		default:
 			t.Errorf("unexpected LLM request body: %s", s)
 			http.Error(w, "unexpected", http.StatusInternalServerError)
