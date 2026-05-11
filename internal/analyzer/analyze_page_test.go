@@ -259,6 +259,9 @@ func TestAnalyzePage_PromptIncludesRoleRubric(t *testing.T) {
 		"landing", "quickstart", "tutorial", "how-to",
 		"concept", "reference", "changelog", "faq", "other",
 		"Judge from the content",
+		"Role definitions:",
+		"numbered steps, minimal explanation",
+		"primarily navigation and links, not explanatory prose",
 	}
 	for _, w := range wants {
 		if !strings.Contains(captured, w) {

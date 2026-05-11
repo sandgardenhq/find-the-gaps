@@ -64,10 +64,10 @@ Rule for is_docs:
 A page is DOCS if a user trying to USE this product would consult it for current technical information about features, APIs, configuration, or behavior. Marketing pages and blog posts are NEVER docs, even when they contain code snippets, release announcements, or technical claims — docs is the canonical reference surface, not promotional or editorial content.
 
 Role definitions:
-- "landing": the docs-site home, or a top-level overview page introducing the product or its docs section.
+- "landing": the docs-site home or a section index page; primarily navigation and links, not explanatory prose.
 - "quickstart": a first-time-user install + first command/run page; the reader's goal is "get something working in N minutes".
-- "tutorial": a walked-through, end-to-end guided learning of a single task. Reader is following along to learn.
-- "how-to": a focused recipe for one task on an existing setup; reader already knows the basics.
+- "tutorial": a walked-through, end-to-end guided learning of a single task. Interleaves explanation with steps and explains *why*, not just *how*. Reader is following along to learn.
+- "how-to": recipe-style guide (numbered steps, minimal explanation). Reader's goal is to accomplish one task; conceptual context is minimal or omitted.
 - "concept": background, architecture, design rationale, or model explanation; light on procedure.
 - "reference": exhaustive API / CLI / config / option listing; not a guide.
 - "changelog": release notes, version history, or "what's new".
