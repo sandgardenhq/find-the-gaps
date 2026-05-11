@@ -2,24 +2,45 @@ package analyzer
 
 import "testing"
 
-func TestPageRole(t *testing.T) {
-	cases := []struct {
-		url, want string
-	}{
-		{"https://example.com/", "top-nav"},
-		{"https://example.com/readme/", "readme"},
-		{"https://example.com/docs/quickstart", "quickstart"},
-		{"https://example.com/docs/getting-started/", "quickstart"},
-		{"https://example.com/docs/getting_started", "quickstart"},
-		{"https://example.com/docs/", "top-nav"},
-		{"https://example.com/docs/api", "top-nav"},
-		{"https://example.com/docs/api/auth/", "reference"},
-		{"https://example.com/docs/api/auth/oauth/flows/code", "deep"},
-		{"not a url", "unknown"},
+func TestRoleResolver_KnownURL_ReturnsRole(t *testing.T) {
+	r := NewRoleResolver(map[string]string{
+		"https://docs/x": "quickstart",
+		"https://docs/y": "reference",
+	})
+	if got := r("https://docs/x"); got != "quickstart" {
+		t.Errorf("r(x) = %q, want quickstart", got)
 	}
-	for _, c := range cases {
-		if got := pageRole(c.url); got != c.want {
-			t.Errorf("pageRole(%q) = %q, want %q", c.url, got, c.want)
-		}
+	if got := r("https://docs/y"); got != "reference" {
+		t.Errorf("r(y) = %q, want reference", got)
+	}
+}
+
+func TestRoleResolver_UnknownURL_ReturnsOther(t *testing.T) {
+	r := NewRoleResolver(map[string]string{"https://docs/x": "quickstart"})
+	if got := r("https://docs/missing"); got != "other" {
+		t.Errorf("unknown url = %q, want other", got)
+	}
+}
+
+func TestRoleResolver_EmptyURL_ReturnsOther(t *testing.T) {
+	r := NewRoleResolver(map[string]string{})
+	if got := r(""); got != "other" {
+		t.Errorf("empty url = %q, want other", got)
+	}
+}
+
+func TestRoleResolver_EmptyStoredRole_ReturnsOther(t *testing.T) {
+	// AnalyzePage skipped (token budget) → zero-value Role = "".
+	// Resolver normalizes empty to "other".
+	r := NewRoleResolver(map[string]string{"https://docs/skipped": ""})
+	if got := r("https://docs/skipped"); got != "other" {
+		t.Errorf("empty role = %q, want other", got)
+	}
+}
+
+func TestRoleResolver_NilMap_ReturnsOther(t *testing.T) {
+	r := NewRoleResolver(nil)
+	if got := r("https://docs/any"); got != "other" {
+		t.Errorf("nil map = %q, want other", got)
 	}
 }

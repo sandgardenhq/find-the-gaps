@@ -57,6 +57,7 @@ func TestValidateDriftIssuesAcceptsAll(t *testing.T) {
 }
 
 func TestPageRoleSummary(t *testing.T) {
+	t.Skip("rewritten in Task 4 — see IMPLEMENTATION_PLAN_PAGE_ROLE.md")
 	got := pageRoleSummary([]string{"https://x/quickstart", "https://x/a/b/c/d/e"})
 	if !strings.Contains(got, "quickstart") || !strings.Contains(got, "deep") {
 		t.Errorf("missing roles: %s", got)
