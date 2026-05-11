@@ -316,6 +316,18 @@ func newAnalyzeCmd() *cobra.Command {
 				return err
 			}
 
+			// Build a per-run role resolver from the page-analysis cache so
+			// both the drift judge prompt's "Page role hints:" block AND the
+			// screenshot prompts' page_role hint reflect content-classified
+			// roles instead of URL-segment heuristics. Hoisted above the
+			// drift branch so warm-cache (drift-skipped) runs still populate
+			// DocPage.Role for the screenshot pass.
+			rolesByURL := make(map[string]string, len(analyses))
+			for _, pa := range analyses {
+				rolesByURL[pa.URL] = pa.Role
+			}
+			roleResolver := analyzer.NewRoleResolver(rolesByURL)
+
 			// Use cached synthesis when all pages were cache hits.
 			log.Infof("synthesizing product from %d pages...", len(analyses))
 			var productSummary analyzer.ProductSummary
@@ -549,15 +561,6 @@ func newAnalyzeCmd() *cobra.Command {
 				hits, fresh := 0, 0
 				onFeatureDone := newDriftCachePersister(cached, liveCache, driftCachePath, &hits, &fresh)
 
-				// Build a per-run role resolver from the page-analysis cache so the
-				// judge prompt's "Page role hints:" block reflects content-classified
-				// roles instead of URL-segment heuristics.
-				rolesByURL := make(map[string]string, len(analyses))
-				for _, pa := range analyses {
-					rolesByURL[pa.URL] = pa.Role
-				}
-				roleResolver := analyzer.NewRoleResolver(rolesByURL)
-
 				driftFindings, err = analyzer.DetectDrift(
 					ctx, tiering, featureMap, docsFeatureMap,
 					pageReader, roleResolver, repoPath,
@@ -602,6 +605,14 @@ func newAnalyzeCmd() *cobra.Command {
 				screenshotsCachePath := filepath.Join(projectDir, "screenshots-cache.json")
 				screenshotsMdPath := filepath.Join(projectDir, "screenshots.md")
 				docPages := buildScreenshotDocPages(pages, analyses)
+				// Stamp the content-classified role onto each DocPage so the
+				// screenshot prompts' page_role hint reflects the same value
+				// the drift judge sees. rolesByURL was built above, hoisted
+				// out of the drift block so warm-cache (drift-skipped) runs
+				// still populate it for this pass.
+				for i := range docPages {
+					docPages[i].Role = rolesByURL[docPages[i].URL]
+				}
 				wantScreenshotsHash := computeScreenshotsInputHash(docPages, llmSmall)
 
 				if !noCache {

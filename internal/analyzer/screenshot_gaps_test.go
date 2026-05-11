@@ -239,7 +239,7 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 	coverage := map[string][]imageRef{
 		"Quickstart": {{Src: "hero.png", AltText: "Hero", SectionHeading: "Quickstart", ParagraphIndex: 0}},
 	}
-	got := buildScreenshotPrompt(pageURL, content, coverage, nil)
+	got := buildScreenshotPrompt(DocPage{URL: pageURL, Content: content}, coverage, nil)
 	assert.Contains(t, got, pageURL)
 	assert.Contains(t, got, content)
 	assert.Contains(t, got, "hero.png")
@@ -252,12 +252,12 @@ func TestBuildScreenshotPrompt_IncludesPageContentAndCoverageMap(t *testing.T) {
 }
 
 func TestBuildScreenshotPrompt_EmptyCoverage(t *testing.T) {
-	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil, nil)
+	got := buildScreenshotPrompt(DocPage{URL: "https://example.com/x", Content: "# X\n\nHello.\n"}, nil, nil)
 	assert.Contains(t, got, "No existing images")
 }
 
 func TestBuildScreenshotPrompt_NoCodeBlocks(t *testing.T) {
-	got := buildScreenshotPrompt("https://x/p", "content", nil, nil)
+	got := buildScreenshotPrompt(DocPage{URL: "https://x/p", Content: "content"}, nil, nil)
 	assert.Contains(t, got, "Existing code blocks on this page (if any):")
 	assert.Contains(t, got, "No code blocks on this page.")
 }
@@ -267,7 +267,7 @@ func TestBuildScreenshotPrompt_ListsCodeBlocksWithLocality(t *testing.T) {
 		{Language: "bash", LineCount: 12, SectionHeading: "Quickstart", ParagraphIndex: 4, OriginalIndex: 1},
 		{Language: "json", LineCount: 8, SectionHeading: "Response", ParagraphIndex: 7, OriginalIndex: 2},
 	}
-	got := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	got := buildScreenshotPrompt(DocPage{URL: "https://x/p", Content: "content"}, nil, blocks)
 	assert.Contains(t, got, `- code-1, section "Quickstart", paragraph 4: language=bash, 12 lines`)
 	assert.Contains(t, got, `- code-2, section "Response", paragraph 7: language=json, 8 lines`)
 }
@@ -276,12 +276,12 @@ func TestBuildScreenshotPrompt_EmptyHeadingFallback(t *testing.T) {
 	blocks := []codeBlockRef{
 		{Language: "bash", LineCount: 3, SectionHeading: "", ParagraphIndex: 0, OriginalIndex: 1},
 	}
-	got := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	got := buildScreenshotPrompt(DocPage{URL: "https://x/p", Content: "content"}, nil, blocks)
 	assert.Contains(t, got, `section "(no heading)"`)
 }
 
 func TestBuildScreenshotPrompt_GeneralizesCoveredRuleToCodeBlocks(t *testing.T) {
-	got := buildScreenshotPrompt("https://x/p", "content", nil, nil)
+	got := buildScreenshotPrompt(DocPage{URL: "https://x/p", Content: "content"}, nil, nil)
 	// Coverage rule must explicitly call out code-block coverage:
 	assert.Contains(t, got, "code block")
 	// Do NOT flag list expanded:
@@ -292,7 +292,7 @@ func TestBuildScreenshotPrompt_GeneralizesCoveredRuleToCodeBlocks(t *testing.T) 
 func TestBuildDetectionPromptWithVerdicts_GeneralizesCoveredRule(t *testing.T) {
 	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1}}
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, nil)
+	got := buildDetectionPromptWithVerdicts(DocPage{URL: "https://x/p", Content: "content"}, refs, verdicts, nil)
 	assert.Contains(t, got, "code block")
 	assert.Contains(t, got, "API responses, config files, or data shapes")
 	assert.Contains(t, got, "Rendered UI whose source is already shown")
@@ -654,7 +654,7 @@ func TestDetectScreenshotGaps_ContextCanceled(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}, {Index: "img-2", Matches: false}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}, {Src: "b.png", AltText: "Logs"}}
-	prompt := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
+	prompt := buildDetectionPromptWithVerdicts(DocPage{URL: "https://x/p", Content: "content..."}, refs, verdicts, nil)
 	assert.Contains(t, prompt, "img-1")
 	assert.Contains(t, prompt, "verdict: matches")
 	assert.Contains(t, prompt, "verdict: does not match")
@@ -662,15 +662,16 @@ func TestBuildDetectionPromptWithVerdicts_AnnotatesImages(t *testing.T) {
 
 func TestBuildDetectionPromptWithVerdicts_NilVerdictsDelegateToLegacy(t *testing.T) {
 	refs := []imageRef{{Src: "a.png"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, nil, nil)
-	want := buildScreenshotPrompt("https://x/p", "content...", buildCoverageMap(refs), nil)
+	page := DocPage{URL: "https://x/p", Content: "content..."}
+	got := buildDetectionPromptWithVerdicts(page, refs, nil, nil)
+	want := buildScreenshotPrompt(page, buildCoverageMap(refs), nil)
 	assert.Equal(t, want, got)
 }
 
 func TestBuildDetectionPromptWithVerdicts_NoCodeBlocks(t *testing.T) {
 	refs := []imageRef{{AltText: "x", Src: "x.png", OriginalIndex: 1, SectionHeading: "S", ParagraphIndex: 0}}
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, nil)
+	got := buildDetectionPromptWithVerdicts(DocPage{URL: "https://x/p", Content: "content"}, refs, verdicts, nil)
 	assert.Contains(t, got, "Existing code blocks on this page (if any):")
 	assert.Contains(t, got, "No code blocks on this page.")
 }
@@ -681,7 +682,7 @@ func TestBuildDetectionPromptWithVerdicts_ListsCodeBlocks(t *testing.T) {
 	blocks := []codeBlockRef{
 		{Language: "json", LineCount: 5, SectionHeading: "Response", ParagraphIndex: 3, OriginalIndex: 1},
 	}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content", refs, verdicts, blocks)
+	got := buildDetectionPromptWithVerdicts(DocPage{URL: "https://x/p", Content: "content"}, refs, verdicts, blocks)
 	assert.Contains(t, got, `- code-1, section "Response", paragraph 3: language=json, 5 lines`)
 }
 
@@ -690,8 +691,9 @@ func TestBuildDetectionPromptWithVerdicts_EmptyVerdictsDelegatesWithBlocks(t *te
 	// codeBlocks through. Pin the contract so a future refactor doesn't
 	// silently strip them on the no-verdict branch.
 	blocks := []codeBlockRef{{Language: "bash", LineCount: 1, OriginalIndex: 1}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content", nil, nil, blocks)
-	want := buildScreenshotPrompt("https://x/p", "content", nil, blocks)
+	page := DocPage{URL: "https://x/p", Content: "content"}
+	got := buildDetectionPromptWithVerdicts(page, nil, nil, blocks)
+	want := buildScreenshotPrompt(page, nil, blocks)
 	assert.Equal(t, want, got)
 }
 
@@ -701,7 +703,7 @@ func TestBuildDetectionPromptWithVerdicts_EmptyVerdictsDelegatesWithBlocks(t *te
 // practice). The intended posture is "flag a screenshot only when it earns
 // its place" — when in doubt, omit.
 func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
-	got := buildScreenshotPrompt("https://example.com/x", "# X\n\nHello.\n", nil, nil)
+	got := buildScreenshotPrompt(DocPage{URL: "https://example.com/x", Content: "# X\n\nHello.\n"}, nil, nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"legacy prompt should no longer instruct the model to be aggressively conservative")
@@ -718,7 +720,7 @@ func TestBuildScreenshotPrompt_IsSelective(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
+	got := buildDetectionPromptWithVerdicts(DocPage{URL: "https://x/p", Content: "content..."}, refs, verdicts, nil)
 	lower := strings.ToLower(got)
 	assert.NotContains(t, lower, "aggressively conservative",
 		"verdict prompt should no longer instruct the model to be aggressively conservative")
@@ -737,9 +739,10 @@ func TestBuildDetectionPromptWithVerdicts_IsSelective(t *testing.T) {
 // sessions already shown as code blocks, and reference material like API
 // signatures and option tables.
 func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
+	page := DocPage{URL: "https://x", Content: "content"}
 	cases := map[string]string{
-		"legacy": buildScreenshotPrompt("https://x", "content", nil, nil),
-		"verdict": buildDetectionPromptWithVerdicts("https://x", "content",
+		"legacy": buildScreenshotPrompt(page, nil, nil),
+		"verdict": buildDetectionPromptWithVerdicts(page,
 			[]imageRef{{Src: "a.png"}},
 			[]ImageVerdict{{Index: "img-1", Matches: true}}, nil),
 	}
@@ -763,7 +766,7 @@ func TestPrompts_ExcludeKnownFalsePositivePatterns(t *testing.T) {
 func TestBuildDetectionPromptWithVerdicts_AsksWhetherScreenshotIsAlreadyOnPage(t *testing.T) {
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
 	refs := []imageRef{{Src: "a.png", AltText: "Settings"}}
-	got := buildDetectionPromptWithVerdicts("https://x/p", "content...", refs, verdicts, nil)
+	got := buildDetectionPromptWithVerdicts(DocPage{URL: "https://x/p", Content: "content..."}, refs, verdicts, nil)
 	lower := strings.ToLower(got)
 	assert.Contains(t, lower, "existing image",
 		"verdict prompt should direct the model to check for an existing image on the page")

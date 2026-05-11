@@ -49,16 +49,17 @@ func TestValidateScreenshotGapAcceptsValid(t *testing.T) {
 }
 
 func TestBuildScreenshotPromptContainsRubric(t *testing.T) {
-	out := buildScreenshotPrompt("https://x/quickstart", "body", nil, nil)
+	page := DocPage{URL: "https://x/quickstart", Content: "body", Role: "quickstart"}
+	out := buildScreenshotPrompt(page, nil, nil)
 	if !strings.Contains(out, "page_role") {
 		t.Error("missing page_role hint")
 	}
 	if !strings.Contains(out, "priority_reason") {
 		t.Error("missing priority_reason mention")
 	}
-	// Until Task 5 wires DocPage.Role, pageRole() is a constant-"other" stub.
-	// Pin that exact behavior so we'd notice if it silently changed back.
-	if !strings.Contains(out, "page_role: other") {
+	// Now that DocPage.Role drives the prompt, the role string MUST be the
+	// value the CLI stamped onto the page — not a URL-derived guess.
+	if !strings.Contains(out, "page_role: quickstart") {
 		t.Errorf("missing page_role hint; got:\n%s", out)
 	}
 }
@@ -66,17 +67,44 @@ func TestBuildScreenshotPromptContainsRubric(t *testing.T) {
 func TestBuildDetectionPromptWithVerdictsContainsRubric(t *testing.T) {
 	refs := []imageRef{{Src: "x.png", AltText: "a", OriginalIndex: 1}}
 	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
-	out := buildDetectionPromptWithVerdicts("https://x/docs/api", "body", refs, verdicts, nil)
+	page := DocPage{URL: "https://x/docs/api", Content: "body", Role: "reference"}
+	out := buildDetectionPromptWithVerdicts(page, refs, verdicts, nil)
 	if !strings.Contains(out, "page_role") {
 		t.Error("missing page_role hint in verdict-enriched prompt")
 	}
 	if !strings.Contains(out, "priority_reason") {
 		t.Error("missing priority_reason mention")
 	}
-	// Until Task 5 wires DocPage.Role, pageRole() is a constant-"other" stub.
-	// Pin that exact behavior so we'd notice if it silently changed back.
-	if !strings.Contains(out, "page_role: other") {
+	// Now that DocPage.Role drives the prompt, the role string MUST be the
+	// value the CLI stamped onto the page — not a URL-derived guess.
+	if !strings.Contains(out, "page_role: reference") {
 		t.Errorf("missing page_role hint; got:\n%s", out)
+	}
+}
+
+func TestBuildScreenshotPrompt_IncludesRoleFromPage(t *testing.T) {
+	page := DocPage{
+		URL:     "https://x/anywhere",
+		Content: "body",
+		Role:    "quickstart",
+	}
+	out := buildScreenshotPrompt(page, nil, nil)
+	if !strings.Contains(out, "page_role: quickstart") {
+		t.Errorf("missing role hint; got:\n%s", out)
+	}
+}
+
+func TestBuildDetectionPromptWithVerdicts_IncludesRoleFromPage(t *testing.T) {
+	page := DocPage{
+		URL:     "https://x/docs/api",
+		Content: "body",
+		Role:    "reference",
+	}
+	refs := []imageRef{{Src: "/a.png", AltText: "alt", SectionHeading: "h", ParagraphIndex: 0, OriginalIndex: 1}}
+	verdicts := []ImageVerdict{{Index: "img-1", Matches: true}}
+	out := buildDetectionPromptWithVerdicts(page, refs, verdicts, nil)
+	if !strings.Contains(out, "page_role: reference") {
+		t.Errorf("missing role hint; got:\n%s", out)
 	}
 }
 

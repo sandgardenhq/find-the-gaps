@@ -23,6 +23,20 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
+// normalizeRole maps a stored DocPage.Role string into the value emitted by
+// the screenshot prompts' `page_role:` hint. The CLI stamps Role from the
+// per-page analyses cache; pages skipped by the analysis pass (token-budget
+// skip, old cached responses missing the field) end up with the zero value
+// "". We normalize to "other" — the same inclusive-by-default rule AnalyzePage
+// applies when its structured response omits the field — so the prompt never
+// emits a bare `page_role:` line that could confuse the model.
+func normalizeRole(r string) string {
+	if r == "" {
+		return "other"
+	}
+	return r
+}
+
 // ScreenshotsCachedPage is the per-page payload persisted to screenshots.json
 // (and exposed to the cli persister). The shape mirrors the on-disk record
 // kept by the cli's screenshotsCacheEntry so the cli adapts at the persister
@@ -666,8 +680,12 @@ func renderCodeBlockCoverage(blocks []codeBlockRef) string {
 	return strings.Join(lines, "\n")
 }
 
-// buildScreenshotPrompt assembles the LLM prompt for one docs page.
-func buildScreenshotPrompt(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef) string {
+// buildScreenshotPrompt assembles the LLM prompt for one docs page. The role
+// hint comes from page.Role (stamped by the CLI from the page-analysis cache);
+// normalizeRole maps the zero value to "other" for un-analyzed pages.
+func buildScreenshotPrompt(page DocPage, coverage map[string][]imageRef, codeBlocks []codeBlockRef) string {
+	pageURL := page.URL
+	content := page.Content
 	var coverageSummary string
 	if len(coverage) == 0 {
 		coverageSummary = "No existing images on this page."
@@ -741,7 +759,7 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, pageRole(pageURL), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, normalizeRole(page.Role), priorityRubric)
 }
 
 // buildDetectionPromptWithVerdicts assembles a verdict-annotated detection
@@ -754,9 +772,11 @@ When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, conte
 // a matches image already covers the moment and (b) report those suppressed
 // moments under "suppressed_by_image" so the audit stats can count them
 // without a second LLM call.
-func buildDetectionPromptWithVerdicts(pageURL, content string, refs []imageRef, verdicts []ImageVerdict, codeBlocks []codeBlockRef) string {
+func buildDetectionPromptWithVerdicts(page DocPage, refs []imageRef, verdicts []ImageVerdict, codeBlocks []codeBlockRef) string {
+	pageURL := page.URL
+	content := page.Content
 	if len(verdicts) == 0 {
-		return buildScreenshotPrompt(pageURL, content, buildCoverageMap(refs), codeBlocks)
+		return buildScreenshotPrompt(page, buildCoverageMap(refs), codeBlocks)
 	}
 
 	verdictByIndex := make(map[string]bool, len(verdicts))
@@ -874,31 +894,35 @@ page_role: %s
 
 %s
 
-When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, pageRole(pageURL), priorityRubric)
+When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, normalizeRole(page.Role), priorityRubric)
 }
 
 // fitContentToBudget returns content sized so that the assembled
 // screenshot-gap prompt fits inside budget tokens (using the local cl100k_base
 // estimator). The returned bool is false when the prompt overhead alone — URL,
-// instructions, coverage map — already exceeds the budget; callers should skip
-// the page in that case.
-func fitContentToBudget(pageURL, content string, coverage map[string][]imageRef, codeBlocks []codeBlockRef, budget int) (string, bool) {
+// instructions, coverage map, role hint — already exceeds the budget; callers
+// should skip the page in that case. Takes the full DocPage (not just URL) so
+// the overhead measurement matches the actual prompt the detection pass will
+// emit — including the `page_role:` line that varies by role string length.
+func fitContentToBudget(page DocPage, coverage map[string][]imageRef, codeBlocks []codeBlockRef, budget int) (string, bool) {
 	// Margin absorbs (a) drift between cl100k_base and the provider's exact
 	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
 	// on repetitive content.
 	const margin = 1_000
-	overhead := countTokens(buildScreenshotPrompt(pageURL, "", coverage, codeBlocks))
+	overheadPage := DocPage{URL: page.URL, Role: page.Role}
+	overhead := countTokens(buildScreenshotPrompt(overheadPage, coverage, codeBlocks))
 	available := budget - overhead - margin
 	if available < 100 {
 		return "", false
 	}
+	content := page.Content
 	contentTokens := countTokens(content)
 	if contentTokens <= available {
 		return content, true
 	}
 	keepChars := min(int(float64(len(content))*float64(available)/float64(contentTokens)), len(content))
 	log.Warnf("screenshot-gaps: truncating %s (%d → ~%d tokens) to fit %d budget",
-		pageURL, contentTokens, available, budget)
+		page.URL, contentTokens, available, budget)
 	return content[:keepChars], true
 }
 
@@ -1151,7 +1175,7 @@ page_role: %s
 
 %s
 
-If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content, pageRole(page.URL), priorityRubric)
+If every image matches its prose, return "image_issues": [] and one matches=true verdict per image.`, page.URL, first, last, refsBlock, page.Content, normalizeRole(page.Role), priorityRubric)
 }
 
 // relevancePass walks the page's images in batches of <=5 (Groq cap), issues
@@ -1215,6 +1239,13 @@ type DocPage struct {
 	URL     string
 	Path    string
 	Content string
+	// Role is the content-classified role from AnalyzePage (e.g.
+	// "quickstart", "reference", "concept"). The CLI stamps it from the
+	// per-page analyses cache before the screenshot pass. A zero value
+	// ("") is normalized to "other" by normalizeRole at the prompt
+	// builders — so un-analyzed pages (token-budget skips, hash mismatch)
+	// degrade to the same default as old caches.
+	Role string
 }
 
 // ScreenshotProgressFunc is called after each page completes. done/total express
@@ -1277,12 +1308,17 @@ func detectionPass(
 	codeBlocks []codeBlockRef,
 ) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, err error) {
 	coverage := buildCoverageMap(refs)
-	content, ok := fitContentToBudget(page.URL, page.Content, coverage, codeBlocks, ScreenshotPromptBudget)
+	content, ok := fitContentToBudget(page, coverage, codeBlocks, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
 		return nil, nil, nil, true, nil
 	}
-	prompt := buildDetectionPromptWithVerdicts(page.URL, content, refs, verdicts, codeBlocks)
+	// The fit pass may have truncated content; build the prompt against the
+	// fitted body but preserve every other field (URL, Role) so the role
+	// hint stays correct after truncation.
+	fittedPage := page
+	fittedPage.Content = content
+	prompt := buildDetectionPromptWithVerdicts(fittedPage, refs, verdicts, codeBlocks)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
 		// Per-model budget gate fired before any wire send. Treat this

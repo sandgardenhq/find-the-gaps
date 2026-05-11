@@ -38,7 +38,7 @@ func TestValidateImageIssueAcceptsValid(t *testing.T) {
 }
 
 func TestBuildRelevancePromptContainsRubric(t *testing.T) {
-	page := DocPage{URL: "https://x/quickstart", Content: "body"}
+	page := DocPage{URL: "https://x/quickstart", Content: "body", Role: "quickstart"}
 	batch := []imageRef{{Src: "a.png", AltText: "a", OriginalIndex: 1}}
 	out := buildRelevancePrompt(page, batch)
 	if !strings.Contains(out, "page_role") {
@@ -47,7 +47,7 @@ func TestBuildRelevancePromptContainsRubric(t *testing.T) {
 	if !strings.Contains(out, "priority_reason") {
 		t.Error("missing priority_reason mention")
 	}
-	if !strings.Contains(out, "quickstart") {
-		t.Error("page_role value not injected")
+	if !strings.Contains(out, "page_role: quickstart") {
+		t.Errorf("page_role value not injected; got:\n%s", out)
 	}
 }
