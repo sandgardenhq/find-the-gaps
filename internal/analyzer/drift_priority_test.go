@@ -57,10 +57,19 @@ func TestValidateDriftIssuesAcceptsAll(t *testing.T) {
 }
 
 func TestPageRoleSummary(t *testing.T) {
-	t.Skip("rewritten in Task 4 — see IMPLEMENTATION_PLAN_PAGE_ROLE.md")
-	got := pageRoleSummary(NewRoleResolver(nil), []string{"https://x/quickstart", "https://x/a/b/c/d/e"})
-	if !strings.Contains(got, "quickstart") || !strings.Contains(got, "deep") {
-		t.Errorf("missing roles: %s", got)
+	r := NewRoleResolver(map[string]string{
+		"https://x/intro":   "quickstart",
+		"https://x/api/ref": "reference",
+	})
+	got := pageRoleSummary(r, []string{"https://x/intro", "https://x/api/ref", "https://x/unknown"})
+	for _, want := range []string{
+		"https://x/intro -> quickstart",
+		"https://x/api/ref -> reference",
+		"https://x/unknown -> other",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pageRoleSummary missing %q\ngot:\n%s", want, got)
+		}
 	}
 }
 

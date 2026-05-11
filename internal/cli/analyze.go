@@ -549,9 +549,18 @@ func newAnalyzeCmd() *cobra.Command {
 				hits, fresh := 0, 0
 				onFeatureDone := newDriftCachePersister(cached, liveCache, driftCachePath, &hits, &fresh)
 
+				// Build a per-run role resolver from the page-analysis cache so the
+				// judge prompt's "Page role hints:" block reflects content-classified
+				// roles instead of URL-segment heuristics.
+				rolesByURL := make(map[string]string, len(analyses))
+				for _, pa := range analyses {
+					rolesByURL[pa.URL] = pa.Role
+				}
+				roleResolver := analyzer.NewRoleResolver(rolesByURL)
+
 				driftFindings, err = analyzer.DetectDrift(
 					ctx, tiering, featureMap, docsFeatureMap,
-					pageReader, repoPath,
+					pageReader, roleResolver, repoPath,
 					workers,
 					cached, driftOnFinding, onFeatureDone,
 				)

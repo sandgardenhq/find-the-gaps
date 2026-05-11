@@ -117,6 +117,7 @@ func DetectDrift(
 	featureMap FeatureMap,
 	docsMap DocsFeatureMap,
 	pageReader func(url string) (string, error),
+	roles RoleResolver,
 	repoRoot string,
 	workers int,
 	cached map[string]CachedDriftEntry,
@@ -242,7 +243,7 @@ func DetectDrift(
 			}
 			return fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
-		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations)
+		issues, err := judgeFeatureDrift(ctx, judge, entry.Feature, observations, roles)
 		if err != nil {
 			return fmt.Errorf("DetectDrift %q: %w", entry.Feature.Name, err)
 		}
@@ -550,21 +551,17 @@ func cacheNeedsRecompute(entry CachedDriftEntry) bool {
 }
 
 // pageRoleSummary returns a human-readable list of "<url> -> <role>" lines
-// for the pages observed during drift investigation. Fed into the judge
-// prompt so the priority rubric can weight prominent pages higher.
-//
-// The roles resolver is accepted but ignored for now: Task 3's pageRole()
-// stub still returns "other" for every URL. Task 4 will swap the per-page
-// lookup to use the resolver. The parameter lands here in Task 3 so the
-// signature is settled and Task 4 only has to touch the body.
-func pageRoleSummary(_ RoleResolver, pages []string) string {
+// for the pages observed during drift investigation. Roles come from the
+// per-run RoleResolver (built from the page-analysis cache). Fed into the
+// judge prompt so the priority rubric can weight prominent pages higher.
+func pageRoleSummary(roles RoleResolver, pages []string) string {
 	if len(pages) == 0 {
 		return "Page role hints: (no specific pages)"
 	}
 	var b strings.Builder
 	b.WriteString("Page role hints:\n")
 	for _, p := range pages {
-		fmt.Fprintf(&b, "- %s -> %s\n", p, pageRole(p))
+		fmt.Fprintf(&b, "- %s -> %s\n", p, roles(p))
 	}
 	return b.String()
 }
@@ -590,12 +587,13 @@ func judgeFeatureDrift(
 	client LLMClient,
 	feature CodeFeature,
 	observations []driftObservation,
+	roles RoleResolver,
 ) ([]DriftIssue, error) {
 	if len(observations) == 0 {
 		return nil, nil
 	}
 
-	issues, err := judgeOneShot(ctx, client, feature, observations)
+	issues, err := judgeOneShot(ctx, client, feature, observations, roles)
 	if err == nil {
 		return issues, nil
 	}
@@ -606,12 +604,12 @@ func judgeFeatureDrift(
 	// Compaction path: split observations into the smallest number of
 	// groups whose rendered prompts each fit within the budget, judge
 	// each, and merge.
-	chunks := chunkObservationsToFit(client, feature, observations)
+	chunks := chunkObservationsToFit(client, feature, observations, roles)
 	log.Warnf("judge prompt for %q exceeded token budget; compacting into %d chunks", feature.Name, len(chunks))
 
 	var all []DriftIssue
 	for i, chunk := range chunks {
-		chunkIssues, err := judgeOneShot(ctx, client, feature, chunk)
+		chunkIssues, err := judgeOneShot(ctx, client, feature, chunk, roles)
 		if err != nil {
 			return nil, fmt.Errorf("judgeFeatureDrift %q: chunk %d/%d: %w", feature.Name, i+1, len(chunks), err)
 		}
@@ -629,8 +627,9 @@ func judgeOneShot(
 	client LLMClient,
 	feature CodeFeature,
 	observations []driftObservation,
+	roles RoleResolver,
 ) ([]DriftIssue, error) {
-	prompt := renderJudgePrompt(feature, observations)
+	prompt := renderJudgePrompt(feature, observations, roles)
 
 	// Retry on transport error / malformed JSON / schema-validation
 	// failure. ErrTokenBudgetExceeded is NOT retried — it's deterministic
@@ -670,7 +669,7 @@ func judgeOneShot(
 // specific observation set. Extracted from judgeOneShot so
 // chunkObservationsToFit can size candidate chunks against the same
 // rendering used at send time.
-func renderJudgePrompt(feature CodeFeature, observations []driftObservation) string {
+func renderJudgePrompt(feature CodeFeature, observations []driftObservation, roles RoleResolver) string {
 	var b strings.Builder
 	for i, o := range observations {
 		fmt.Fprintf(&b, "[%d] page: %s\n    docs say: %q\n    code shows: %q\n    concern: %s\n",
@@ -703,7 +702,7 @@ priority_reason). Do not add any other fields.
 
 If every observation is a false alarm, emit an empty "issues" array.`,
 		feature.Name, feature.Description, b.String(),
-		pageRoleSummary(NewRoleResolver(nil), uniqueObservationPages(observations)),
+		pageRoleSummary(roles, uniqueObservationPages(observations)),
 		priorityRubric)
 }
 
@@ -729,7 +728,7 @@ func clipObservationQuotes(o driftObservation, max int) driftObservation {
 // observations are clipped to clipQuoteMaxChars first. When the model
 // has no budget (MaxInputTokens == 0), returns one chunk containing all
 // observations.
-func chunkObservationsToFit(client LLMClient, feature CodeFeature, obs []driftObservation) [][]driftObservation {
+func chunkObservationsToFit(client LLMClient, feature CodeFeature, obs []driftObservation, roles RoleResolver) [][]driftObservation {
 	caps := client.Capabilities()
 	if caps.MaxInputTokens <= 0 {
 		return [][]driftObservation{obs}
@@ -746,7 +745,7 @@ func chunkObservationsToFit(client LLMClient, feature CodeFeature, obs []driftOb
 	for _, o := range clipped {
 		candidate := append([]driftObservation{}, cur...)
 		candidate = append(candidate, o)
-		if countTokens(renderJudgePrompt(feature, candidate)) > budget && len(cur) > 0 {
+		if countTokens(renderJudgePrompt(feature, candidate, roles)) > budget && len(cur) > 0 {
 			// `cur` was the last chunk that fit; flush it.
 			chunks = append(chunks, cur)
 			cur = []driftObservation{o}
