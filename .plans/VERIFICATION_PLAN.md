@@ -320,7 +320,7 @@ Before any scenario runs:
 
 ### Scenario 14: Priority Calibration Smoke Test
 
-**Context**: Same fixture and docs site as Scenario 9. Verifies that the LLM-judged `priority` field on every prioritized finding is plausibly calibrated against a real codebase, not collapsed onto a single bucket.
+**Context**: Same fixture and docs site as Scenario 9. Verifies that the LLM-judged `priority` field on every prioritized finding is plausibly calibrated against a real codebase, not collapsed onto a single bucket. Roles now come from the per-page LLM analysis output (content-classified `role` field on `PageAnalysis`), not from URL-segment heuristics — a regression in role classification surfaces here as a shift in priority bucketing.
 
 **Steps**:
 1. Run `find-the-gaps analyze --repo <path> --docs <url> --experimental-check-screenshots`.
