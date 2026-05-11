@@ -58,9 +58,21 @@ Populate the response with:
 - "summary": a 1-2 sentence description of what this page covers
 - "features": a list of product features or capabilities described on this page (short noun phrases, max 8 words each). May be empty.
 - "is_docs": a boolean classifying whether this page is product DOCUMENTATION.
+- "role": the kind of page this is — one of "landing", "quickstart", "tutorial", "how-to", "concept", "reference", "changelog", "faq", "other". Judge from the content; use the URL only as a tiebreaker.
 
 Rule for is_docs:
 A page is DOCS if a user trying to USE this product would consult it for current technical information about features, APIs, configuration, or behavior. Marketing pages and blog posts are NEVER docs, even when they contain code snippets, release announcements, or technical claims — docs is the canonical reference surface, not promotional or editorial content.
+
+Role definitions:
+- "landing": the docs-site home, or a top-level overview page introducing the product or its docs section.
+- "quickstart": a first-time-user install + first command/run page; the reader's goal is "get something working in N minutes".
+- "tutorial": a walked-through, end-to-end guided learning of a single task. Reader is following along to learn.
+- "how-to": a focused recipe for one task on an existing setup; reader already knows the basics.
+- "concept": background, architecture, design rationale, or model explanation; light on procedure.
+- "reference": exhaustive API / CLI / config / option listing; not a guide.
+- "changelog": release notes, version history, or "what's new".
+- "faq": Q&A format or a troubleshooting list.
+- "other": anything else, including non-docs pages (marketing, blog, team, careers, legal). Pages with is_docs=false should typically be "other".
 
 Examples of docs (is_docs=true):
 - API references, tutorials, quickstarts, configuration references
