@@ -56,8 +56,10 @@ func TestBuildScreenshotPromptContainsRubric(t *testing.T) {
 	if !strings.Contains(out, "priority_reason") {
 		t.Error("missing priority_reason mention")
 	}
-	if !strings.Contains(out, "quickstart") {
-		t.Error("page_role value not injected")
+	// Until Task 5 wires DocPage.Role, pageRole() is a constant-"other" stub.
+	// Pin that exact behavior so we'd notice if it silently changed back.
+	if !strings.Contains(out, "page_role: other") {
+		t.Errorf("missing page_role hint; got:\n%s", out)
 	}
 }
 
@@ -70,6 +72,11 @@ func TestBuildDetectionPromptWithVerdictsContainsRubric(t *testing.T) {
 	}
 	if !strings.Contains(out, "priority_reason") {
 		t.Error("missing priority_reason mention")
+	}
+	// Until Task 5 wires DocPage.Role, pageRole() is a constant-"other" stub.
+	// Pin that exact behavior so we'd notice if it silently changed back.
+	if !strings.Contains(out, "page_role: other") {
+		t.Errorf("missing page_role hint; got:\n%s", out)
 	}
 }
 

@@ -552,7 +552,12 @@ func cacheNeedsRecompute(entry CachedDriftEntry) bool {
 // pageRoleSummary returns a human-readable list of "<url> -> <role>" lines
 // for the pages observed during drift investigation. Fed into the judge
 // prompt so the priority rubric can weight prominent pages higher.
-func pageRoleSummary(pages []string) string {
+//
+// The roles resolver is accepted but ignored for now: Task 3's pageRole()
+// stub still returns "other" for every URL. Task 4 will swap the per-page
+// lookup to use the resolver. The parameter lands here in Task 3 so the
+// signature is settled and Task 4 only has to touch the body.
+func pageRoleSummary(_ RoleResolver, pages []string) string {
 	if len(pages) == 0 {
 		return "Page role hints: (no specific pages)"
 	}
@@ -698,7 +703,7 @@ priority_reason). Do not add any other fields.
 
 If every observation is a false alarm, emit an empty "issues" array.`,
 		feature.Name, feature.Description, b.String(),
-		pageRoleSummary(uniqueObservationPages(observations)),
+		pageRoleSummary(NewRoleResolver(nil), uniqueObservationPages(observations)),
 		priorityRubric)
 }
 
