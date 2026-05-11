@@ -16,6 +16,7 @@ type PageAnalysis struct {
 	Summary  string
 	Features []string
 	IsDocs   bool
+	Role     string
 }
 
 // ProductSummary is the synthesized product description and deduplicated feature list.

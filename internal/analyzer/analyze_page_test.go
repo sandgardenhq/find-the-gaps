@@ -209,3 +209,33 @@ func TestAnalyzePage_SkipsOnTokenBudgetError(t *testing.T) {
 		t.Fatal("test stub misconfigured: forcedErr should be ErrTokenBudgetExceeded")
 	}
 }
+
+func TestAnalyzePage_ParsesRole(t *testing.T) {
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(
+			`{"summary":"Quickstart page.","features":["install"],"is_docs":true,"role":"quickstart"}`),
+	}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/intro", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != "quickstart" {
+		t.Errorf("Role = %q, want %q", got.Role, "quickstart")
+	}
+}
+
+func TestAnalyzePage_MissingRole_DefaultsToOther(t *testing.T) {
+	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
+		"analyze_page_response": json.RawMessage(
+			`{"summary":"Old cache shape.","features":[],"is_docs":true}`),
+	}}
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/x", "content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != "other" {
+		t.Errorf("Role = %q, want %q (inclusive-by-default for missing field)", got.Role, "other")
+	}
+}

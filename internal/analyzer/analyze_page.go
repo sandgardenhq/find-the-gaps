@@ -17,6 +17,9 @@ type analyzePageResponse struct {
 	// dropping the page as not-docs. False negatives are worse than
 	// false positives — see .plans/DOCS_CLASSIFIER_DESIGN.md.
 	IsDocs *bool `json:"is_docs"`
+	// Pointer so we can detect "missing from response" and apply the
+	// inclusive-by-default rule (treat as "other") instead of erroring.
+	Role *string `json:"role"`
 }
 
 // PROMPT SCHEMA: output shape for AnalyzePage.
@@ -27,9 +30,13 @@ var analyzePageSchema = JSONSchema{
       "properties": {
         "summary":  {"type": "string"},
         "features": {"type": "array", "items": {"type": "string"}},
-        "is_docs":  {"type": "boolean"}
+        "is_docs":  {"type": "boolean"},
+        "role": {
+          "type": "string",
+          "enum": ["landing","quickstart","tutorial","how-to","concept","reference","changelog","faq","other"]
+        }
       },
-      "required": ["summary", "features", "is_docs"],
+      "required": ["summary", "features", "is_docs", "role"],
       "additionalProperties": false
     }`),
 }
@@ -101,10 +108,19 @@ Set is_docs=false when the page is one of the not-docs categories above. Default
 		isDocs = *resp.IsDocs
 	}
 
+	// Inclusive-by-default: a missing role (e.g. an old cached response
+	// or a token-budget skip) resolves to "other" so downstream consumers
+	// can treat it uniformly with explicitly low-prominence pages.
+	role := "other"
+	if resp.Role != nil {
+		role = *resp.Role
+	}
+
 	return PageAnalysis{
 		URL:      pageURL,
 		Summary:  resp.Summary,
 		Features: resp.Features,
 		IsDocs:   isDocs,
+		Role:     role,
 	}, nil
 }
