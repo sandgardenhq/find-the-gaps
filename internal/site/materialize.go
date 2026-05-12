@@ -23,6 +23,7 @@ func materialize(srcDir string, in Inputs, opts BuildOptions) error {
 	// 2. hugo.toml
 	cfg, err := renderHugoConfig(hugoConfigData{
 		Title:          "Find the Gaps — " + opts.ProjectName,
+		Description:    "Find the Gaps documentation audit report for " + opts.ProjectName + ".",
 		Mode:           opts.Mode,
 		ScreenshotsRan: in.ScreenshotsRan,
 	})
@@ -149,7 +150,7 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 		return fmt.Errorf("read gaps.md: %w", err)
 	}
 	rewritten := linkFeatureNames(string(gapsBody), slugs)
-	gapsFM := "+++\ntitle = \"Gaps\"\nweight = 10\n+++\n\n"
+	gapsFM := "+++\ntitle = \"Gaps\"\ndescription = \"Documentation gaps and drift findings detected by Find the Gaps.\"\nweight = 10\n+++\n\n"
 	stripped := stripLeadingH1([]byte(rewritten))
 	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), append([]byte(gapsFM), stripped...), 0o644); err != nil {
 		return err
@@ -204,7 +205,7 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 		// expanded-mode sites match mirror mode (which picks the section up
 		// transitively by reading screenshots.md verbatim).
 		var ssIdx strings.Builder
-		ssIdx.WriteString("+++\ntitle = \"Screenshots\"\nweight = 20\n+++\n")
+		ssIdx.WriteString("+++\ntitle = \"Screenshots\"\ndescription = \"Suggested screenshot additions and image issues for the documentation site.\"\nweight = 20\n+++\n")
 		if len(in.ImageIssues) > 0 {
 			ssIdx.WriteString("\n## Image Issues\n\n")
 			// Outer grouping by priority (Large -> Medium -> Small, empty
@@ -301,7 +302,7 @@ func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) 
 	if err != nil {
 		return err
 	}
-	mappingFM := "+++\ntitle = \"Mapping\"\nweight = 30\n+++\n\n"
+	mappingFM := "+++\ntitle = \"Mapping\"\ndescription = \"Mapping of detected product features to documentation pages.\"\nweight = 30\n+++\n\n"
 	if err := os.WriteFile(filepath.Join(contentDir, "mapping.md"), []byte(mappingFM+mappingBody), 0o644); err != nil {
 		return err
 	}
@@ -312,7 +313,7 @@ func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) 
 	if err != nil {
 		return fmt.Errorf("read gaps.md: %w", err)
 	}
-	gapsFM := "+++\ntitle = \"Gaps\"\nweight = 10\n+++\n\n"
+	gapsFM := "+++\ntitle = \"Gaps\"\ndescription = \"Documentation gaps and drift findings detected by Find the Gaps.\"\nweight = 10\n+++\n\n"
 	if err := os.WriteFile(filepath.Join(contentDir, "gaps.md"), append([]byte(gapsFM), stripLeadingH1(gapsBody)...), 0o644); err != nil {
 		return err
 	}
@@ -326,7 +327,7 @@ func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) 
 		if err != nil {
 			return fmt.Errorf("read screenshots.md: %w", err)
 		}
-		ssFM := "+++\ntitle = \"Screenshots\"\nweight = 20\n+++\n\n"
+		ssFM := "+++\ntitle = \"Screenshots\"\ndescription = \"Suggested screenshot additions and image issues for the documentation site.\"\nweight = 20\n+++\n\n"
 		if err := os.WriteFile(filepath.Join(contentDir, "screenshots.md"),
 			append([]byte(ssFM), stripLeadingH1(ssBody)...), 0o644); err != nil {
 			return err

@@ -970,6 +970,125 @@ func TestMaterializeExpandedScreenshotIndexOmitsImageIssuesWhenAbsent(t *testing
 	}
 }
 
+// TestMaterializeWritesSiteParamsDescription pins that the rendered hugo.toml
+// carries a `[params].description` derived from the project name so Hextra's
+// head partial has a meaningful site-wide fallback for `<meta description>`
+// and `og:description`.
+func TestMaterializeWritesSiteParamsDescription(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	for _, name := range []string{"mapping.md", "gaps.md"} {
+		if err := os.WriteFile(filepath.Join(projectDir, name), []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := materialize(srcDir, Inputs{
+		Summary: analyzer.ProductSummary{Description: "demo"},
+		Mapping: analyzer.FeatureMap{},
+	}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "myrepo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := os.ReadFile(filepath.Join(srcDir, "hugo.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(cfg), "[params]") {
+		t.Errorf("hugo.toml missing [params] block:\n%s", cfg)
+	}
+	if !contains(string(cfg), `description = "Find the Gaps documentation audit report for myrepo."`) {
+		t.Errorf("hugo.toml missing project-named description; got:\n%s", cfg)
+	}
+}
+
+// TestMaterializeMirrorPagesHaveDescriptions pins that every hand-written
+// front matter block in mirror mode (mapping, gaps, screenshots) carries a
+// `description = "..."` line. Without per-page descriptions, Hugo falls back
+// to `.Summary` — auto-generated from the first ~70 words of body content —
+// which on report pages is junk truncated mid-sentence.
+func TestMaterializeMirrorPagesHaveDescriptions(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+		if err := os.WriteFile(filepath.Join(projectDir, name), []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := materialize(srcDir, Inputs{
+		Summary:        analyzer.ProductSummary{Description: "demo"},
+		Mapping:        analyzer.FeatureMap{},
+		ScreenshotsRan: true,
+	}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeMirror,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		file   string
+		needle string
+	}{
+		{"gaps.md", `description = "Documentation gaps and drift findings detected by Find the Gaps."`},
+		{"screenshots.md", `description = "Suggested screenshot additions and image issues for the documentation site."`},
+		{"mapping.md", `description = "Mapping of detected product features to documentation pages."`},
+	} {
+		body, err := os.ReadFile(filepath.Join(srcDir, "content", c.file))
+		if err != nil {
+			t.Errorf("read %s: %v", c.file, err)
+			continue
+		}
+		if !contains(string(body), c.needle) {
+			t.Errorf("%s missing description:\n%s", c.file, body)
+		}
+	}
+}
+
+// TestMaterializeExpandedPagesHaveDescriptions pins that the expanded-mode
+// hand-written front matter blocks (gaps.md, screenshots/_index.md) carry a
+// description. Per-feature and per-screenshot detail pages are tested at
+// the template level.
+func TestMaterializeExpandedPagesHaveDescriptions(t *testing.T) {
+	srcDir := t.TempDir()
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "gaps.md"), []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialize(srcDir, Inputs{
+		Summary:        analyzer.ProductSummary{Description: "demo"},
+		Mapping:        analyzer.FeatureMap{},
+		ScreenshotsRan: true,
+	}, BuildOptions{
+		ProjectDir:  projectDir,
+		ProjectName: "demo",
+		Mode:        ModeExpanded,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		path   string
+		needle string
+	}{
+		{filepath.Join("gaps.md"), `description = "Documentation gaps and drift findings detected by Find the Gaps."`},
+		{filepath.Join("screenshots", "_index.md"), `description = "Suggested screenshot additions and image issues for the documentation site."`},
+	} {
+		body, err := os.ReadFile(filepath.Join(srcDir, "content", c.path))
+		if err != nil {
+			t.Errorf("read %s: %v", c.path, err)
+			continue
+		}
+		if !contains(string(body), c.needle) {
+			t.Errorf("%s missing description:\n%s", c.path, body)
+		}
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
 }

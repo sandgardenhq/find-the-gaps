@@ -1,6 +1,7 @@
 +++
 title = "{{ .ProjectName }}"
 type = "docs"
+description = {{ metaDescription .Summary (printf "Find the Gaps documentation audit report for %s." .ProjectName) | printf "%q" }}
 +++
 
 {{ if .Summary }}{{ .Summary }}{{ end }}

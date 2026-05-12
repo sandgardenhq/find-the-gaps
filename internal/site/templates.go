@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/fs"
+	"strings"
 	"text/template"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 // if Mode constants are ever reordered.
 type hugoConfigData struct {
 	Title          string
+	Description    string
 	Mode           Mode
 	ScreenshotsRan bool
 }
@@ -26,6 +28,7 @@ type hugoConfigData struct {
 // derived Expanded flag so templates never branch on raw Mode values.
 type hugoConfigView struct {
 	Title          string
+	Description    string
 	Expanded       bool
 	ScreenshotsRan bool
 }
@@ -45,13 +48,14 @@ func mustParseTemplates(efs fs.FS) *template.Template {
 
 func parseTemplates(efs fs.FS) (*template.Template, error) {
 	return template.New("site").Funcs(template.FuncMap{
-		// add helpers here as needed
+		"metaDescription": metaDescription,
 	}).ParseFS(efs, "assets/templates/*.tmpl")
 }
 
 func renderHugoConfig(data hugoConfigData) (string, error) {
 	view := hugoConfigView{
 		Title:          data.Title,
+		Description:    data.Description,
 		Expanded:       data.Mode == ModeExpanded,
 		ScreenshotsRan: data.ScreenshotsRan,
 	}
@@ -60,6 +64,17 @@ func renderHugoConfig(data hugoConfigData) (string, error) {
 		return "", fmt.Errorf("render hugo.toml: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// metaDescription normalizes a string for use as an HTML meta-description /
+// OpenGraph description. Newlines and runs of whitespace collapse to single
+// spaces; if the result is empty, fallback is normalized and returned in its
+// place. No truncation — callers are expected to feed in already-short text.
+func metaDescription(primary, fallback string) string {
+	if s := strings.Join(strings.Fields(primary), " "); s != "" {
+		return s
+	}
+	return strings.Join(strings.Fields(fallback), " ")
 }
 
 // homeData drives renderHome.

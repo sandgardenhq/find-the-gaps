@@ -1,5 +1,6 @@
 +++
 title = {{ .Title | printf "%q" }}
+description = {{ printf "Screenshot suggestions for %s." .Title | printf "%q" }}
 +++
 
 [{{ .PageURL }}]({{ .PageURL }})

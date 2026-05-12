@@ -767,3 +767,1046 @@ body > .hextra-footer {
     width: 3rem;
   }
 }
+
+/* =================================================================
+   Find the Gaps — report theme override
+   Layered on top of Hextra's main.min.css. Inherits Doc Holiday /
+   Find-the-Gaps landing page DNA: warm paper, Poppins display,
+   JetBrains Mono eyebrows, magenta/turquoise/picnic accents.
+   ================================================================= */
+
+/* ----------- Tokens (light defaults) ----------- */
+:root,
+html.light {
+  --ftg-magenta: #FF0096;
+  --ftg-magenta-deep: #c40076;
+  --ftg-turquoise: #1BB7D1;
+  --ftg-turquoise-deep: #0e8aa0;
+  --ftg-picnic: #6FC34F;
+  --ftg-picnic-deep: #4ea033;
+
+  --ftg-ink: #15131a;
+  --ftg-ink-soft: #2a2730;
+  --ftg-ink-mute: #5a5663;
+  --ftg-ink-faint: #8b8794;
+  --ftg-rule: #e8e4dc;
+  --ftg-rule-soft: #f1ede4;
+  --ftg-paper: #fbf9f4;
+  --ftg-paper-warm: #f6f1e6;
+  --ftg-surface: #ffffff;
+
+  --ftg-sev-large: #c40076;
+  --ftg-sev-large-tint: rgba(196, 0, 118, 0.10);
+  --ftg-sev-medium: #b86d0a;
+  --ftg-sev-medium-tint: rgba(184, 109, 10, 0.10);
+  --ftg-sev-small: #4ea033;
+  --ftg-sev-small-tint: rgba(78, 160, 51, 0.10);
+
+  --ftg-badge-layer-fg: #5a5663;
+  --ftg-badge-layer-bg: #f1ede4;
+  --ftg-badge-user-fg: #0e8aa0;
+  --ftg-badge-user-bg: rgba(27, 183, 209, 0.12);
+  --ftg-badge-internal-fg: #6c5e7a;
+  --ftg-badge-internal-bg: rgba(108, 94, 122, 0.10);
+  --ftg-badge-doc-fg: #4ea033;
+  --ftg-badge-doc-bg: rgba(111, 195, 79, 0.12);
+
+  --ftg-code-bg: #14111c;
+  --ftg-code-bg-2: #1c1827;
+  --ftg-code-fg: #d8d4e0;
+  --ftg-code-mute: #6c6679;
+  --ftg-code-rule: #2b2538;
+
+  --ftg-font-body: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --ftg-font-display: 'Poppins', Georgia, serif;
+  --ftg-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ----------- Dark mode ----------- */
+html.dark {
+  --ftg-ink: #f0ecf5;
+  --ftg-ink-soft: #d8d4e0;
+  --ftg-ink-mute: #948e9e;
+  --ftg-ink-faint: #6c6679;
+  --ftg-rule: #2b2538;
+  --ftg-rule-soft: #22202b;
+  --ftg-paper: #14111c;
+  --ftg-paper-warm: #1c1827;
+  --ftg-surface: #1c1827;
+
+  --ftg-sev-large: #ff5fb0;
+  --ftg-sev-large-tint: rgba(255, 95, 176, 0.14);
+  --ftg-sev-medium: #e0a14a;
+  --ftg-sev-medium-tint: rgba(224, 161, 74, 0.14);
+  --ftg-sev-small: #7fcc62;
+  --ftg-sev-small-tint: rgba(127, 204, 98, 0.14);
+
+  --ftg-badge-layer-fg: #b6afc2;
+  --ftg-badge-layer-bg: rgba(255, 255, 255, 0.06);
+  --ftg-badge-user-fg: #6ad7eb;
+  --ftg-badge-user-bg: rgba(27, 183, 209, 0.18);
+  --ftg-badge-internal-fg: #b9a7d1;
+  --ftg-badge-internal-bg: rgba(155, 128, 184, 0.15);
+  --ftg-badge-doc-fg: #a9e08c;
+  --ftg-badge-doc-bg: rgba(111, 195, 79, 0.16);
+}
+
+/* ----------- Base ----------- */
+html,
+body {
+  background: var(--ftg-paper) !important;
+  color: var(--ftg-ink) !important;
+  font-family: var(--ftg-font-body) !important;
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+/* Subtle paper texture — very low-key dotted overlay */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 80% -10%, rgba(255, 0, 150, 0.06), transparent 50%),
+    radial-gradient(circle at -10% 105%, rgba(27, 183, 209, 0.05), transparent 50%);
+  z-index: 0;
+}
+html.dark body::before {
+  background:
+    radial-gradient(circle at 80% -10%, rgba(255, 0, 150, 0.12), transparent 50%),
+    radial-gradient(circle at -10% 105%, rgba(27, 183, 209, 0.10), transparent 55%);
+}
+
+/* ----------- Top nav ----------- */
+.hextra-nav-container .hextra-nav-container-blur {
+  background: rgba(251, 249, 244, 0.85) !important;
+  box-shadow: 0 1px 0 var(--ftg-rule) !important;
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+}
+html.dark .hextra-nav-container .hextra-nav-container-blur {
+  background: rgba(20, 17, 28, 0.85) !important;
+  box-shadow: 0 1px 0 var(--ftg-rule) !important;
+}
+.hextra-nav-container nav { gap: 18px; }
+.hextra-nav-container .hx\:font-extrabold {
+  font-family: var(--ftg-font-display);
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.015em;
+  color: var(--ftg-ink) !important;
+}
+.hextra-nav-container nav a img { filter: none; }
+/* nav links */
+.hextra-nav-container nav a[href]:not([href="/"]) {
+  font-family: var(--ftg-font-mono);
+  font-size: 13.5px !important;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ftg-ink-mute) !important;
+  transition: color .15s;
+}
+.hextra-nav-container nav a[href]:not([href="/"]):hover {
+  color: var(--ftg-ink) !important;
+}
+/* active nav (Hextra marks current page with hx:font-medium and no muted color) */
+.hextra-nav-container nav a.hx\:font-medium {
+  color: var(--ftg-magenta) !important;
+  position: relative;
+}
+.hextra-nav-container nav a.hx\:font-medium::after {
+  content: '';
+  position: absolute;
+  left: 8px; right: 8px; bottom: 2px;
+  height: 1px;
+  background: var(--ftg-magenta);
+  opacity: 0.6;
+}
+
+/* ----------- Disclaimer banner ----------- */
+.ftg-disclaimer {
+  position: relative;
+  background: var(--ftg-paper-warm);
+  border-bottom: 1px solid var(--ftg-rule);
+}
+html.dark .ftg-disclaimer { background: var(--ftg-paper-warm); }
+.ftg-disclaimer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 14px max(env(safe-area-inset-left), 1.5rem) 14px max(env(safe-area-inset-left), 1.5rem);
+  text-align: center;
+}
+.ftg-disclaimer p {
+  margin: 0 auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ftg-ink-mute);
+  text-align: center;
+}
+.ftg-disclaimer-label {
+  font-family: var(--ftg-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ftg-magenta);
+  margin-right: 8px;
+}
+.ftg-disclaimer a {
+  color: var(--ftg-magenta);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid currentColor;
+}
+.ftg-disclaimer a:hover { color: var(--ftg-magenta-deep); }
+
+/* ----------- Right-rail TOC ----------- */
+.hextra-toc {
+  font-family: var(--ftg-font-body) !important;
+}
+.hextra-toc p.hx\:mb-4 {
+  font-family: var(--ftg-font-body) !important;
+  font-size: 14px !important;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--ftg-ink) !important;
+  border-bottom: 1px solid var(--ftg-rule);
+  padding-bottom: 10px;
+  margin-bottom: 14px !important;
+}
+.hextra-toc a {
+  font-family: var(--ftg-font-body) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  color: var(--ftg-ink-mute) !important;
+  line-height: 1.5;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  transition: color .15s;
+}
+.hextra-toc a:hover,
+.hextra-toc a:focus {
+  color: var(--ftg-magenta) !important;
+}
+.hextra-toc li.hx\:my-2 { margin: 4px 0 !important; }
+/* Preserve Hextra's nested heading indentation in TOC */
+.hextra-toc ul ul { padding-left: 16px !important; }
+.hextra-toc ul ul a { font-size: 13px !important; color: var(--ftg-ink-faint) !important; }
+
+/* Scroll-to-top button — soften it */
+.hextra-toc button {
+  font-family: var(--ftg-font-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ftg-ink-faint) !important;
+}
+
+/* ----------- Page H1 (Gaps / Mapping / Screenshots) ----------- */
+main#content h1 {
+  font-family: var(--ftg-font-display) !important;
+  font-weight: 400 !important;
+  font-size: clamp(40px, 4.4vw, 60px) !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.04 !important;
+  color: var(--ftg-ink) !important;
+  margin: 8px 0 4px !important;
+  position: relative;
+}
+main#content h1::before {
+  content: 'Find the Gaps Report';
+  display: block;
+  font-family: var(--ftg-font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ftg-ink-faint);
+  margin-bottom: 22px;
+}
+
+main#content > div:first-child > div:first-child {
+  display:none;
+}
+
+main#content > .hx\:mb-16 { margin-bottom: 40px !important; }
+
+/* ----------- H2 section headers ----------- */
+main#content .content > h2 {
+  font-family: var(--ftg-font-display) !important;
+  font-weight: 500 !important;
+  font-size: clamp(26px, 2.6vw, 34px) !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.15 !important;
+  color: var(--ftg-ink) !important;
+  margin: 56px 0 24px !important;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ftg-rule);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+main#content .content > h2:first-child { margin-top: 8px !important; }
+main#content .content > h2 .subheading-anchor {
+  color: var(--ftg-ink-faint);
+  opacity: 0;
+  transition: opacity .15s;
+  font-size: 16px;
+}
+main#content .content > h2:hover .subheading-anchor { opacity: 1; }
+
+/* First paragraph after H2 (Mapping page summary) */
+main#content .content > h2 + p {
+  font-family: var(--ftg-font-display) !important;
+  font-weight: 400;
+  font-size: clamp(17px, 1.4vw, 19.5px);
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  color: var(--ftg-ink-soft);
+  max-width: 760px;
+  margin: 0 0 24px;
+}
+
+/* ----------- Priority / severity bands ----------- */
+.ftg-priority {
+  --sev: var(--ftg-ink-mute);
+  --sev-tint: var(--ftg-rule-soft);
+}
+.ftg-priority--large {
+  --sev: var(--ftg-sev-large);
+  --sev-tint: var(--ftg-sev-large-tint);
+}
+.ftg-priority--medium {
+  --sev: var(--ftg-sev-medium);
+  --sev-tint: var(--ftg-sev-medium-tint);
+}
+.ftg-priority--small {
+  --sev: var(--ftg-sev-small);
+  --sev-tint: var(--ftg-sev-small-tint);
+}
+
+.ftg-priority h3 {
+  font-family: var(--ftg-font-mono) !important;
+  font-weight: 600 !important;
+  font-size: 16px !important;
+  letter-spacing: 0.2em !important;
+  text-transform: uppercase;
+  color: var(--sev) !important;
+  display: flex !important;
+  align-items: center;
+  gap: 14px;
+  margin: 48px 0 18px !important;
+  padding: 10px 22px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--sev-tint) !important;
+}
+.ftg-priority h3::before {
+  content: '';
+  flex: none;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--sev);
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.7);
+}
+htm.dark .ftg-priority h3::before { box-shadow: 0 0 0 4px rgba(0,0,0,0.25); }
+.ftg-priority h3::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: transparent;
+}
+.ftg-priority h3 .subheading-anchor { display: none; }
+.ftg-priority + .ftg-stale-list,
+.ftg-priority + .ftg-shot-list { margin-top: 0; }
+
+/* ============================================================
+   GAPS PAGE — Stale documentation findings
+   ============================================================ */
+.ftg-stale-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 40px;
+}
+
+.ftg-stale {
+  --sev: var(--ftg-ink-mute);
+  --sev-tint: var(--ftg-rule-soft);
+  position: relative;
+  background: var(--ftg-surface);
+  border: 1px solid var(--ftg-rule);
+  border-left: 4px solid var(--sev);
+  border-radius: 8px;
+  padding: 20px 24px 22px;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+html.dark .ftg-stale { background: var(--ftg-paper-warm); }
+.ftg-stale:hover {
+  border-color: var(--ftg-ink-faint);
+  border-left-color: var(--sev);
+}
+.ftg-stale--large {
+  --sev: var(--ftg-sev-large);
+  --sev-tint: var(--ftg-sev-large-tint);
+}
+.ftg-stale--medium {
+  --sev: var(--ftg-sev-medium);
+  --sev-tint: var(--ftg-sev-medium-tint);
+}
+.ftg-stale--small {
+  --sev: var(--ftg-sev-small);
+  --sev-tint: var(--ftg-sev-small-tint);
+}
+
+.ftg-stale-feature {
+  display: block;
+  font-family: var(--ftg-font-body);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ftg-ink);
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.ftg-stale-page {
+  display: inline-block;
+  font-family: var(--ftg-font-mono);
+  font-size: 11.5px;
+  color: var(--ftg-magenta);
+  text-decoration: none;
+  word-break: break-all;
+  margin-bottom: 12px;
+  border-bottom: 1px solid transparent;
+  transition: border-color .15s, color .15s;
+}
+.ftg-stale-page:hover {
+  color: var(--ftg-magenta-deep);
+  border-bottom-color: currentColor;
+}
+html.dark .ftg-stale-page { color: var(--ftg-sev-large); }
+
+.ftg-stale-issue {
+  display: block;
+  font-family: var(--ftg-font-body);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ftg-ink-soft);
+}
+.ftg-stale-issue code,
+.ftg-stale-issue :where(p) code {
+  font-family: var(--ftg-font-mono);
+  font-size: 0.88em;
+  background: var(--ftg-rule-soft);
+  border: 1px solid var(--ftg-rule);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--ftg-ink);
+}
+html.dark .ftg-stale-issue code {
+  background: rgba(255,255,255,0.05);
+  border-color: var(--ftg-rule);
+}
+
+/* "Why" sub-section — quiet attached note */
+.ftg-stale-why {
+  margin-top: 16px;
+  padding: 12px 14px 13px;
+  background: var(--sev-tint);
+  border-radius: 6px;
+  border-left: 2px solid var(--sev);
+}
+.ftg-stale-why-label {
+  display: block;
+  font-family: var(--ftg-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sev);
+  margin-bottom: 5px;
+}
+.ftg-stale-why-text {
+  margin: 0;
+  font-family: var(--ftg-font-body);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ftg-ink-mute);
+}
+
+/* ============================================================
+   MAPPING PAGE — Feature inventory cards
+   ============================================================ */
+.ftg-feature-card {
+  background: var(--ftg-surface);
+  border: 1px solid var(--ftg-rule);
+  border-radius: 10px;
+  padding: 22px 26px 18px;
+  margin: 0 0 14px;
+  transition: border-color .15s, box-shadow .15s;
+}
+html.dark .ftg-feature-card { background: var(--ftg-paper-warm); }
+.ftg-feature-card:hover {
+  border-color: var(--ftg-ink-faint);
+}
+
+.ftg-feature-card h3 {
+  font-family: var(--ftg-font-display) !important;
+  font-weight: 500 !important;
+  font-size: 22px !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.2 !important;
+  color: var(--ftg-ink) !important;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.ftg-feature-card h3 .subheading-anchor { display: none; }
+
+.ftg-feature-card blockquote {
+  margin: 12px 0 16px;
+  padding: 0;
+  border: 0 !important;
+  background: none !important;
+}
+.ftg-feature-card blockquote p {
+  font-family: var(--ftg-font-body);
+  font-weight: 400;
+  font-style: normal;
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--ftg-ink-mute);
+  margin: 0;
+  max-width: 720px;
+}
+
+/* Badges */
+.ftg-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+.ftg-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--ftg-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 100px;
+  background: var(--ftg-badge-layer-bg);
+  color: var(--ftg-badge-layer-fg);
+  border: 1px solid transparent;
+}
+.ftg-badge--layer {
+  background: var(--ftg-badge-layer-bg);
+  color: var(--ftg-badge-layer-fg);
+}
+.ftg-badge--user-facing {
+  background: var(--ftg-badge-user-bg);
+  color: var(--ftg-badge-user-fg);
+}
+.ftg-badge--internal {
+  background: var(--ftg-badge-internal-bg);
+  color: var(--ftg-badge-internal-fg);
+}
+.ftg-badge--documented {
+  background: var(--ftg-badge-doc-bg);
+  color: var(--ftg-badge-doc-fg);
+}
+.ftg-badge--documented::before {
+  content: '✓';
+  margin-right: 5px;
+  font-weight: 700;
+}
+
+/* Collapse details — pill summary with chip grid inside */
+.ftg-feature-card details.ftg-collapse,
+.ftg-collapse {
+  margin: 12px 0 0;
+  padding: 0;
+}
+.ftg-collapse summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ftg-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ftg-ink-mute);
+  background: var(--ftg-neutral-bg);
+  border: 1px solid var(--ftg-rule);
+  padding: 5px 12px 5px 10px;
+  border-radius: 100px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.ftg-collapse summary::-webkit-details-marker { display: none; }
+.ftg-collapse summary::before {
+  content: '▸';
+  font-size: 9px;
+  color: var(--ftg-ink-faint);
+  transition: transform .18s;
+  display: inline-block;
+}
+.ftg-collapse[open] summary::before { transform: rotate(90deg); }
+.ftg-collapse summary:hover {
+  color: var(--ftg-ink);
+  background: var(--ftg-paper-warm);
+  border-color: var(--ftg-ink-faint);
+}
+
+/* "Implemented in / Symbols / Documented on" content */
+.ftg-collapse ul {
+  list-style: none !important;
+  margin: 12px 0 4px !important;
+  padding: 0 !important;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ftg-collapse li {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.ftg-collapse li::before { display: none !important; }
+.ftg-collapse code {
+  display: inline-block;
+  font-family: var(--ftg-font-mono);
+  font-size: 11.5px;
+  padding: 3px 9px;
+  background: #FBFCFE;
+  border: 1px solid var(--ftg-rule);
+  border-radius: 4px;
+  color: var(--ftg-ink-soft);
+}
+html.dark .ftg-collapse code {
+  background: rgba(255,255,255,0.05);
+  color: var(--ftg-ink-soft);
+}
+
+/* "Documented on" links — different visual: small mono URLs in magenta */
+.ftg-collapse--docs ul {
+  flex-direction: column;
+  gap: 4px;
+}
+.ftg-collapse--docs li a {
+  display: inline-block;
+  font-family: var(--ftg-font-mono);
+  font-size: 11.5px;
+  color: var(--ftg-magenta);
+  text-decoration: none;
+  word-break: break-all;
+  padding: 0;
+  border-bottom: 1px solid transparent;
+}
+.ftg-collapse--docs li a:hover {
+  color: var(--ftg-magenta-deep);
+  border-bottom-color: currentColor;
+}
+.ftg-collapse--docs li a a {
+  /* The source has nested <a><a>...</a></a> — flatten visually */
+  display: inline;
+  color: inherit;
+  border: 0;
+  padding: 0;
+}
+html.dark .ftg-collapse--docs li a { color: var(--ftg-sev-large); }
+
+/* Collapsed-state hint: show count subtly */
+.ftg-collapse summary {
+  white-space: nowrap;
+}
+
+/* Group collapses in a tight row */
+.ftg-feature-card .ftg-collapse + .ftg-collapse {
+  margin-left: 6px;
+  display: inline-block;
+}
+.ftg-feature-card .ftg-collapse {
+  display: inline-block;
+  margin-right: 4px;
+}
+.ftg-feature-card .ftg-collapse[open] {
+  display: block;
+  margin-right: 0;
+}
+
+/* ============================================================
+   SCREENSHOTS PAGE — Shot recommendations
+   ============================================================ */
+.ftg-shot-list {
+  margin: 0 0 36px;
+}
+
+.ftg-shot-list > h4 {
+  font-family: var(--ftg-font-display) !important;
+  font-weight: 500 !important;
+  font-size: 20px !important;
+  letter-spacing: -0.015em !important;
+  line-height: 1.2 !important;
+  color: var(--ftg-ink) !important;
+  margin: 24px 0 10px !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.ftg-shot-list > h4 .subheading-anchor { display: none; }
+
+.ftg-shot {
+  --sev: var(--ftg-ink-mute);
+  --sev-tint: var(--ftg-rule-soft);
+  background: var(--ftg-surface);
+  border: 1px solid var(--ftg-rule);
+  border-left: 4px solid var(--sev);
+  border-radius: 8px;
+  padding: 18px 22px 20px;
+  margin: 0 0 14px;
+}
+html.dark .ftg-shot { background: var(--ftg-paper-warm); }
+.ftg-shot--medium {
+  --sev: var(--ftg-sev-medium);
+  --sev-tint: var(--ftg-sev-medium-tint);
+}
+.ftg-shot--small {
+  --sev: var(--ftg-sev-small);
+  --sev-tint: var(--ftg-sev-small-tint);
+}
+
+.ftg-shot-head {
+  margin: 0 0 12px;
+}
+.ftg-shot-head a {
+  font-family: var(--ftg-font-mono);
+  font-size: 11.5px;
+  color: var(--ftg-magenta);
+  text-decoration: none;
+  word-break: break-all;
+  border-bottom: 1px solid transparent;
+}
+.ftg-shot-head a:hover {
+  color: var(--ftg-magenta-deep);
+  border-bottom-color: currentColor;
+}
+html.dark .ftg-shot-head a { color: var(--ftg-sev-large); }
+
+.ftg-shot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ftg-shot-section {
+  font-family: var(--ftg-font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ftg-ink-soft);
+}
+
+.ftg-shot-label {
+  display: block;
+  font-family: var(--ftg-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sev);
+  margin-bottom: 4px;
+}
+
+.ftg-shot-section code {
+  font-family: var(--ftg-font-mono);
+  font-size: 12px;
+  background: var(--ftg-rule-soft);
+  border: 1px solid var(--ftg-rule);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--ftg-ink);
+}
+html.dark .ftg-shot-section code {
+  background: rgba(255,255,255,0.05);
+}
+
+/* "Passage" code block — give it the terminal look */
+.ftg-shot-passage .hextra-code-block,
+main#content .content .hextra-code-block {
+  margin: 4px 0 0 !important;
+  background: var(--ftg-code-bg) !important;
+  border: 1px solid var(--ftg-code-rule) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  position: relative;
+}
+.ftg-shot-passage .hextra-code-block pre,
+main#content .content .hextra-code-block pre {
+  margin: 0 !important;
+  padding: 14px 18px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow-x: auto;
+}
+.ftg-shot-passage .hextra-code-block code,
+main#content .content .hextra-code-block code {
+  font-family: var(--ftg-font-mono) !important;
+  font-size: 12px !important;
+  line-height: 1.7 !important;
+  color: var(--ftg-code-fg) !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+.hextra-code-copy-btn-container {
+  opacity: 0.6;
+}
+.hextra-code-copy-btn {
+  background: rgba(255,255,255,0.04) !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  color: var(--ftg-code-mute) !important;
+}
+.hextra-code-copy-btn:hover {
+  color: var(--ftg-code-fg) !important;
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.hextra-footer {
+  background: var(--ftg-paper-warm) !important;
+  border-top: 1px solid var(--ftg-rule);
+  margin-top: 60px;
+}
+.hextra-custom-footer {
+  padding-top: 28px;
+  padding-bottom: 28px;
+}
+.ftg-doc-holiday-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--ftg-font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: 0;
+  color: var(--ftg-ink-soft);
+}
+.ftg-doc-holiday-footer a {
+  color: var(--ftg-magenta);
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.ftg-doc-holiday-footer a:hover { color: var(--ftg-magenta-deep); }
+.ftg-doc-holiday-footer__icon {
+  display: inline-flex;
+  width: 44px; height: 44px;
+  align-items: center; justify-content: center;
+  border-radius: 10px;
+  background: var(--ftg-surface);
+  border: 1px solid var(--ftg-rule);
+  flex: none;
+  transition: transform .15s, border-color .15s;
+}
+.ftg-doc-holiday-footer__icon:hover {
+  transform: translateY(-1px);
+  border-color: var(--ftg-magenta);
+}
+.ftg-doc-holiday-footer__icon svg {
+  width: 26px; height: 26px;
+}
+
+/* ============================================================
+   POLISH
+   ============================================================ */
+::selection {
+  background: var(--ftg-magenta);
+  color: #fff;
+}
+
+/* Spacing between consecutive priorities */
+.ftg-stale-list + .ftg-priority,
+.ftg-shot-list + .ftg-priority {
+  margin-top: 32px;
+}
+
+/* Ensure article reads on a max width that matches editorial scale */
+main#content {
+  max-width: 920px !important;
+}
+
+/* Strip Hextra's default h-anchor offsets on visible text */
+.subheading-anchor {
+  text-decoration: none;
+}
+.subheading-anchor:hover::before {
+  content: '#';
+  color: var(--ftg-ink-faint);
+  font-family: var(--ftg-font-mono);
+  font-weight: 400;
+  margin-right: 4px;
+}
+
+/* Quiet the breadcrumb spacing tweaks */
+main#content > br { display: none; }
+
+/* Smooth all anchors */
+html { scroll-behavior: smooth; }
+
+/* ============================================================
+   Kill the white fade/gradient under the "On this page" rail
+   (Hextra puts a bg-gradient overlay above the scroll-to-top btn)
+   ============================================================ */
+.hextra-toc .hx\:bg-gradient-to-t,
+.hextra-toc [class*="bg-gradient"] {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+.hextra-toc > div:last-child,
+.hextra-toc .hx\:sticky {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ============================================================
+   Body/content type — bump back up to readable sizes
+   ============================================================ */
+main#content,
+main#content .content {
+  font-size: 16px;
+  line-height: 1.65;
+}
+main#content .content p,
+main#content .content li {
+  font-size: 16px !important;
+  line-height: 1.65 !important;
+  color: var(--ftg-ink-soft) !important;
+}
+.ftg-stale-feature { font-size: 17.5px !important; }
+.ftg-stale-page { font-size: 13px !important; }
+.ftg-stale-issue { font-size: 16px !important; line-height: 1.65 !important; }
+.ftg-stale-why { padding: 14px 16px 15px !important; }
+.ftg-stale-why-label { font-size: 10.5px !important; }
+.ftg-stale-why-text { font-size: 14.5px !important; line-height: 1.6 !important; }
+
+.ftg-shot-section { font-size: 15.5px !important; line-height: 1.65 !important; }
+.ftg-shot-label { font-size: 10.5px !important; }
+.ftg-shot-head a { font-size: 13px !important; }
+
+.ftg-feature-card h3 { font-size: 24px !important; }
+.ftg-feature-card blockquote p { font-size: 16px !important; line-height: 1.7 !important; font-style: normal !important; font-family: var(--ftg-font-body) !important; color: var(--ftg-ink-soft) !important; }
+.ftg-collapse summary { font-size: 12px !important; }
+.ftg-collapse code { font-size: 12.5px !important; }
+.ftg-collapse--docs li a { font-size: 12.5px !important; }
+.ftg-badge { font-size: 10.5px !important; padding: 4px 10px !important; }
+
+main#content .content > h2 + p {
+  font-size: 18px !important;
+  font-family: Inter !important;
+}
+
+/* ============================================================
+   HOME PAGE (index) — Overview + drift/screenshot stat cards
+   ============================================================ */
+.ftg-stats {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 36px;
+}
+.ftg-stats--overview {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ftg-stats--priority {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 720px) {
+  .ftg-stats--overview,
+  .ftg-stats--priority { grid-template-columns: 1fr; }
+}
+
+.ftg-stat-card {
+  --sev: var(--ftg-ink-mute);
+  --sev-tint: var(--ftg-rule-soft);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 24px 20px;
+  background: var(--ftg-surface);
+  border: 1px solid var(--ftg-rule);
+  border-left: 4px solid var(--sev);
+  border-radius: 10px;
+  text-decoration: none !important;
+  color: var(--ftg-ink) !important;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+html.dark .ftg-stat-card { background: var(--ftg-paper-warm); }
+.ftg-stat-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--ftg-ink-faint);
+  border-left-color: var(--sev);
+  box-shadow: 0 6px 16px -10px rgba(0,0,0,0.15);
+}
+.ftg-stat-card--neutral  { --sev: var(--ftg-turquoise); --sev-tint: rgba(27,183,209,0.10); }
+.ftg-stat-card--good     { --sev: var(--ftg-picnic-deep); --sev-tint: var(--ftg-sev-small-tint); }
+.ftg-stat-card--large    { --sev: var(--ftg-sev-large); --sev-tint: var(--ftg-sev-large-tint); }
+.ftg-stat-card--medium   { --sev: var(--ftg-sev-medium); --sev-tint: var(--ftg-sev-medium-tint); }
+.ftg-stat-card--small    { --sev: var(--ftg-sev-small); --sev-tint: var(--ftg-sev-small-tint); }
+
+.ftg-stat-num {
+  font-family: var(--ftg-font-display);
+  font-weight: 400;
+  font-size: clamp(36px, 4.4vw, 52px);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: var(--sev);
+}
+.ftg-stat-card--neutral .ftg-stat-num { color: var(--ftg-ink); }
+.ftg-stat-label {
+  font-family: var(--ftg-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ftg-ink-mute);
+}
+
+main#content .content > h3 {
+  font-family: var(--ftg-font-display) !important;
+  font-weight: 500 !important;
+  font-size: 22px !important;
+  letter-spacing: -0.015em !important;
+  color: var(--ftg-ink) !important;
+  margin: 40px 0 16px !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+main#content .content > h3 .subheading-anchor { display: none; }
+
+.ftg-generated {
+  margin-top: 32px !important;
+  font-family: var(--ftg-font-mono) !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em;
+  color: var(--ftg-ink-faint) !important;
+}
+
+@layer utilities {
+  .hx\:shadow-\[0_-12px_16px_\#fff\] {
+    --tw-shadow: none;
+  }
+}
+
+span#small, span#medium, span#large {
+	padding-top:130px;
+}
+
+.hextra-sidebar-container {
+	width: 10rem;
+}
