@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Poppins:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+
 /* Find the Gaps custom site styles.
  *
  * Loaded by Hextra after the precompiled Tailwind bundle. We use plain CSS
@@ -774,8 +776,6 @@ body > .hextra-footer {
    Find-the-Gaps landing page DNA: warm paper, Poppins display,
    JetBrains Mono eyebrows, magenta/turquoise/picnic accents.
    ================================================================= */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Poppins:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
 
 /* ----------- Tokens (light defaults) ----------- */
 :root,
