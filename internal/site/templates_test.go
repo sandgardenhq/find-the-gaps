@@ -1085,3 +1085,166 @@ func TestRenderFeaturesIndex(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderHugoConfigIncludesParamsDescription pins that the rendered Hugo
+// config carries a `[params]` block with a `description = "..."` so Hextra's
+// head partial has a real string to feed into `<meta description>` and the
+// OpenGraph fallback. Without it, the homepage description falls back to
+// `.Summary`, which on report pages is auto-generated junk.
+func TestRenderHugoConfigIncludesParamsDescription(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title:       "Find the Gaps — myrepo",
+		Description: "Find the Gaps documentation audit report for myrepo.",
+		Mode:        ModeMirror,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "[params]") {
+		t.Errorf("expected [params] section in:\n%s", got)
+	}
+	if !strings.Contains(got, `description = "Find the Gaps documentation audit report for myrepo."`) {
+		t.Errorf("expected params.description with rendered project name; got:\n%s", got)
+	}
+}
+
+// TestRenderHugoConfigEscapesDescription pins that a description containing
+// quotes / backslashes is rendered as a valid TOML basic string. The Go
+// `%q` verb already does this; the test exists to catch a future change
+// that swaps in raw interpolation.
+func TestRenderHugoConfigEscapesDescription(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title:       "x",
+		Description: `report for "weird\name"`,
+		Mode:        ModeMirror,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "report for \"weird\\name\""`) {
+		t.Errorf("expected TOML-escaped description; got:\n%s", got)
+	}
+}
+
+// TestRenderHomeHasFrontmatterDescription pins that the home page's TOML
+// frontmatter includes a `description` line derived from the product
+// summary. Hextra's head partial threads `.Description` into both
+// `<meta description>` and `og:description`.
+func TestRenderHomeHasFrontmatterDescription(t *testing.T) {
+	in := homeData{
+		ProjectName: "demo",
+		GeneratedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Summary:     "A small CLI demo for end-to-end testing.",
+		Mode:        ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "A small CLI demo for end-to-end testing."`) {
+		t.Errorf("expected description derived from summary in frontmatter; got:\n%s", got)
+	}
+}
+
+// TestRenderHomeDescriptionFallsBack pins that, when the analyzer's summary
+// is empty, the home frontmatter uses a sensible project-named fallback so
+// `<meta description>` is never blank.
+func TestRenderHomeDescriptionFallsBack(t *testing.T) {
+	in := homeData{
+		ProjectName: "myrepo",
+		GeneratedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Summary:     "",
+		Mode:        ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "Find the Gaps documentation audit report for myrepo."`) {
+		t.Errorf("expected fallback description with project name; got:\n%s", got)
+	}
+}
+
+// TestRenderHomeDescriptionNormalizesWhitespace pins that newlines and
+// runs of whitespace in the source summary are collapsed to single spaces
+// in the rendered description (otherwise TOML basic-string interpolation
+// breaks on embedded newlines).
+func TestRenderHomeDescriptionNormalizesWhitespace(t *testing.T) {
+	in := homeData{
+		ProjectName: "demo",
+		GeneratedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Summary:     "Line one.\n\nLine   two\twith\ttabs.",
+		Mode:        ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "Line one. Line two with tabs."`) {
+		t.Errorf("expected collapsed whitespace in description; got:\n%s", got)
+	}
+}
+
+// TestRenderFeatureHasFrontmatterDescription pins that per-feature pages
+// (expanded mode) carry a description derived from the feature description.
+func TestRenderFeatureHasFrontmatterDescription(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:        "User Auth",
+		Description: "Login and session management.",
+		Layer:       "service",
+		UserFacing:  true,
+		Documented:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "Login and session management."`) {
+		t.Errorf("expected description from feature description; got:\n%s", got)
+	}
+}
+
+// TestRenderFeatureDescriptionFallsBack pins the per-feature fallback when
+// the LLM-derived feature description is blank.
+func TestRenderFeatureDescriptionFallsBack(t *testing.T) {
+	got, err := renderFeature(featureData{
+		Name:       "User Auth",
+		Layer:      "service",
+		UserFacing: true,
+		Documented: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "Documentation status for User Auth."`) {
+		t.Errorf("expected fallback description; got:\n%s", got)
+	}
+}
+
+// TestRenderFeaturesIndexHasFrontmatterDescription pins a static description
+// on the features index page.
+func TestRenderFeaturesIndexHasFrontmatterDescription(t *testing.T) {
+	got, err := renderFeaturesIndex(featuresIndexData{Rows: nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "Index of detected product features and their documentation status."`) {
+		t.Errorf("expected static description on features index; got:\n%s", got)
+	}
+}
+
+// TestRenderScreenshotPageHasFrontmatterDescription pins that per-page
+// screenshot detail pages carry a description that names the page they
+// audit. The page Title is the document title; the description uses it.
+func TestRenderScreenshotPageHasFrontmatterDescription(t *testing.T) {
+	got, err := renderScreenshotPage(screenshotPageData{
+		PageURL: "https://example.com/docs/start",
+		Title:   "Quickstart",
+		Gaps:    []screenshotGap{{Quoted: "x", ShouldShow: "y", Alt: "z", Insert: "w"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `description = "Screenshot suggestions for Quickstart."`) {
+		t.Errorf("expected per-page screenshot description; got:\n%s", got)
+	}
+}

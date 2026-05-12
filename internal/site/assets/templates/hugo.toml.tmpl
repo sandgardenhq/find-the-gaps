@@ -6,6 +6,9 @@ theme = "hextra"
 [markup.goldmark.renderer]
 unsafe = true
 
+[params]
+description = {{ .Description | printf "%q" }}
+
 [params.footer]
 displayPoweredBy = false
 
