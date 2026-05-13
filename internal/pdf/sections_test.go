@@ -90,6 +90,176 @@ func TestRenderFeatures_RegistersAnchorPerFeature(t *testing.T) {
 	assert.True(t, hasGamma, "anchor for 'gamma!' must be registered as feat-gamma; got %v", anchors.links)
 }
 
+func TestRenderGaps_BucketsByPriority(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "Bucket Project",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "auth", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "search", UserFacing: true}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "auth", Issues: []analyzer.DriftIssue{
+				{Issue: "stale signature in /auth/login", Page: "https://docs.example.com/auth", Priority: analyzer.PrioritySmall, PriorityReason: "cosmetic typo"},
+				{Issue: "wrong error code documented", Page: "https://docs.example.com/auth", Priority: analyzer.PriorityLarge, PriorityReason: "blocks integration"},
+			}},
+			{Feature: "search", Issues: []analyzer.DriftIssue{
+				{Issue: "outdated example query", Page: "https://docs.example.com/search", Priority: analyzer.PriorityMedium, PriorityReason: "misleads users"},
+			}},
+		},
+	}
+
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	// Locate the Gaps section page by scanning for the "Gaps" heading.
+	var gapsText string
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, err := r.Page(p).GetPlainText(nil)
+		require.NoError(t, err)
+		// Must include the section heading, "Large" sub-heading, and at
+		// least one finding to count as the gaps page.
+		if strings.Contains(txt, "Gaps") && strings.Contains(txt, "Large") {
+			gapsText = txt
+			break
+		}
+	}
+	require.NotEmpty(t, gapsText, "Gaps section must render with sub-headings")
+
+	// Order: Large appears before Medium appears before Small.
+	largeIdx := strings.Index(gapsText, "Large")
+	mediumIdx := strings.Index(gapsText, "Medium")
+	smallIdx := strings.Index(gapsText, "Small")
+	require.True(t, largeIdx >= 0 && mediumIdx > largeIdx && smallIdx > mediumIdx,
+		"buckets must appear in Large → Medium → Small order; got large=%d medium=%d small=%d in:\n%s",
+		largeIdx, mediumIdx, smallIdx, gapsText)
+
+	// All three issues must be referenced.
+	assert.Contains(t, gapsText, "wrong error code documented")
+	assert.Contains(t, gapsText, "outdated example query")
+	assert.Contains(t, gapsText, "stale signature")
+	assert.Contains(t, gapsText, "auth")
+	assert.Contains(t, gapsText, "search")
+}
+
+func TestRenderGaps_EmptyBucketsOmitted(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "Small Only",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "f", UserFacing: true}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "f", Issues: []analyzer.DriftIssue{
+				{Issue: "minor typo", Priority: analyzer.PrioritySmall, PriorityReason: "cosmetic"},
+			}},
+		},
+	}
+
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	var gapsText string
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, _ := r.Page(p).GetPlainText(nil)
+		if strings.Contains(txt, "minor typo") {
+			gapsText = txt
+			break
+		}
+	}
+	require.NotEmpty(t, gapsText)
+
+	// Only Small bucket has content; Large/Medium sub-headings must NOT
+	// appear under Gaps.
+	assert.NotContains(t, gapsText, "Large", "empty Large bucket must be omitted")
+	assert.NotContains(t, gapsText, "Medium", "empty Medium bucket must be omitted")
+	assert.Contains(t, gapsText, "Small")
+}
+
+func TestBucketDrift_SkipsUnknownPriority(t *testing.T) {
+	findings := []analyzer.DriftFinding{
+		{Feature: "f", Issues: []analyzer.DriftIssue{
+			{Issue: "ok", Priority: analyzer.PrioritySmall, PriorityReason: "r"},
+			{Issue: "bad", Priority: analyzer.Priority("bogus"), PriorityReason: "r"},
+		}},
+	}
+	got := bucketDrift(findings)
+	assert.Len(t, got[analyzer.PrioritySmall], 1, "known priority must keep its issue")
+	assert.Len(t, got[analyzer.Priority("bogus")], 0, "unknown priority must be skipped")
+}
+
+func TestPriorityLabel_UnknownReturnsRawString(t *testing.T) {
+	assert.Equal(t, "bogus", priorityLabel(analyzer.Priority("bogus")))
+}
+
+func TestRenderGaps_UnmappedFeatureRendersAsPlainText(t *testing.T) {
+	dir := t.TempDir()
+
+	// Drift names a feature that doesn't appear in Mapping. The renderer
+	// must still output the finding (plain text, no cross-link) rather
+	// than dropping it.
+	in := Inputs{
+		ProjectName: "Orphan",
+		Mapping:     analyzer.FeatureMap{},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "ghost-feature", Issues: []analyzer.DriftIssue{
+				{Issue: "an orphan finding", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+			}},
+		},
+	}
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	var found bool
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, _ := r.Page(p).GetPlainText(nil)
+		if strings.Contains(txt, "ghost-feature") && strings.Contains(txt, "an orphan finding") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "drift findings for unmapped features must still render")
+}
+
+func TestRenderGaps_RegistersFeatureCrosslink(t *testing.T) {
+	doc := newDoc()
+	anchors := newAnchorTable(doc)
+
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "auth", UserFacing: true}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "auth", Issues: []analyzer.DriftIssue{
+				{Issue: "x", Priority: analyzer.PriorityLarge, PriorityReason: "y"},
+			}},
+		},
+	}
+
+	// Pre-register feature anchor as renderSections would.
+	featAnchors := computeFeatureAnchors(in)
+	require.Equal(t, "feat-auth", featAnchors["auth"])
+
+	doc.AddPage()
+	renderGapsWithAnchors(doc, in, anchors, featAnchors)
+
+	// Gaps section must have called Get on the feature anchor so its
+	// link ID is registered in the table.
+	_, ok := anchors.links["feat-auth"]
+	assert.True(t, ok, "renderGaps must register cross-link to feat-auth anchor; got %v", anchors.links)
+}
+
 func TestRenderFeatures_DisambiguatesSlugCollisions(t *testing.T) {
 	doc := newDoc()
 	anchors := newAnchorTable(doc)

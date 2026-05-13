@@ -23,14 +23,26 @@ func renderFeatures(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable) {
 		pagesByFeature[e.Feature] = e.Pages
 	}
 
-	// Track slug usage so collisions get a -2, -3, ... suffix.
-	used := make(map[string]int, len(in.Mapping))
-
+	featAnchors := computeFeatureAnchors(in)
 	for _, entry := range in.Mapping {
-		anchor := featureAnchor(entry.Feature.Name, used)
-		anchors.Mark(anchor)
+		anchors.Mark(featAnchors[entry.Feature.Name])
 		renderFeatureBlock(doc, entry, pagesByFeature[entry.Feature.Name])
 	}
+}
+
+// computeFeatureAnchors walks the feature map once and produces the
+// stable feature-name → anchor-name mapping. Slug collisions are
+// disambiguated with "-2", "-3", ... suffixes, in the order features
+// appear in in.Mapping. Called by both renderFeatures (which Marks each
+// anchor as it emits the block) and renderGaps / renderScreenshots
+// (which Get the anchor to create cross-link clickable regions).
+func computeFeatureAnchors(in Inputs) map[string]string {
+	out := make(map[string]string, len(in.Mapping))
+	used := make(map[string]int, len(in.Mapping))
+	for _, entry := range in.Mapping {
+		out[entry.Feature.Name] = featureAnchor(entry.Feature.Name, used)
+	}
+	return out
 }
 
 // featureAnchor returns a unique anchor name for the feature, suffixing
@@ -111,10 +123,147 @@ func pageWidth(doc *fpdf.Fpdf) float64 {
 	return w - marginLeft - marginRight
 }
 
-// renderGaps emits the Gaps section, priority-bucketed and cross-linked to
-// features. Stubbed in Task 4; filled in with real content in Task 6.
+// renderGaps emits the Gaps section, priority-bucketed and cross-linked
+// to features. Caller-side variant uses the default feature-anchor map;
+// renderGapsWithAnchors lets the dispatcher reuse a precomputed map.
 func renderGaps(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable) {
+	renderGapsWithAnchors(doc, in, anchors, computeFeatureAnchors(in))
+}
+
+// renderGapsWithAnchors emits Gaps with caller-supplied feature anchors.
+// Findings are bucketed by priority (Large → Medium → Small); empty
+// buckets are omitted along with their sub-heading.
+func renderGapsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, featAnchors map[string]string) {
 	sectionHeading(doc, "Gaps")
+
+	buckets := bucketDrift(in.Drift)
+	for _, p := range priorityOrder() {
+		findings := buckets[p]
+		if len(findings) == 0 {
+			continue
+		}
+		priorityHeading(doc, p)
+		for _, f := range findings {
+			renderDriftFinding(doc, anchors, featAnchors, f)
+		}
+		doc.Ln(0.1)
+	}
+}
+
+// bucketedDrift pairs one DriftIssue with its owning feature so the
+// renderer can group across DriftFindings into per-priority buckets.
+type bucketedDrift struct {
+	Feature string
+	Issue   analyzer.DriftIssue
+}
+
+// bucketDrift groups every drift issue by its priority. Issues that lack a
+// recognised priority value are skipped — the upstream analyzer guards
+// against this but the renderer fails closed rather than emitting an
+// "unknown bucket" header.
+func bucketDrift(findings []analyzer.DriftFinding) map[analyzer.Priority][]bucketedDrift {
+	out := map[analyzer.Priority][]bucketedDrift{}
+	for _, f := range findings {
+		for _, iss := range f.Issues {
+			if !isKnownPriority(iss.Priority) {
+				continue
+			}
+			out[iss.Priority] = append(out[iss.Priority], bucketedDrift{Feature: f.Feature, Issue: iss})
+		}
+	}
+	return out
+}
+
+// priorityOrder returns the priority enums in the order the report
+// renders them (highest impact first).
+func priorityOrder() []analyzer.Priority {
+	return []analyzer.Priority{analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall}
+}
+
+func isKnownPriority(p analyzer.Priority) bool {
+	switch p {
+	case analyzer.PriorityLarge, analyzer.PriorityMedium, analyzer.PrioritySmall:
+		return true
+	}
+	return false
+}
+
+// priorityHeading writes the sub-heading for one priority bucket. The
+// rendered label is the title-cased priority value ("Large", "Medium",
+// "Small").
+func priorityHeading(doc *fpdf.Fpdf, p analyzer.Priority) {
+	doc.Ln(0.1)
+	doc.SetFont("Helvetica", "B", fontSizeH2)
+	doc.SetTextColor(priorityRGB(p))
+	doc.CellFormat(0, 0.3, priorityLabel(p), "", 1, "L", false, 0, "")
+	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+}
+
+// priorityLabel returns the human-readable bucket name.
+func priorityLabel(p analyzer.Priority) string {
+	switch p {
+	case analyzer.PriorityLarge:
+		return "Large"
+	case analyzer.PriorityMedium:
+		return "Medium"
+	case analyzer.PrioritySmall:
+		return "Small"
+	}
+	return string(p)
+}
+
+// priorityRGB returns the foreground colour used for the priority
+// sub-heading. Matches the priority pill palette in style.go.
+func priorityRGB(p analyzer.Priority) (int, int, int) {
+	switch p {
+	case analyzer.PriorityLarge:
+		return colorLargeR, colorLargeG, colorLargeB
+	case analyzer.PriorityMedium:
+		return colorMediumR, colorMediumG, colorMediumB
+	}
+	return colorSmallR, colorSmallG, colorSmallB
+}
+
+// renderDriftFinding writes one finding line: clickable feature name +
+// issue text + priority reason. Feature name is rendered as a clickable
+// internal link to its feat-<slug> anchor when the feature exists in the
+// mapping; features unknown to the mapping (which can happen if the
+// drift LLM names a feature the mapping didn't enumerate) fall back to
+// plain text.
+func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string]string, b bucketedDrift) {
+	doc.SetX(marginLeft + 0.2)
+	doc.SetFont("Helvetica", "", fontSizeBody)
+	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+
+	featureLabel := b.Feature
+	if anchor, ok := featAnchors[b.Feature]; ok {
+		linkID := anchors.Get(anchor)
+		// Render the feature name as a clickable underlined span. fpdf's
+		// Cell with the link parameter wires the whole cell rectangle to
+		// the link target.
+		featW := doc.GetStringWidth(featureLabel) + 0.02
+		doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
+		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, linkID, "")
+		doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	} else {
+		featW := doc.GetStringWidth(featureLabel) + 0.02
+		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, 0, "")
+	}
+
+	// Issue text after the feature label.
+	doc.CellFormat(0, 0.22, "  -  "+b.Issue.Issue, "", 1, "L", false, 0, "")
+
+	// Priority reason and source page on a secondary line, indented and
+	// muted.
+	doc.SetX(marginLeft + 0.4)
+	doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
+	doc.SetFont("Helvetica", "I", fontSizeMeta)
+	secondary := b.Issue.PriorityReason
+	if b.Issue.Page != "" {
+		secondary += "   (" + b.Issue.Page + ")"
+	}
+	doc.CellFormat(0, 0.2, secondary, "", 1, "L", false, 0, "")
+	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 }
 
 // renderScreenshots emits the Screenshots section (missing, image issues,

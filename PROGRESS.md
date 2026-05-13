@@ -30,6 +30,12 @@
 - Build: ✅ `go build ./...` clean
 - Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
 
+### Task 6: Gaps section priority-bucketed cross-linked — COMPLETE
+- Tests: 22 passing (added `TestRenderGaps_BucketsByPriority`, `TestRenderGaps_EmptyBucketsOmitted`, `TestRenderGaps_RegistersFeatureCrosslink`, `TestRenderGaps_UnmappedFeatureRendersAsPlainText`, `TestBucketDrift_SkipsUnknownPriority`, `TestPriorityLabel_UnknownReturnsRawString`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Drift issues bucketed by Large → Medium → Small via `bucketDrift`; empty buckets and their sub-headings omitted. Feature names rendered as clickable cross-links into the Features section (`feat-<slug>`); features missing from the mapping fall back to plain text. Priority sub-headings colored from the same palette as the priority pills in `style.go`. `computeFeatureAnchors` extracted so renderFeatures and renderGaps share one disambiguation pass.
+
 ### Task 5: Features section — COMPLETE
 - Tests: 16 passing (added `TestRenderFeatures_OneBlockPerFeature`, `TestRenderFeatures_RegistersAnchorPerFeature`, `TestRenderFeatures_DisambiguatesSlugCollisions`)
 - Coverage: `internal/pdf` 100.0% statements
