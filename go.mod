@@ -6,6 +6,8 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.37.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/log v1.0.0
+	github.com/go-pdf/fpdf v0.9.0
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/maximhq/bifrost/core v1.5.2
 	github.com/rogpeppe/go-internal v1.14.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06

@@ -1,5 +1,17 @@
 # Progress
 
+## Feature: PDF Report Export — IN PROGRESS
+- Started: 2026-05-13
+- Plan: `.plans/PDF_EXPORT.md`
+- Summary: New `internal/pdf` package emits `report.pdf` alongside the existing markdown reports and Hugo site. Pure-Go via `go-pdf/fpdf`. Default-on with `--no-pdf` opt-out. Hybrid layout (Features / Gaps / Screenshots) with clickable TOC.
+
+### Task 1: Package skeleton + first failing test — COMPLETE
+- Tests: 2 passing (`TestWriteReport_EmitsFile`, `TestWriteReport_ReturnsErrorWhenDirMissing`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Lint: `go vet` clean. `golangci-lint` not run (pre-existing toolchain mismatch: linter built against go1.25, project targets go1.26.2 — environment issue, not code).
+- Notes: `pdf.Inputs` shape introduced. `WriteReport(dir, in)` emits a 1-page PDF stub. `newDoc()` constructor seam for downstream renderers.
+
 ## Task: Halt on Unsupported-Language Repo - COMPLETE
 - Started: 2026-05-08
 - Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)
