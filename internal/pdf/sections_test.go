@@ -59,11 +59,11 @@ func TestRenderFeatures_OneBlockPerFeature(t *testing.T) {
 	assert.Contains(t, body, "gap analysis")
 	assert.Contains(t, body, "doctor command")
 	assert.Contains(t, body, "Finds gaps between code and docs.")
-	assert.Contains(t, body, "analysis engine")
-	assert.Contains(t, body, "User-facing: yes")
-	assert.Contains(t, body, "User-facing: no")
-	assert.Contains(t, body, "documented") // status for the page-covered feature
-	assert.Contains(t, body, "undocumented")
+	assert.Contains(t, body, "analysis engine") // Layer badge
+	assert.Contains(t, body, "user-facing")     // user-facing badge for the first feature
+	assert.Contains(t, body, "internal")        // internal badge for the second feature
+	assert.Contains(t, body, "documented")      // status badge for the page-covered feature
+	assert.Contains(t, body, "undocumented")    // status badge for the second feature
 	assert.Contains(t, body, "internal/analyzer/analyzer.go")
 	assert.Contains(t, body, "AnalyzePage")
 	assert.Contains(t, body, "https://docs.example.com/gap")

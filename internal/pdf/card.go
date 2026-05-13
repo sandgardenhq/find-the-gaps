@@ -68,6 +68,74 @@ func pointsToInches(pts float64) float64 {
 	return pts / 72.0
 }
 
+// Badge geometry. Smaller than priority pills; the site uses these for
+// the metadata row on each feature card.
+const (
+	badgePadX    = 0.10
+	badgeHeight  = 0.22
+	badgeRadius  = 0.11 // 9999px on the site → full circle ends; approximate as half-height.
+	badgeBorderW = 0.4
+)
+
+// drawBadge renders a small tinted metadata pill at the current (x, y)
+// cursor and advances the cursor past the right edge. Unlike drawPill,
+// the label is rendered as supplied (no upper-casing), the font weight
+// is regular (mirroring `.ftg-badge` font-weight: 500), and padding is
+// tighter so badges sit compactly on a single row.
+func drawBadge(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
+	doc.SetFont("Helvetica", "", fontSizeBadge)
+	w := doc.GetStringWidth(label) + 2*badgePadX
+	x, y := doc.GetX(), doc.GetY()
+
+	oldLineW := doc.GetLineWidth()
+	defer doc.SetLineWidth(oldLineW)
+
+	setFillColor(doc, bg)
+	setDrawColor(doc, border)
+	doc.SetLineWidth(pointsToInches(badgeBorderW))
+	doc.RoundedRect(x, y, w, badgeHeight, badgeRadius, "1234", "FD")
+
+	setTextColor(doc, fg)
+	doc.SetXY(x, y)
+	doc.CellFormat(w, badgeHeight, label, "", 0, "C", false, 0, "")
+
+	setTextColor(doc, colorBodyFg)
+	doc.SetXY(x+w, y)
+	return w
+}
+
+// measureFeatureCard returns the height a feature card needs to hold the
+// header line, optional italic description, a one-row badge strip, and
+// the optional Files / Symbols / Documented-on rows. Sized so the card
+// shell can be drawn before any content fills it.
+func measureFeatureCard(doc *fpdf.Fpdf, name, description, files, symbols, docPages string) float64 {
+	w := cardContentWidth(doc)
+
+	doc.SetFont("Helvetica", "B", fontSizeH2)
+	nameLines := countWrappedLines(doc, name, w)
+
+	doc.SetFont("Helvetica", "I", fontSizeBody)
+	descLines := countWrappedLines(doc, description, w)
+
+	doc.SetFont("Helvetica", "", fontSizeMeta)
+	filesLines := countWrappedLines(doc, files, w)
+	symbolsLines := countWrappedLines(doc, symbols, w)
+	docLines := countWrappedLines(doc, docPages, w)
+
+	headLineH := 0.32
+	descLineH := 0.22
+	badgeRowH := badgeHeight + 0.10
+	metaLineH := 0.20
+
+	h := cardPadY
+	h += headLineH * float64(nameLines)
+	h += descLineH * float64(descLines)
+	h += badgeRowH
+	h += metaLineH * float64(filesLines+symbolsLines+docLines)
+	h += cardPadY
+	return h
+}
+
 // drawCard renders the shell of a finding/feature card at (x, y) with the
 // given total width + height. The card has a white fill, a thin neutral
 // border, an 8-point-radius corner, and a coloured 4-point-wide left

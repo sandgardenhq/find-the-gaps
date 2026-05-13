@@ -201,6 +201,67 @@ func TestRenderImageIssue_CardContainsAllFields(t *testing.T) {
 	assert.Contains(t, text, "IMG_WHY_MARKER")
 }
 
+// TestRenderFeatureBlock_RendersBadgeRow pins that a feature card emits
+// badge labels for Layer, User-facing / Internal, and Documented /
+// Undocumented status, mirroring the .ftg-badge components on the site.
+func TestRenderFeatureBlock_RendersBadgeRow(t *testing.T) {
+	doc := newDoc()
+	registerFooter(doc, "X")
+	doc.AddPage()
+	anchors := newAnchorTable(doc)
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{
+				Feature: analyzer.CodeFeature{
+					Name:        "auth",
+					Description: "Handles user login and session.",
+					Layer:       "api",
+					UserFacing:  true,
+				},
+				Files:   []string{"auth.go"},
+				Symbols: []string{"Login"},
+			},
+		},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "auth", Pages: []string{"https://docs.example.com/auth"}},
+		},
+	}
+	renderFeatures(doc, in, anchors)
+
+	text := extractTextWhitebox(t, doc)
+	assert.Contains(t, text, "auth", "feature name")
+	assert.Contains(t, text, "Handles user login", "description")
+	assert.Contains(t, text, "api", "layer badge")
+	// Badges (lowercase, single word or hyphenated). They appear in the
+	// extracted text as the badge label.
+	assert.Contains(t, text, "user-facing", "user-facing badge")
+	assert.Contains(t, text, "documented", "documented badge")
+	// Files / Symbols / Documented on still render in the body.
+	assert.Contains(t, text, "auth.go")
+	assert.Contains(t, text, "Login")
+	assert.Contains(t, text, "docs.example.com/auth")
+}
+
+// TestRenderFeatureBlock_InternalUndocumentedBadge pins the "internal"
+// + "undocumented" badge combination for a feature with UserFacing=false
+// and no docs pages.
+func TestRenderFeatureBlock_InternalUndocumentedBadge(t *testing.T) {
+	doc := newDoc()
+	registerFooter(doc, "X")
+	doc.AddPage()
+	anchors := newAnchorTable(doc)
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "background-worker", UserFacing: false}},
+		},
+	}
+	renderFeatures(doc, in, anchors)
+
+	text := extractTextWhitebox(t, doc)
+	assert.Contains(t, text, "internal", "internal badge for non-user-facing feature")
+	assert.Contains(t, text, "undocumented", "undocumented badge when no docs pages")
+}
+
 // TestRenderGapsWithAnchors_UsesPillHeading pins that the priority
 // sub-heading inside the gaps section is the new uppercase pill, not
 // the old title-cased text.

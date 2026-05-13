@@ -57,63 +57,112 @@ func featureAnchor(name string, used map[string]int) string {
 	return fmt.Sprintf("feat-%s-%d", base, used[base])
 }
 
-// renderFeatureBlock emits one feature: heading, description, key/value
-// fields, files, symbols, and documented-on pages.
+// renderFeatureBlock emits one feature inside a card. Header is the
+// feature name, optionally followed by an italic muted description, a
+// single row of metadata badges (Layer / User-facing-or-Internal /
+// Documented-or-Undocumented), and the wrapped Files / Symbols /
+// Documented-on lines. Card stripe colour reflects documentation status:
+// green for documented, red for undocumented user-facing, neutral
+// otherwise. Mirrors the .ftg-feature-card component in custom.css.
 func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []string) {
-	doc.Ln(0.05)
+	name := sanitize(entry.Feature.Name)
+	desc := sanitize(entry.Feature.Description)
+	files := ""
+	if len(entry.Files) > 0 {
+		files = "Implemented in: " + sanitize(strings.Join(entry.Files, ", "))
+	}
+	symbols := ""
+	if len(entry.Symbols) > 0 {
+		symbols = "Symbols: " + sanitize(strings.Join(entry.Symbols, ", "))
+	}
+	docPagesStr := ""
+	if len(docPages) > 0 {
+		docPagesStr = "Documented on: " + sanitize(strings.Join(docPages, ", "))
+	}
 
-	// Feature name as a sub-heading.
+	cardX := marginLeft
+	cardY := doc.GetY()
+	cardW := pageWidth(doc)
+	cardH := measureFeatureCard(doc, name, desc, files, symbols, docPagesStr)
+
+	_, pageH := doc.GetPageSize()
+	if cardY+cardH > pageH-marginBottom {
+		doc.AddPage()
+		cardY = doc.GetY()
+	}
+
+	stripe := featureStripeColor(entry.Feature.UserFacing, len(docPages) > 0)
+	drawCard(doc, cardX, cardY, cardW, cardH, stripe)
+
+	innerX := cardContentX()
+	innerW := cardContentWidth(doc)
+
+	// Heading.
+	doc.SetXY(innerX, cardY+cardPadY)
 	doc.SetFont("Helvetica", "B", fontSizeH2)
 	setTextColor(doc, colorBodyFg)
-	doc.CellFormat(0, 0.32, sanitize(entry.Feature.Name), "", 1, "L", false, 0, "")
+	doc.MultiCell(innerW, 0.32, name, "", "L", false)
 
-	if entry.Feature.Description != "" {
+	// Description (italic, muted).
+	if desc != "" {
+		doc.SetX(innerX)
 		doc.SetFont("Helvetica", "I", fontSizeBody)
 		setTextColor(doc, colorMutedFg)
-		width := pageWidth(doc) - 0.4
-		doc.SetX(marginLeft + 0.2)
-		doc.MultiCell(width, 0.22, sanitize(entry.Feature.Description), "", "L", false)
+		doc.MultiCell(innerW, 0.22, desc, "", "L", false)
 	}
 
-	doc.SetFont("Helvetica", "", fontSizeBody)
+	// Badge row.
+	doc.SetXY(innerX, doc.GetY()+0.04)
+	renderFeatureBadges(doc, entry.Feature, len(docPages) > 0)
+	doc.Ln(badgeHeight + 0.10)
+
+	// Files / Symbols / Documented-on.
+	doc.SetFont("Helvetica", "", fontSizeMeta)
 	setTextColor(doc, colorBodyFg)
-
-	userFacing := "no"
-	if entry.Feature.UserFacing {
-		userFacing = "yes"
-	}
-	docStatus := "undocumented"
-	if len(docPages) > 0 {
-		docStatus = "documented"
+	for _, ln := range []string{files, symbols, docPagesStr} {
+		if ln == "" {
+			continue
+		}
+		doc.SetX(innerX)
+		doc.MultiCell(innerW, 0.20, ln, "", "L", false)
 	}
 
-	if entry.Feature.Layer != "" {
-		labelValue(doc, "Layer", sanitize(entry.Feature.Layer))
-	}
-	labelValue(doc, "User-facing", userFacing)
-	labelValue(doc, "Documentation status", docStatus)
-	if len(entry.Files) > 0 {
-		labelValue(doc, "Implemented in", sanitize(strings.Join(entry.Files, ", ")))
-	}
-	if len(entry.Symbols) > 0 {
-		labelValue(doc, "Symbols", sanitize(strings.Join(entry.Symbols, ", ")))
-	}
-	if len(docPages) > 0 {
-		labelValue(doc, "Documented on", sanitize(strings.Join(docPages, ", ")))
-	}
-	doc.Ln(0.15)
+	doc.SetY(cardY + cardH + 0.18)
 }
 
-// labelValue prints a single "Label: Value" row. Rendered as one cell so
-// the label and value share a single text run — text extractors keep them
-// on one line, which lets parse-back tests assert on the rendered string
-// directly. Label weight is conveyed by the colon-and-space prefix rather
-// than a font swap (a font swap mid-row creates two text objects, which
-// the extractor then splits across lines).
-func labelValue(doc *fpdf.Fpdf, label, value string) {
-	doc.SetX(marginLeft)
-	doc.SetFont("Helvetica", "", fontSizeBody)
-	doc.CellFormat(0, 0.22, label+": "+value, "", 1, "L", false, 0, "")
+// featureStripeColor picks the colour for the card's left stripe based
+// on documentation status. Mirrors the documented / undocumented
+// modifiers in .ftg-feature-card.
+func featureStripeColor(userFacing, documented bool) int {
+	switch {
+	case documented:
+		return colorGoodFg
+	case userFacing:
+		return colorBadFg
+	}
+	return colorNeutralBorder
+}
+
+// renderFeatureBadges emits the metadata badge row for a feature card:
+// Layer (when present), User-facing / Internal, and Documented /
+// Undocumented. Colours follow the .ftg-badge--* modifiers in
+// custom.css.
+func renderFeatureBadges(doc *fpdf.Fpdf, f analyzer.CodeFeature, documented bool) {
+	if f.Layer != "" {
+		drawBadge(doc, sanitize(f.Layer), colorNeutralFg, colorNeutralBg, colorNeutralBorder)
+		doc.SetX(doc.GetX() + 0.08)
+	}
+	if f.UserFacing {
+		drawBadge(doc, "user-facing", colorWarnFg, colorWarnBg, colorWarnBorder)
+	} else {
+		drawBadge(doc, "internal", colorMutedFg, colorNeutralBg, colorNeutralBorder)
+	}
+	doc.SetX(doc.GetX() + 0.08)
+	if documented {
+		drawBadge(doc, "documented", colorGoodFg, colorGoodBg, colorGoodBorder)
+	} else {
+		drawBadge(doc, "undocumented", colorBadFg, colorBadBg, colorBadBorder)
+	}
 }
 
 // pageWidth returns the writable width of the current page, in inches,
