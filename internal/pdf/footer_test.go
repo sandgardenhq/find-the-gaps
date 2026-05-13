@@ -1,7 +1,6 @@
 package pdf
 
 import (
-	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,10 +76,8 @@ func TestRegisterFooter_OmitsProjectNameWhenEmpty(t *testing.T) {
 }
 
 // TestWriteReport_RegistersFooter is the integration assertion: WriteReport
-// wires registerFooter into its newDoc() call. Verified by reading the saved
-// PDF, forcing extra pages by allocating cover-only output (which is a single
-// page) and inspecting the page count — i.e., this test asserts the bundling,
-// the per-page coverage is in TestRegisterFooter_PageNumbersOnAllButCover.
+// wires registerFooter into its newDoc() call. The cover page (page 1) must
+// not carry a footer; subsequent pages must.
 func TestWriteReport_RegistersFooter(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, WriteReport(dir, Inputs{ProjectName: "X"}))
@@ -89,15 +86,15 @@ func TestWriteReport_RegistersFooter(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	// Cover-only output: 1 page, no footer.
-	require.Equal(t, 1, r.NumPage())
+	require.GreaterOrEqual(t, r.NumPage(), 2, "expected at least cover + TOC pages")
 
-	rd, err := r.GetPlainText()
+	page1, err := r.Page(1).GetPlainText(nil)
 	require.NoError(t, err)
-	b, err := io.ReadAll(rd)
-	require.NoError(t, err)
-	got := string(b)
-	if strings.Contains(got, "page 1 of") {
-		t.Errorf("cover page must not carry a footer; got:\n%s", got)
+	if strings.Contains(page1, "page 1 of") {
+		t.Errorf("cover page must not carry a footer; got:\n%s", page1)
 	}
+
+	page2, err := r.Page(2).GetPlainText(nil)
+	require.NoError(t, err)
+	require.Contains(t, page2, "page 2 of", "non-cover pages must carry the footer")
 }

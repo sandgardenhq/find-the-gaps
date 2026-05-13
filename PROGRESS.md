@@ -24,6 +24,12 @@
 - Build: ✅ `go build ./...` clean
 - Notes: Footer prints `<project> - page N of M` centered, suppressed on page 1 (cover). Uses fpdf's `{nb}` alias for total-page substitution at output time. White-box tests in `package pdf` so the helper can be exercised directly without polluting the public API.
 
+### Task 4: Anchor table + TOC scaffold — COMPLETE
+- Tests: 13 passing (added TOC, anchor, slug, and finalize edge-case tests)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
+
 ## Task: Halt on Unsupported-Language Repo - COMPLETE
 - Started: 2026-05-08
 - Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)
