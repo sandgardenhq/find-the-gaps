@@ -12,6 +12,12 @@
 - Lint: `go vet` clean. `golangci-lint` not run (pre-existing toolchain mismatch: linter built against go1.25, project targets go1.26.2 — environment issue, not code).
 - Notes: `pdf.Inputs` shape introduced. `WriteReport(dir, in)` emits a 1-page PDF stub. `newDoc()` constructor seam for downstream renderers.
 
+### Task 2: Cover page content — COMPLETE
+- Tests: 4 passing (added `TestRenderCover_ContainsMetadata`, `TestRenderCover_ScreenshotCountOmittedWhenNotRun`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Cover page emits title block, project name, repo URL, docs URL, generated-at timestamp formatted UTC, and summary counts (features / gaps / screenshot issues). Screenshot count omitted when `ScreenshotsRan=false`. Style tokens (palette, margins, font sizes) extracted to `style.go` and cross-referenced to `hextra-custom.css`.
+
 ## Task: Halt on Unsupported-Language Repo - COMPLETE
 - Started: 2026-05-08
 - Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)

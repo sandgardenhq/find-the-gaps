@@ -33,7 +33,7 @@ type Inputs struct {
 // WriteReport renders the report PDF into dir as "report.pdf".
 func WriteReport(dir string, in Inputs) error {
 	doc := newDoc()
-	doc.AddPage()
+	renderCover(doc, in)
 
 	out := filepath.Join(dir, "report.pdf")
 	if err := doc.OutputFileAndClose(out); err != nil {
@@ -45,5 +45,8 @@ func WriteReport(dir string, in Inputs) error {
 // newDoc constructs the fpdf document the renderer writes into. Letter size,
 // portrait, inch-based units, no embedded fonts (core fonts only).
 func newDoc() *fpdf.Fpdf {
-	return fpdf.New("P", "in", "Letter", "")
+	doc := fpdf.New("P", "in", "Letter", "")
+	doc.SetMargins(marginLeft, marginTop, marginRight)
+	doc.SetAutoPageBreak(true, marginBottom)
+	return doc
 }
