@@ -37,6 +37,15 @@ func registerFonts(doc *fpdf.Fpdf) {
 }
 
 // bodyFont is the family name used by every text-emitting call in this
-// package. Centralised so a future swap (e.g. embedding a different
-// type family) lives in one place.
+// package that wants Inter's sans-serif. Centralised so a future swap
+// (e.g. embedding a different type family) lives in one place.
 const bodyFont = "Inter"
+
+// titleFont names the serif face used for the cover title, section
+// headings, and feature-card headings. The user asked for Georgia, which
+// is a proprietary Microsoft font and cannot be redistributed inside
+// this binary; "Times" is the closest free substitute and is one of
+// PDF's 14 built-in core fonts, so it requires no embedding and adds no
+// binary cost. Pills, badges, body text, and footer keep bodyFont
+// (Inter) so the serif/sans contrast reads as a deliberate hierarchy.
+const titleFont = "Times"

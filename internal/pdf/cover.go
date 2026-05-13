@@ -28,14 +28,14 @@ func renderCover(doc *fpdf.Fpdf, in Inputs) {
 
 	pageW, _ := doc.GetPageSize()
 
-	// Title block (centered).
+	// Title block (centered, serif).
 	doc.SetY(heroTitleY)
-	doc.SetFont(bodyFont, "B", fontSizeTitle)
+	doc.SetFont(titleFont, "B", fontSizeTitle)
 	setTextColor(doc, colorBodyFg)
 	doc.CellFormat(0, 0.5, "Find the Gaps", "", 1, "C", false, 0, "")
 
 	if in.ProjectName != "" {
-		doc.SetFont(bodyFont, "", fontSizeH1)
+		doc.SetFont(titleFont, "", fontSizeH1)
 		setTextColor(doc, colorMutedFg)
 		doc.CellFormat(0, 0.4, sanitize(in.ProjectName), "", 1, "C", false, 0, "")
 	}

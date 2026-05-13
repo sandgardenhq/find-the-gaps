@@ -97,9 +97,9 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 	innerX := cardContentX()
 	innerW := cardContentWidth(doc)
 
-	// Heading.
+	// Heading (serif).
 	doc.SetXY(innerX, cardY+cardPadY)
-	doc.SetFont(bodyFont, "B", fontSizeH2)
+	doc.SetFont(titleFont, "B", fontSizeH2)
 	setTextColor(doc, colorBodyFg)
 	doc.MultiCell(innerW, 0.32, name, "", "L", false)
 
@@ -177,6 +177,11 @@ func pageWidth(doc *fpdf.Fpdf) float64 {
 // buckets are omitted along with their sub-heading. Each non-empty bucket
 // marks `gaps-<priority>` so the TOC sub-entries resolve to the right
 // page.
+//
+// Page-break logic for the per-finding cards lives here (rather than
+// inside renderDriftFinding) so the priority pill and the first card of
+// its bucket stay on the same page: the pill cannot be orphaned at the
+// bottom of a page while its findings start on the next one.
 func renderGapsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, featAnchors map[string]string) {
 	sectionHeading(doc, "Gaps")
 
@@ -186,12 +191,35 @@ func renderGapsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, feat
 		if len(findings) == 0 {
 			continue
 		}
-		anchors.Mark(gapsBucketAnchor(p))
-		priorityHeading(doc, p)
-		for _, f := range findings {
+		for i, f := range findings {
+			cardH := measureDriftCard(doc,
+				sanitize(f.Feature), sanitize(f.Issue.Issue),
+				sanitize(f.Issue.PriorityReason), sanitize(f.Issue.Page))
+			needsPill := i == 0
+			ensureSpace(doc, cardH, needsPill)
+			if needsPill {
+				anchors.Mark(gapsBucketAnchor(p))
+				priorityHeading(doc, p)
+			}
 			renderDriftFinding(doc, anchors, featAnchors, f)
 		}
 		doc.Ln(0.1)
+	}
+}
+
+// ensureSpace page-breaks when the current cursor + reserved height
+// would cross the bottom margin. If withPill is true, an additional
+// pill-height + spacing is included so a priority pill and its first
+// card stay together on the same page.
+func ensureSpace(doc *fpdf.Fpdf, cardH float64, withPill bool) {
+	extra := 0.0
+	if withPill {
+		// Pill height + ln() spacing emitted by priorityHeading.
+		extra = pillHeight + 0.20
+	}
+	_, pageH := doc.GetPageSize()
+	if doc.GetY()+cardH+extra > pageH-marginBottom {
+		doc.AddPage()
 	}
 }
 
@@ -328,14 +356,8 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 	cardY := doc.GetY()
 	cardW := pageWidth(doc)
 	cardH := measureDriftCard(doc, featureLabel, issue, reason, page)
-
-	// If the card would cross the bottom margin, force a page break first
-	// so the whole card stays on one page.
-	_, pageH := doc.GetPageSize()
-	if cardY+cardH > pageH-marginBottom {
-		doc.AddPage()
-		cardY = doc.GetY()
-	}
+	// Page-break logic lives in renderGapsWithAnchors so the priority
+	// pill and the first card of its bucket stay on the same page.
 
 	drawCard(doc, cardX, cardY, cardW, cardH, priorityStripe(b.Issue.Priority))
 
@@ -385,27 +407,47 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 // should render. Each sub-section is priority-bucketed; empty
 // sub-sections and their headings are omitted entirely. Sub-section and
 // per-bucket anchors are marked so the TOC sub-entries resolve.
+//
+// Sub-section headings are emitted lazily by the bucket dispatcher
+// (renderGapBuckets / renderImageIssueBuckets) so the heading + the
+// pill + the first card stay on one page: a heading cannot be
+// orphaned at the bottom of a page while its content starts on the
+// next one.
 func renderScreenshotsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, featAnchors map[string]string) {
 	sectionHeading(doc, "Screenshots")
 
 	pageToFeatures := computePageToFeatures(in)
 
 	if len(in.Screenshots.MissingGaps) > 0 {
-		anchors.Mark("screenshots-missing")
-		subSectionHeading(doc, "Missing Screenshots")
-		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, "missing", in.Screenshots.MissingGaps, renderMissingGap)
+		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, "missing",
+			in.Screenshots.MissingGaps, renderMissingGap,
+			func() {
+				anchors.Mark("screenshots-missing")
+				subSectionHeading(doc, "Missing Screenshots")
+			})
 	}
 	if len(in.Screenshots.ImageIssues) > 0 {
-		anchors.Mark("screenshots-image-issues")
-		subSectionHeading(doc, "Image Issues")
-		renderImageIssueBuckets(doc, anchors, featAnchors, pageToFeatures, "image-issues", in.Screenshots.ImageIssues)
+		renderImageIssueBuckets(doc, anchors, featAnchors, pageToFeatures, "image-issues",
+			in.Screenshots.ImageIssues,
+			func() {
+				anchors.Mark("screenshots-image-issues")
+				subSectionHeading(doc, "Image Issues")
+			})
 	}
 	if len(in.Screenshots.PossiblyCovered) > 0 {
-		anchors.Mark("screenshots-possibly-covered")
-		subSectionHeading(doc, "Possibly Covered")
-		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, "possibly-covered", in.Screenshots.PossiblyCovered, renderMissingGap)
+		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, "possibly-covered",
+			in.Screenshots.PossiblyCovered, renderMissingGap,
+			func() {
+				anchors.Mark("screenshots-possibly-covered")
+				subSectionHeading(doc, "Possibly Covered")
+			})
 	}
 }
+
+// subSectionHeadingHeight is the vertical room subSectionHeading consumes
+// (Ln + heading cell). Used by the bucket dispatcher to account for the
+// heading in its page-break math.
+const subSectionHeadingHeight = 0.42
 
 // computePageToFeatures inverts the docs feature map so callers can
 // resolve a docs page URL to the features that cover it. Used by the
@@ -425,16 +467,17 @@ func computePageToFeatures(in Inputs) map[string][]string {
 // Screenshots, Image Issues, Possibly Covered).
 func subSectionHeading(doc *fpdf.Fpdf, title string) {
 	doc.Ln(0.1)
-	doc.SetFont(bodyFont, "B", fontSizeH2)
+	doc.SetFont(titleFont, "B", fontSizeH2)
 	setTextColor(doc, colorBodyFg)
 	doc.CellFormat(0, 0.32, title, "", 1, "L", false, 0, "")
 }
 
 // renderGapBuckets walks ScreenshotGap items, groups by priority, and
-// dispatches to renderOne per item. Used for both Missing Screenshots
-// and Possibly Covered, which share the gap shape. slug is the
-// sub-section identifier ("missing", "possibly-covered") used to build
-// per-bucket anchor names so the TOC sub-entries resolve.
+// renders each non-empty bucket. preamble emits the sub-section heading
+// (and any associated anchor mark); it is invoked lazily — right before
+// the first card actually renders — so the heading shares a page with
+// its pill and first card. Without this, a heading at the very bottom
+// of a page would be orphaned from the content it labels.
 func renderGapBuckets(
 	doc *fpdf.Fpdf,
 	anchors *anchorTable,
@@ -443,6 +486,7 @@ func renderGapBuckets(
 	slug string,
 	gaps []analyzer.ScreenshotGap,
 	renderOne func(*fpdf.Fpdf, *anchorTable, map[string]string, map[string][]string, analyzer.ScreenshotGap),
+	preamble func(),
 ) {
 	buckets := map[analyzer.Priority][]analyzer.ScreenshotGap{}
 	for _, g := range gaps {
@@ -451,14 +495,31 @@ func renderGapBuckets(
 		}
 		buckets[g.Priority] = append(buckets[g.Priority], g)
 	}
+	preambleEmitted := false
 	for _, p := range priorityOrder() {
 		batch := buckets[p]
 		if len(batch) == 0 {
 			continue
 		}
-		anchors.Mark(screenshotsBucketAnchor(slug, p))
-		priorityHeading(doc, p)
-		for _, g := range batch {
+		for i, g := range batch {
+			cardH := measureScreenshotCardForGap(doc, g)
+			needsPill := i == 0
+			extra := 0.0
+			if needsPill {
+				extra += pillHeight + 0.20
+			}
+			if !preambleEmitted {
+				extra += subSectionHeadingHeight
+			}
+			ensureSpaceFor(doc, cardH+extra)
+			if !preambleEmitted {
+				preamble()
+				preambleEmitted = true
+			}
+			if needsPill {
+				anchors.Mark(screenshotsBucketAnchor(slug, p))
+				priorityHeading(doc, p)
+			}
 			renderOne(doc, anchors, featAnchors, pageToFeatures, g)
 		}
 		doc.Ln(0.1)
@@ -466,8 +527,8 @@ func renderGapBuckets(
 }
 
 // renderImageIssueBuckets is the ImageIssue counterpart to
-// renderGapBuckets. ImageIssue has a different shape so it gets its own
-// dispatcher.
+// renderGapBuckets. preamble has the same lazy-emit semantics so the
+// sub-section heading is never orphaned from its first card.
 func renderImageIssueBuckets(
 	doc *fpdf.Fpdf,
 	anchors *anchorTable,
@@ -475,26 +536,80 @@ func renderImageIssueBuckets(
 	pageToFeatures map[string][]string,
 	slug string,
 	issues []analyzer.ImageIssue,
+	preamble func(),
 ) {
 	buckets := map[analyzer.Priority][]analyzer.ImageIssue{}
-	for _, i := range issues {
-		if !isKnownPriority(i.Priority) {
+	for _, ii := range issues {
+		if !isKnownPriority(ii.Priority) {
 			continue
 		}
-		buckets[i.Priority] = append(buckets[i.Priority], i)
+		buckets[ii.Priority] = append(buckets[ii.Priority], ii)
 	}
+	preambleEmitted := false
 	for _, p := range priorityOrder() {
 		batch := buckets[p]
 		if len(batch) == 0 {
 			continue
 		}
-		anchors.Mark(screenshotsBucketAnchor(slug, p))
-		priorityHeading(doc, p)
-		for _, i := range batch {
-			renderImageIssue(doc, anchors, featAnchors, pageToFeatures, i)
+		for i, ii := range batch {
+			cardH := measureScreenshotCardForImageIssue(doc, ii)
+			needsPill := i == 0
+			extra := 0.0
+			if needsPill {
+				extra += pillHeight + 0.20
+			}
+			if !preambleEmitted {
+				extra += subSectionHeadingHeight
+			}
+			ensureSpaceFor(doc, cardH+extra)
+			if !preambleEmitted {
+				preamble()
+				preambleEmitted = true
+			}
+			if needsPill {
+				anchors.Mark(screenshotsBucketAnchor(slug, p))
+				priorityHeading(doc, p)
+			}
+			renderImageIssue(doc, anchors, featAnchors, pageToFeatures, ii)
 		}
 		doc.Ln(0.1)
 	}
+}
+
+// ensureSpaceFor page-breaks when the current cursor + h would cross
+// the bottom margin. Generic counterpart to ensureSpace; takes the full
+// height directly so callers can mix in extras (pill, sub-section
+// heading) at the call site.
+func ensureSpaceFor(doc *fpdf.Fpdf, h float64) {
+	_, pageH := doc.GetPageSize()
+	if doc.GetY()+h > pageH-marginBottom {
+		doc.AddPage()
+	}
+}
+
+// measureScreenshotCardForGap and measureScreenshotCardForImageIssue
+// project the variable-field finding shapes into the (pageURL, lines)
+// signature that measureScreenshotCard takes. Hoisting these out of
+// the renderers means the bucket-loop page-break check uses the same
+// height the renderer will draw.
+func measureScreenshotCardForGap(doc *fpdf.Fpdf, g analyzer.ScreenshotGap) float64 {
+	lines := buildScreenshotLines(
+		"Should show", g.ShouldShow,
+		"Suggested alt", g.SuggestedAlt,
+		"Insertion", g.InsertionHint,
+		"Why", g.PriorityReason,
+	)
+	return measureScreenshotCard(doc, sanitize(g.PageURL), lines)
+}
+
+func measureScreenshotCardForImageIssue(doc *fpdf.Fpdf, i analyzer.ImageIssue) float64 {
+	lines := buildScreenshotLines(
+		"Image", i.Src,
+		"Issue", i.Reason,
+		"Action", i.SuggestedAction,
+		"Why", i.PriorityReason,
+	)
+	return measureScreenshotCard(doc, sanitize(i.PageURL), lines)
 }
 
 // renderMissingGap writes one ScreenshotGap (used for both Missing and
@@ -574,12 +689,9 @@ func renderScreenshotCard(
 	cardY := doc.GetY()
 	cardW := pageWidth(doc)
 	cardH := measureScreenshotCard(doc, pageURL, lines)
-
-	_, pageH := doc.GetPageSize()
-	if cardY+cardH > pageH-marginBottom {
-		doc.AddPage()
-		cardY = doc.GetY()
-	}
+	// Page-break logic lives in the bucket dispatchers (renderGapBuckets,
+	// renderImageIssueBuckets) so a priority pill and the first card of
+	// its bucket are placed together.
 
 	drawCard(doc, cardX, cardY, cardW, cardH, stripeHex)
 
@@ -620,9 +732,10 @@ func renderScreenshotCard(
 
 // sectionHeading writes a top-level section title in the brand accent
 // color. Shared by every renderer so the visual treatment stays
-// consistent.
+// consistent. Uses the serif titleFont to anchor the typographic
+// hierarchy against the sans-serif body.
 func sectionHeading(doc *fpdf.Fpdf, title string) {
-	doc.SetFont(bodyFont, "B", fontSizeH1)
+	doc.SetFont(titleFont, "B", fontSizeH1)
 	setTextColor(doc, colorLinkFg)
 	doc.CellFormat(0, 0.5, title, "", 1, "L", false, 0, "")
 	setTextColor(doc, colorBodyFg)

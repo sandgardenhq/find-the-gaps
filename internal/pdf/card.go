@@ -111,7 +111,7 @@ func drawBadge(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
 func measureFeatureCard(doc *fpdf.Fpdf, name, description, files, symbols, docPages string) float64 {
 	w := cardContentWidth(doc)
 
-	doc.SetFont(bodyFont, "B", fontSizeH2)
+	doc.SetFont(titleFont, "B", fontSizeH2)
 	nameLines := countWrappedLines(doc, name, w)
 
 	doc.SetFont(bodyFont, "I", fontSizeBody)

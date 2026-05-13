@@ -155,7 +155,7 @@ func renderTOC(doc *fpdf.Fpdf, anchors *anchorTable, entries []tocEntry) []tocRo
 	doc.AddPage()
 
 	setTextColor(doc, colorBodyFg)
-	doc.SetFont(bodyFont, "B", fontSizeH1)
+	doc.SetFont(titleFont, "B", fontSizeH1)
 	doc.CellFormat(0, 0.5, "Table of Contents", "", 1, "L", false, 0, "")
 	doc.Ln(0.15)
 
