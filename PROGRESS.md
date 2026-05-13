@@ -30,6 +30,11 @@
 - Build: ✅ `go build ./...` clean
 - Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
 
+### Task 9: Wire into ftg analyze + render — COMPLETE
+- Tests: 32 passing in `internal/pdf` + new `TestRenderCmd_EmitsPDFByDefault`, `TestRenderCmd_SkipsPDFWithNoPDFFlag` in `internal/cli`; testscripts `analyze_no_pdf.txtar` and `analyze_pdf_help.txtar` added.
+- Build: ✅ `go build ./...` clean
+- Notes: `--no-pdf` flag added to both `analyze` and `render` commands (default false). `pdf.WriteReport` invoked from analyze after the `site.Build` block (gated on `!noPDF`) and from render after the markdown reporters. New `report.pdf` line appended to the stdout `reports:` block, with `(skipped)` annotation when `--no-pdf` is set. `internal/cli/analyze.go` and `internal/cli/render.go` both import `internal/pdf`. Pre-existing CLI test failures (TestAnalyze_forgeURL_*) are environmental (git commit signing failures in the sandbox); confirmed they fail on the stashed branch as well, unrelated to this task.
+
 ### Task 8: TOC sub-entries — COMPLETE
 - Tests: 30 passing (added `TestTOC_HasSubEntries`, `TestCollectTOCEntries_DepthsMatchStructure`; updated `TestFinalizeTOC_*` for new `anchorTable`-based API)
 - Coverage: `internal/pdf` 100.0% statements

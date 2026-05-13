@@ -1,0 +1,8 @@
+# The analyze subcommand exposes --no-pdf in its help output. This is the
+# only end-to-end verification we have inside testscript that the flag is
+# wired (the actual PDF render path requires real LLM keys and is covered
+# by Scenario 18 in .plans/VERIFICATION_PLAN.md).
+exec ftg analyze --help
+stdout '--no-pdf'
+stdout 'skip the report.pdf'
+! stderr .

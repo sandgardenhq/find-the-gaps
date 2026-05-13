@@ -1,0 +1,18 @@
+# --no-pdf is accepted by the analyze subcommand. We can't exercise the
+# full LLM pipeline through to PDF emission in a testscript (no real keys),
+# but a successful parse + accepted flag proves the flag is wired. Use a
+# local docs path so mdfetch is not required.
+mkdir repo
+mkdir external-docs
+env ANTHROPIC_API_KEY=stub
+
+exec ftg analyze --repo repo --docs external-docs --no-pdf --cache-dir $WORK/cache --no-site
+! stderr 'unknown flag'
+
+-- repo/main.go --
+package main
+
+func main() {}
+
+-- external-docs/intro.md --
+# Intro

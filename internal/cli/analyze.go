@@ -17,6 +17,7 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/forge"
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
+	"github.com/sandgardenhq/find-the-gaps/internal/pdf"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner"
 	"github.com/sandgardenhq/find-the-gaps/internal/scanner/ignore"
@@ -108,6 +109,7 @@ func newAnalyzeCmd() *cobra.Command {
 		noSite                       bool
 		noServe                      bool
 		keepSiteSource               bool
+		noPDF                        bool
 	)
 
 	cmd := &cobra.Command{
@@ -743,6 +745,24 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			// Emit the PDF report unless --no-pdf.
+			if !noPDF {
+				if err := pdf.WriteReport(projectDir, pdf.Inputs{
+					ProjectName:    projectName,
+					RepoURL:        absRepo,
+					DocsURL:        docsURL,
+					GeneratedAt:    time.Now(),
+					Summary:        productSummary,
+					Mapping:        featureMap,
+					DocsMap:        docsFeatureMap,
+					Drift:          driftFindings,
+					Screenshots:    screenshotResult,
+					ScreenshotsRan: experimentalCheckScreenshots,
+				}); err != nil {
+					return fmt.Errorf("write pdf: %w", err)
+				}
+			}
+
 			gapsLine := "  " + projectDir + "/gaps.md"
 			if counts := driftPriorityCounts(driftFindings); counts != "" {
 				gapsLine += " (" + counts + ")"
@@ -760,14 +780,18 @@ func newAnalyzeCmd() *cobra.Command {
 			if noSite {
 				siteLine += " (skipped)"
 			}
+			pdfLine := "  " + projectDir + "/report.pdf"
+			if noPDF {
+				pdfLine += " (skipped)"
+			}
 			extraLine := ""
 			if keepSiteSource && !noSite {
 				extraLine = "\n  " + projectDir + "/site-src/"
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s%s\n",
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s\n%s%s\n",
 				len(scan.Files), len(pages), len(featureMap),
-				projectDir, gapsLine, screenshotsLine, siteLine, extraLine)
+				projectDir, gapsLine, screenshotsLine, siteLine, pdfLine, extraLine)
 
 			decision := decideAutoServe(noSite, noServe, humanPresent(), os.Getenv)
 			if decision.Serve {
@@ -803,6 +827,8 @@ func newAnalyzeCmd() *cobra.Command {
 			"(default: false; --no-site, CI=*, FIND_THE_GAPS_QUIET=1, and a non-interactive stdin also skip)")
 	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true,
 		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
+	cmd.Flags().BoolVar(&noPDF, "no-pdf", false,
+		"skip the report.pdf artifact; markdown reports and site still emitted")
 
 	return cmd
 }
