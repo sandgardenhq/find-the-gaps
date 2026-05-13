@@ -64,19 +64,19 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 
 	// Feature name as a sub-heading.
 	doc.SetFont("Helvetica", "B", fontSizeH2)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 	doc.CellFormat(0, 0.32, sanitize(entry.Feature.Name), "", 1, "L", false, 0, "")
 
 	if entry.Feature.Description != "" {
 		doc.SetFont("Helvetica", "I", fontSizeBody)
-		doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
+		setTextColor(doc, colorMutedFg)
 		width := pageWidth(doc) - 0.4
 		doc.SetX(marginLeft + 0.2)
 		doc.MultiCell(width, 0.22, sanitize(entry.Feature.Description), "", "L", false)
 	}
 
 	doc.SetFont("Helvetica", "", fontSizeBody)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 
 	userFacing := "no"
 	if entry.Feature.UserFacing {
@@ -192,7 +192,7 @@ func priorityHeading(doc *fpdf.Fpdf, p analyzer.Priority) {
 	doc.SetFont("Helvetica", "B", fontSizeH2)
 	doc.SetTextColor(priorityRGB(p))
 	doc.CellFormat(0, 0.3, priorityLabel(p), "", 1, "L", false, 0, "")
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 }
 
 // priorityLabel returns the human-readable bucket name.
@@ -208,16 +208,49 @@ func priorityLabel(p analyzer.Priority) string {
 	return string(p)
 }
 
-// priorityRGB returns the foreground colour used for the priority
-// sub-heading. Matches the priority pill palette in style.go.
-func priorityRGB(p analyzer.Priority) (int, int, int) {
+// priorityForeground returns the foreground (text/icon) hex colour
+// associated with one priority bucket. Mirrors the --ftg-bad / --ftg-warn /
+// --ftg-neutral mappings in custom.css.
+func priorityForeground(p analyzer.Priority) int {
 	switch p {
 	case analyzer.PriorityLarge:
-		return colorLargeR, colorLargeG, colorLargeB
+		return colorBadFg
 	case analyzer.PriorityMedium:
-		return colorMediumR, colorMediumG, colorMediumB
+		return colorWarnFg
 	}
-	return colorSmallR, colorSmallG, colorSmallB
+	return colorNeutralFg
+}
+
+// priorityBackground returns the pill fill colour for one priority bucket.
+func priorityBackground(p analyzer.Priority) int {
+	switch p {
+	case analyzer.PriorityLarge:
+		return colorBadBg
+	case analyzer.PriorityMedium:
+		return colorWarnBg
+	}
+	return colorNeutralBg
+}
+
+// priorityBorder returns the pill border colour for one priority bucket.
+// The Small bucket uses the neutral *border* token (not the neutral
+// foreground) so its pill matches the lighter outline used on the site.
+func priorityBorder(p analyzer.Priority) int {
+	switch p {
+	case analyzer.PriorityLarge:
+		return colorBadBorder
+	case analyzer.PriorityMedium:
+		return colorWarnBorder
+	}
+	return colorNeutralBorder
+}
+
+// priorityRGB returns the foreground colour used for the priority
+// sub-heading. Kept as a thin wrapper over priorityForeground so older
+// call sites in this file stay readable while the migration to packed
+// hex constants completes.
+func priorityRGB(p analyzer.Priority) (int, int, int) {
+	return rgb(priorityForeground(p))
 }
 
 // renderDriftFinding writes one finding line: clickable feature name +
@@ -235,16 +268,16 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 
 	doc.SetX(marginLeft + 0.2)
 	doc.SetFont("Helvetica", "B", fontSizeBody)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 
 	// Feature name + " - " on the first line. Feature name is a clickable
 	// cross-link when the feature is in the mapping.
 	if anchor, ok := featAnchors[b.Feature]; ok {
 		linkID := anchors.Get(anchor)
 		featW := doc.GetStringWidth(featureLabel) + 0.02
-		doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
+		setTextColor(doc, colorLinkFg)
 		doc.CellFormat(featW, 0.24, featureLabel, "", 0, "L", false, linkID, "")
-		doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+		setTextColor(doc, colorBodyFg)
 	} else {
 		featW := doc.GetStringWidth(featureLabel) + 0.02
 		doc.CellFormat(featW, 0.24, featureLabel, "", 0, "L", false, 0, "")
@@ -260,14 +293,14 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 	// Priority reason and source page on a secondary line, indented and
 	// muted, MultiCell so the line wraps cleanly.
 	doc.SetX(marginLeft + 0.4)
-	doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
+	setTextColor(doc, colorMutedFg)
 	doc.SetFont("Helvetica", "I", fontSizeMeta)
 	secondary := reason
 	if page != "" {
 		secondary += "   (" + page + ")"
 	}
 	doc.MultiCell(pageWidth(doc)-0.4, 0.2, secondary, "", "L", false)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 	doc.Ln(0.05)
 }
 
@@ -318,7 +351,7 @@ func computePageToFeatures(in Inputs) map[string][]string {
 func subSectionHeading(doc *fpdf.Fpdf, title string) {
 	doc.Ln(0.1)
 	doc.SetFont("Helvetica", "B", fontSizeH2)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 	doc.CellFormat(0, 0.32, title, "", 1, "L", false, 0, "")
 }
 
@@ -453,16 +486,16 @@ func emitPageReference(
 ) {
 	doc.SetX(marginLeft + 0.2)
 	doc.SetFont("Helvetica", "B", fontSizeBody)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 
 	label := sanitize(pageURL)
 	owners := pageToFeatures[pageURL]
 	if len(owners) == 1 {
 		if anchor, ok := featAnchors[owners[0]]; ok {
 			linkID := anchors.Get(anchor)
-			doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
+			setTextColor(doc, colorLinkFg)
 			doc.CellFormat(0, 0.24, label, "", 1, "L", false, linkID, "")
-			doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+			setTextColor(doc, colorBodyFg)
 			return
 		}
 	}
@@ -475,9 +508,9 @@ func emitPageReference(
 func secondaryLine(doc *fpdf.Fpdf, text string) {
 	doc.SetX(marginLeft + 0.4)
 	doc.SetFont("Helvetica", "", fontSizeMeta)
-	doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
+	setTextColor(doc, colorMutedFg)
 	doc.MultiCell(pageWidth(doc)-0.4, 0.2, text, "", "L", false)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 }
 
 // sectionHeading writes a top-level section title in the brand accent
@@ -485,8 +518,8 @@ func secondaryLine(doc *fpdf.Fpdf, text string) {
 // consistent.
 func sectionHeading(doc *fpdf.Fpdf, title string) {
 	doc.SetFont("Helvetica", "B", fontSizeH1)
-	doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
+	setTextColor(doc, colorLinkFg)
 	doc.CellFormat(0, 0.5, title, "", 1, "L", false, 0, "")
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 	doc.Ln(0.1)
 }

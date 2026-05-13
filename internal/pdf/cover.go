@@ -14,20 +14,20 @@ import (
 func renderCover(doc *fpdf.Fpdf, in Inputs) {
 	doc.AddPage()
 
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 	doc.SetFont("Helvetica", "B", fontSizeTitle)
 	doc.Ln(0.8)
 	doc.CellFormat(0, 0.5, "Find the Gaps", "", 1, "L", false, 0, "")
 
 	if in.ProjectName != "" {
 		doc.SetFont("Helvetica", "", fontSizeH1)
-		doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
+		setTextColor(doc, colorMutedFg)
 		doc.CellFormat(0, 0.35, sanitize(in.ProjectName), "", 1, "L", false, 0, "")
 	}
 
 	doc.Ln(0.5)
 	doc.SetFont("Helvetica", "", fontSizeMeta)
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 
 	if in.RepoURL != "" {
 		doc.CellFormat(0, 0.25, "Repo:  "+sanitize(in.RepoURL), "", 1, "L", false, 0, "")

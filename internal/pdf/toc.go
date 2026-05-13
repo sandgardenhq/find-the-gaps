@@ -154,7 +154,7 @@ func screenshotsBucketAnchor(slug string, p analyzer.Priority) string {
 func renderTOC(doc *fpdf.Fpdf, anchors *anchorTable, entries []tocEntry) []tocRow {
 	doc.AddPage()
 
-	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	setTextColor(doc, colorBodyFg)
 	doc.SetFont("Helvetica", "B", fontSizeH1)
 	doc.CellFormat(0, 0.5, "Table of Contents", "", 1, "L", false, 0, "")
 	doc.Ln(0.15)
@@ -217,7 +217,7 @@ func finalizeTOC(doc *fpdf.Fpdf, rows []tocRow, anchors *anchorTable) {
 		doc.CellFormat(0, 0.3, "", "", 0, "L", true, 0, "")
 		doc.SetXY(marginLeft+5.5, row.pageY)
 		doc.SetFont("Helvetica", "", fontSizeBody)
-		doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+		setTextColor(doc, colorBodyFg)
 		doc.CellFormat(0, 0.3, fmt.Sprintf("%d", page), "", 1, "R", false, 0, "")
 	}
 }
