@@ -30,6 +30,12 @@
 - Build: ✅ `go build ./...` clean
 - Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
 
+### Task 5: Features section — COMPLETE
+- Tests: 16 passing (added `TestRenderFeatures_OneBlockPerFeature`, `TestRenderFeatures_RegistersAnchorPerFeature`, `TestRenderFeatures_DisambiguatesSlugCollisions`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: One block per feature with description, layer, user-facing flag, doc status, files, symbols, documented-on pages — same field set as `reporter.WriteMapping`. Anchors `feat-<slug>` registered via `anchorTable.Mark`; collisions disambiguated with `-2`, `-3`, etc. (verified by `TestRenderFeatures_DisambiguatesSlugCollisions`). Label+value rendered in a single cell (not bold+regular) so PDF text extractors keep them on one line — a font swap mid-row breaks parse-back assertions.
+
 ## Task: Halt on Unsupported-Language Repo - COMPLETE
 - Started: 2026-05-08
 - Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)
