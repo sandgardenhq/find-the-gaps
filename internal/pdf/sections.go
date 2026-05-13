@@ -65,14 +65,14 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 	// Feature name as a sub-heading.
 	doc.SetFont("Helvetica", "B", fontSizeH2)
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
-	doc.CellFormat(0, 0.32, entry.Feature.Name, "", 1, "L", false, 0, "")
+	doc.CellFormat(0, 0.32, sanitize(entry.Feature.Name), "", 1, "L", false, 0, "")
 
 	if entry.Feature.Description != "" {
 		doc.SetFont("Helvetica", "I", fontSizeBody)
 		doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
 		width := pageWidth(doc) - 0.4
 		doc.SetX(marginLeft + 0.2)
-		doc.MultiCell(width, 0.22, entry.Feature.Description, "", "L", false)
+		doc.MultiCell(width, 0.22, sanitize(entry.Feature.Description), "", "L", false)
 	}
 
 	doc.SetFont("Helvetica", "", fontSizeBody)
@@ -88,18 +88,18 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 	}
 
 	if entry.Feature.Layer != "" {
-		labelValue(doc, "Layer", entry.Feature.Layer)
+		labelValue(doc, "Layer", sanitize(entry.Feature.Layer))
 	}
 	labelValue(doc, "User-facing", userFacing)
 	labelValue(doc, "Documentation status", docStatus)
 	if len(entry.Files) > 0 {
-		labelValue(doc, "Implemented in", strings.Join(entry.Files, ", "))
+		labelValue(doc, "Implemented in", sanitize(strings.Join(entry.Files, ", ")))
 	}
 	if len(entry.Symbols) > 0 {
-		labelValue(doc, "Symbols", strings.Join(entry.Symbols, ", "))
+		labelValue(doc, "Symbols", sanitize(strings.Join(entry.Symbols, ", ")))
 	}
 	if len(docPages) > 0 {
-		labelValue(doc, "Documented on", strings.Join(docPages, ", "))
+		labelValue(doc, "Documented on", sanitize(strings.Join(docPages, ", ")))
 	}
 	doc.Ln(0.15)
 }
@@ -225,41 +225,50 @@ func priorityRGB(p analyzer.Priority) (int, int, int) {
 // internal link to its feat-<slug> anchor when the feature exists in the
 // mapping; features unknown to the mapping (which can happen if the
 // drift LLM names a feature the mapping didn't enumerate) fall back to
-// plain text.
+// plain text. Long issue/reason strings wrap via MultiCell so they
+// stay inside the page margins.
 func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string]string, b bucketedDrift) {
+	featureLabel := sanitize(b.Feature)
+	issue := sanitize(b.Issue.Issue)
+	reason := sanitize(b.Issue.PriorityReason)
+	page := sanitize(b.Issue.Page)
+
 	doc.SetX(marginLeft + 0.2)
-	doc.SetFont("Helvetica", "", fontSizeBody)
+	doc.SetFont("Helvetica", "B", fontSizeBody)
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 
-	featureLabel := b.Feature
+	// Feature name + " - " on the first line. Feature name is a clickable
+	// cross-link when the feature is in the mapping.
 	if anchor, ok := featAnchors[b.Feature]; ok {
 		linkID := anchors.Get(anchor)
-		// Render the feature name as a clickable underlined span. fpdf's
-		// Cell with the link parameter wires the whole cell rectangle to
-		// the link target.
 		featW := doc.GetStringWidth(featureLabel) + 0.02
 		doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
-		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, linkID, "")
+		doc.CellFormat(featW, 0.24, featureLabel, "", 0, "L", false, linkID, "")
 		doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 	} else {
 		featW := doc.GetStringWidth(featureLabel) + 0.02
-		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, 0, "")
+		doc.CellFormat(featW, 0.24, featureLabel, "", 0, "L", false, 0, "")
 	}
+	doc.CellFormat(0, 0.24, " - ", "", 1, "L", false, 0, "")
 
-	// Issue text after the feature label.
-	doc.CellFormat(0, 0.22, "  -  "+b.Issue.Issue, "", 1, "L", false, 0, "")
+	// Issue text wraps if it exceeds page width. Indent the wrapped lines
+	// under the feature label.
+	doc.SetX(marginLeft + 0.4)
+	doc.SetFont("Helvetica", "", fontSizeBody)
+	doc.MultiCell(pageWidth(doc)-0.4, 0.22, issue, "", "L", false)
 
 	// Priority reason and source page on a secondary line, indented and
-	// muted.
+	// muted, MultiCell so the line wraps cleanly.
 	doc.SetX(marginLeft + 0.4)
 	doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
 	doc.SetFont("Helvetica", "I", fontSizeMeta)
-	secondary := b.Issue.PriorityReason
-	if b.Issue.Page != "" {
-		secondary += "   (" + b.Issue.Page + ")"
+	secondary := reason
+	if page != "" {
+		secondary += "   (" + page + ")"
 	}
-	doc.CellFormat(0, 0.2, secondary, "", 1, "L", false, 0, "")
+	doc.MultiCell(pageWidth(doc)-0.4, 0.2, secondary, "", "L", false)
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	doc.Ln(0.05)
 }
 
 // renderScreenshotsWithAnchors emits the Screenshots section (Missing
@@ -393,16 +402,16 @@ func renderMissingGap(
 	emitPageReference(doc, anchors, featAnchors, pageToFeatures, g.PageURL)
 
 	if g.ShouldShow != "" {
-		secondaryLine(doc, "Should show: "+g.ShouldShow)
+		secondaryLine(doc, "Should show: "+sanitize(g.ShouldShow))
 	}
 	if g.SuggestedAlt != "" {
-		secondaryLine(doc, "Suggested alt: "+g.SuggestedAlt)
+		secondaryLine(doc, "Suggested alt: "+sanitize(g.SuggestedAlt))
 	}
 	if g.InsertionHint != "" {
-		secondaryLine(doc, "Insertion: "+g.InsertionHint)
+		secondaryLine(doc, "Insertion: "+sanitize(g.InsertionHint))
 	}
 	if g.PriorityReason != "" {
-		secondaryLine(doc, "Why: "+g.PriorityReason)
+		secondaryLine(doc, "Why: "+sanitize(g.PriorityReason))
 	}
 }
 
@@ -417,16 +426,16 @@ func renderImageIssue(
 	emitPageReference(doc, anchors, featAnchors, pageToFeatures, i.PageURL)
 
 	if i.Src != "" {
-		secondaryLine(doc, "Image: "+i.Src)
+		secondaryLine(doc, "Image: "+sanitize(i.Src))
 	}
 	if i.Reason != "" {
-		secondaryLine(doc, "Issue: "+i.Reason)
+		secondaryLine(doc, "Issue: "+sanitize(i.Reason))
 	}
 	if i.SuggestedAction != "" {
-		secondaryLine(doc, "Action: "+i.SuggestedAction)
+		secondaryLine(doc, "Action: "+sanitize(i.SuggestedAction))
 	}
 	if i.PriorityReason != "" {
-		secondaryLine(doc, "Why: "+i.PriorityReason)
+		secondaryLine(doc, "Why: "+sanitize(i.PriorityReason))
 	}
 }
 
@@ -446,26 +455,28 @@ func emitPageReference(
 	doc.SetFont("Helvetica", "B", fontSizeBody)
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 
+	label := sanitize(pageURL)
 	owners := pageToFeatures[pageURL]
 	if len(owners) == 1 {
 		if anchor, ok := featAnchors[owners[0]]; ok {
 			linkID := anchors.Get(anchor)
 			doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
-			doc.CellFormat(0, 0.24, pageURL, "", 1, "L", false, linkID, "")
+			doc.CellFormat(0, 0.24, label, "", 1, "L", false, linkID, "")
 			doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 			return
 		}
 	}
-	doc.CellFormat(0, 0.24, pageURL, "", 1, "L", false, 0, "")
+	doc.CellFormat(0, 0.24, label, "", 1, "L", false, 0, "")
 }
 
 // secondaryLine writes an indented muted line under a screenshot finding
-// (Should show / Suggested alt / Insertion / Why / etc.).
+// (Should show / Suggested alt / Insertion / Why / etc.). Text wraps via
+// MultiCell so long descriptions stay inside the page margins.
 func secondaryLine(doc *fpdf.Fpdf, text string) {
 	doc.SetX(marginLeft + 0.4)
 	doc.SetFont("Helvetica", "", fontSizeMeta)
 	doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
-	doc.CellFormat(0, 0.2, text, "", 1, "L", false, 0, "")
+	doc.MultiCell(pageWidth(doc)-0.4, 0.2, text, "", "L", false)
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 }
 

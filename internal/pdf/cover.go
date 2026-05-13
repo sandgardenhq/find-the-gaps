@@ -22,7 +22,7 @@ func renderCover(doc *fpdf.Fpdf, in Inputs) {
 	if in.ProjectName != "" {
 		doc.SetFont("Helvetica", "", fontSizeH1)
 		doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
-		doc.CellFormat(0, 0.35, in.ProjectName, "", 1, "L", false, 0, "")
+		doc.CellFormat(0, 0.35, sanitize(in.ProjectName), "", 1, "L", false, 0, "")
 	}
 
 	doc.Ln(0.5)
@@ -30,10 +30,10 @@ func renderCover(doc *fpdf.Fpdf, in Inputs) {
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 
 	if in.RepoURL != "" {
-		doc.CellFormat(0, 0.25, "Repo:  "+in.RepoURL, "", 1, "L", false, 0, "")
+		doc.CellFormat(0, 0.25, "Repo:  "+sanitize(in.RepoURL), "", 1, "L", false, 0, "")
 	}
 	if in.DocsURL != "" {
-		doc.CellFormat(0, 0.25, "Docs:  "+in.DocsURL, "", 1, "L", false, 0, "")
+		doc.CellFormat(0, 0.25, "Docs:  "+sanitize(in.DocsURL), "", 1, "L", false, 0, "")
 	}
 	if !in.GeneratedAt.IsZero() {
 		ts := in.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")

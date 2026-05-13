@@ -29,8 +29,9 @@ func registerFooter(doc *fpdf.Fpdf, projectName string) {
 // footerText returns the centered footer string. "{nb}" is rewritten by
 // fpdf at output time to the total page count.
 func footerText(projectName string, page int) string {
-	if projectName == "" {
+	clean := sanitize(projectName)
+	if clean == "" {
 		return fmt.Sprintf("page %d of {nb}", page)
 	}
-	return fmt.Sprintf("%s - page %d of {nb}", projectName, page)
+	return fmt.Sprintf("%s - page %d of {nb}", clean, page)
 }

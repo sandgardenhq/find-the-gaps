@@ -209,9 +209,15 @@ func finalizeTOC(doc *fpdf.Fpdf, rows []tocRow, anchors *anchorTable) {
 			continue
 		}
 		doc.SetPage(row.page)
-		doc.SetXY(marginLeft, row.pageY)
+		doc.SetXY(marginLeft+5.5, row.pageY)
+		// Paint the page-number column white before stamping so the "..."
+		// placeholder underneath gets fully erased. Without this, the
+		// shorter number leaves leading dots visible.
+		doc.SetFillColor(255, 255, 255)
+		doc.CellFormat(0, 0.3, "", "", 0, "L", true, 0, "")
+		doc.SetXY(marginLeft+5.5, row.pageY)
 		doc.SetFont("Helvetica", "", fontSizeBody)
-		doc.SetX(marginLeft + 5.5)
+		doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 		doc.CellFormat(0, 0.3, fmt.Sprintf("%d", page), "", 1, "R", false, 0, "")
 	}
 }
