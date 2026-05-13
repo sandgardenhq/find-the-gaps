@@ -297,6 +297,21 @@ func priorityBorder(p analyzer.Priority) int {
 	return colorNeutralBorder
 }
 
+// priorityStripe returns the card-stripe colour for one priority bucket.
+// Mirrors .ftg-stale--large / --medium / --small: Large and Medium use
+// the priority's foreground (saturated red / amber), Small uses the
+// lighter neutral *border* so the small-severity card reads as a quiet
+// outline rather than a dark slate band.
+func priorityStripe(p analyzer.Priority) int {
+	switch p {
+	case analyzer.PriorityLarge:
+		return colorBadFg
+	case analyzer.PriorityMedium:
+		return colorWarnFg
+	}
+	return colorNeutralBorder
+}
+
 
 // renderDriftFinding writes one finding inside a severity card. The card
 // shell carries a coloured left stripe in the priority's foreground hex;
@@ -322,7 +337,7 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 		cardY = doc.GetY()
 	}
 
-	drawCard(doc, cardX, cardY, cardW, cardH, priorityForeground(b.Issue.Priority))
+	drawCard(doc, cardX, cardY, cardW, cardH, priorityStripe(b.Issue.Priority))
 
 	innerX := cardContentX()
 	innerW := cardContentWidth(doc)
@@ -501,7 +516,7 @@ func renderMissingGap(
 		"Why", g.PriorityReason,
 	)
 	renderScreenshotCard(doc, anchors, featAnchors, pageToFeatures,
-		g.PageURL, pageURL, lines, priorityForeground(g.Priority))
+		g.PageURL, pageURL, lines, priorityStripe(g.Priority))
 }
 
 // renderImageIssue writes one ImageIssue inside a severity card with
@@ -522,7 +537,7 @@ func renderImageIssue(
 		"Why", i.PriorityReason,
 	)
 	renderScreenshotCard(doc, anchors, featAnchors, pageToFeatures,
-		i.PageURL, pageURL, lines, priorityForeground(i.Priority))
+		i.PageURL, pageURL, lines, priorityStripe(i.Priority))
 }
 
 // buildScreenshotLines collects non-empty "label: value" pairs into a
