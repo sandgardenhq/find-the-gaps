@@ -30,6 +30,12 @@
 - Build: ✅ `go build ./...` clean
 - Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
 
+### Task 7: Screenshots section (gated) — COMPLETE
+- Tests: 28 passing (added `TestRenderScreenshots_OmittedWhenNotRun`, `TestRenderScreenshots_MissingBucketed`, `TestRenderScreenshots_ImageIssuesAndPossiblyCoveredOmittedWhenEmpty`, `TestRenderScreenshots_AllSubSectionsRendered`, `TestRenderScreenshots_PageToFeatureCrosslink`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Three sub-sections — Missing Screenshots → Image Issues → Possibly Covered — each priority-bucketed (Large/Medium/Small) with empty buckets and empty sub-sections omitted. Page URL cross-links to a feature anchor only when the URL maps to exactly one feature in `DocsMap`; zero or many resolves to plain text. `computePageToFeatures` inverts `DocsMap` once per render. `renderGapBuckets` and `renderImageIssueBuckets` share the bucketing pattern; per-finding renderers (`renderMissingGap` and `renderImageIssue`) differ only in which fields they print.
+
 ### Task 6: Gaps section priority-bucketed cross-linked — COMPLETE
 - Tests: 22 passing (added `TestRenderGaps_BucketsByPriority`, `TestRenderGaps_EmptyBucketsOmitted`, `TestRenderGaps_RegistersFeatureCrosslink`, `TestRenderGaps_UnmappedFeatureRendersAsPlainText`, `TestBucketDrift_SkipsUnknownPriority`, `TestPriorityLabel_UnknownReturnsRawString`)
 - Coverage: `internal/pdf` 100.0% statements

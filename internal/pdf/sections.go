@@ -266,12 +266,207 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 }
 
-// renderScreenshots emits the Screenshots section (missing, image issues,
-// possibly covered). Caller is responsible for gating on
+// renderScreenshots emits the Screenshots section (Missing Screenshots,
+// Image Issues, Possibly Covered). Caller is responsible for gating on
 // in.ScreenshotsRan; this function assumes the section should render.
-// Stubbed in Task 4; filled in with real content in Task 7.
 func renderScreenshots(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable) {
+	renderScreenshotsWithAnchors(doc, in, anchors, computeFeatureAnchors(in))
+}
+
+// renderScreenshotsWithAnchors is the explicit-anchors variant used by
+// renderSections. Each sub-section (Missing, Image Issues, Possibly
+// Covered) is priority-bucketed; empty sub-sections and their headings
+// are omitted entirely.
+func renderScreenshotsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, featAnchors map[string]string) {
 	sectionHeading(doc, "Screenshots")
+
+	pageToFeatures := computePageToFeatures(in)
+
+	if len(in.Screenshots.MissingGaps) > 0 {
+		subSectionHeading(doc, "Missing Screenshots")
+		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, in.Screenshots.MissingGaps, renderMissingGap)
+	}
+	if len(in.Screenshots.ImageIssues) > 0 {
+		subSectionHeading(doc, "Image Issues")
+		renderImageIssueBuckets(doc, anchors, featAnchors, pageToFeatures, in.Screenshots.ImageIssues)
+	}
+	if len(in.Screenshots.PossiblyCovered) > 0 {
+		subSectionHeading(doc, "Possibly Covered")
+		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, in.Screenshots.PossiblyCovered, renderMissingGap)
+	}
+}
+
+// computePageToFeatures inverts the docs feature map so callers can
+// resolve a docs page URL to the features that cover it. Used by the
+// screenshot renderer to decide whether to cross-link a finding to a
+// single feature anchor.
+func computePageToFeatures(in Inputs) map[string][]string {
+	out := map[string][]string{}
+	for _, e := range in.DocsMap {
+		for _, p := range e.Pages {
+			out[p] = append(out[p], e.Feature)
+		}
+	}
+	return out
+}
+
+// subSectionHeading writes a screenshots sub-section header (Missing
+// Screenshots, Image Issues, Possibly Covered).
+func subSectionHeading(doc *fpdf.Fpdf, title string) {
+	doc.Ln(0.1)
+	doc.SetFont("Helvetica", "B", fontSizeH2)
+	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+	doc.CellFormat(0, 0.32, title, "", 1, "L", false, 0, "")
+}
+
+// renderGapBuckets walks ScreenshotGap items, groups by priority, and
+// dispatches to renderOne per item. Used for both Missing Screenshots
+// and Possibly Covered, which share the gap shape.
+func renderGapBuckets(
+	doc *fpdf.Fpdf,
+	anchors *anchorTable,
+	featAnchors map[string]string,
+	pageToFeatures map[string][]string,
+	gaps []analyzer.ScreenshotGap,
+	renderOne func(*fpdf.Fpdf, *anchorTable, map[string]string, map[string][]string, analyzer.ScreenshotGap),
+) {
+	buckets := map[analyzer.Priority][]analyzer.ScreenshotGap{}
+	for _, g := range gaps {
+		if !isKnownPriority(g.Priority) {
+			continue
+		}
+		buckets[g.Priority] = append(buckets[g.Priority], g)
+	}
+	for _, p := range priorityOrder() {
+		batch := buckets[p]
+		if len(batch) == 0 {
+			continue
+		}
+		priorityHeading(doc, p)
+		for _, g := range batch {
+			renderOne(doc, anchors, featAnchors, pageToFeatures, g)
+		}
+		doc.Ln(0.1)
+	}
+}
+
+// renderImageIssueBuckets is the ImageIssue counterpart to
+// renderGapBuckets. ImageIssue has a different shape so it gets its own
+// dispatcher.
+func renderImageIssueBuckets(
+	doc *fpdf.Fpdf,
+	anchors *anchorTable,
+	featAnchors map[string]string,
+	pageToFeatures map[string][]string,
+	issues []analyzer.ImageIssue,
+) {
+	buckets := map[analyzer.Priority][]analyzer.ImageIssue{}
+	for _, i := range issues {
+		if !isKnownPriority(i.Priority) {
+			continue
+		}
+		buckets[i.Priority] = append(buckets[i.Priority], i)
+	}
+	for _, p := range priorityOrder() {
+		batch := buckets[p]
+		if len(batch) == 0 {
+			continue
+		}
+		priorityHeading(doc, p)
+		for _, i := range batch {
+			renderImageIssue(doc, anchors, featAnchors, pageToFeatures, i)
+		}
+		doc.Ln(0.1)
+	}
+}
+
+// renderMissingGap writes one ScreenshotGap (used for both Missing and
+// Possibly Covered). PageURL is rendered as the heading; should_show,
+// suggested_alt, and insertion_hint follow on indented lines.
+func renderMissingGap(
+	doc *fpdf.Fpdf,
+	anchors *anchorTable,
+	featAnchors map[string]string,
+	pageToFeatures map[string][]string,
+	g analyzer.ScreenshotGap,
+) {
+	emitPageReference(doc, anchors, featAnchors, pageToFeatures, g.PageURL)
+
+	if g.ShouldShow != "" {
+		secondaryLine(doc, "Should show: "+g.ShouldShow)
+	}
+	if g.SuggestedAlt != "" {
+		secondaryLine(doc, "Suggested alt: "+g.SuggestedAlt)
+	}
+	if g.InsertionHint != "" {
+		secondaryLine(doc, "Insertion: "+g.InsertionHint)
+	}
+	if g.PriorityReason != "" {
+		secondaryLine(doc, "Why: "+g.PriorityReason)
+	}
+}
+
+// renderImageIssue writes one ImageIssue (Src / Reason / SuggestedAction).
+func renderImageIssue(
+	doc *fpdf.Fpdf,
+	anchors *anchorTable,
+	featAnchors map[string]string,
+	pageToFeatures map[string][]string,
+	i analyzer.ImageIssue,
+) {
+	emitPageReference(doc, anchors, featAnchors, pageToFeatures, i.PageURL)
+
+	if i.Src != "" {
+		secondaryLine(doc, "Image: "+i.Src)
+	}
+	if i.Reason != "" {
+		secondaryLine(doc, "Issue: "+i.Reason)
+	}
+	if i.SuggestedAction != "" {
+		secondaryLine(doc, "Action: "+i.SuggestedAction)
+	}
+	if i.PriorityReason != "" {
+		secondaryLine(doc, "Why: "+i.PriorityReason)
+	}
+}
+
+// emitPageReference renders the page URL as a clickable cross-link when
+// the URL resolves to exactly one feature in the docs map. Pages that
+// resolve to zero or multiple features are rendered as plain text — the
+// reader doesn't get a misleading "this finding owns one specific
+// feature" hint.
+func emitPageReference(
+	doc *fpdf.Fpdf,
+	anchors *anchorTable,
+	featAnchors map[string]string,
+	pageToFeatures map[string][]string,
+	pageURL string,
+) {
+	doc.SetX(marginLeft + 0.2)
+	doc.SetFont("Helvetica", "B", fontSizeBody)
+	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+
+	owners := pageToFeatures[pageURL]
+	if len(owners) == 1 {
+		if anchor, ok := featAnchors[owners[0]]; ok {
+			linkID := anchors.Get(anchor)
+			doc.SetTextColor(colorBrandR, colorBrandG, colorBrandB)
+			doc.CellFormat(0, 0.24, pageURL, "", 1, "L", false, linkID, "")
+			doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
+			return
+		}
+	}
+	doc.CellFormat(0, 0.24, pageURL, "", 1, "L", false, 0, "")
+}
+
+// secondaryLine writes an indented muted line under a screenshot finding
+// (Should show / Suggested alt / Insertion / Why / etc.).
+func secondaryLine(doc *fpdf.Fpdf, text string) {
+	doc.SetX(marginLeft + 0.4)
+	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetTextColor(colorMutedR, colorMutedG, colorMutedB)
+	doc.CellFormat(0, 0.2, text, "", 1, "L", false, 0, "")
+	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 }
 
 // sectionHeading writes a top-level section title in the brand accent

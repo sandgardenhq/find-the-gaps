@@ -260,6 +260,222 @@ func TestRenderGaps_RegistersFeatureCrosslink(t *testing.T) {
 	assert.True(t, ok, "renderGaps must register cross-link to feat-auth anchor; got %v", anchors.links)
 }
 
+func TestRenderScreenshots_OmittedWhenNotRun(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "No Screenshots Run",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "f", UserFacing: true}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+			},
+		},
+		ScreenshotsRan: false,
+	}
+	require.NoError(t, WriteReport(dir, in))
+
+	// Open and scan every page. No page should contain the Screenshots
+	// section heading or any of the screenshot data.
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, _ := r.Page(p).GetPlainText(nil)
+		assert.NotContains(t, txt, "Missing Screenshots",
+			"Missing sub-heading must not appear when ScreenshotsRan=false; page %d=%q", p, txt)
+		assert.NotContains(t, txt, "Image Issues",
+			"Image Issues sub-heading must not appear when ScreenshotsRan=false; page %d=%q", p, txt)
+	}
+}
+
+func TestRenderScreenshots_MissingBucketed(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "Screenshot Buckets",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+		},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "alpha", Pages: []string{"https://docs.example.com/a"}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "https://docs.example.com/a", ShouldShow: "the big dialog", SuggestedAlt: "Big dialog", Priority: analyzer.PriorityLarge, PriorityReason: "primary"},
+				{PageURL: "https://docs.example.com/a", ShouldShow: "form X", Priority: analyzer.PrioritySmall, PriorityReason: "cosmetic"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	// Collect the screenshot section text — first page containing the
+	// "Missing Screenshots" sub-heading.
+	var section string
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, _ := r.Page(p).GetPlainText(nil)
+		if strings.Contains(txt, "Missing Screenshots") {
+			section = txt
+			break
+		}
+	}
+	require.NotEmpty(t, section, "Missing Screenshots sub-heading must render when MissingGaps is non-empty")
+
+	// Both passages must appear.
+	assert.Contains(t, section, "the big dialog")
+	assert.Contains(t, section, "form X")
+
+	// Buckets in Large → Small order (no Medium because empty).
+	largeIdx := strings.Index(section, "Large")
+	smallIdx := strings.Index(section, "Small")
+	mediumIdx := strings.Index(section, "Medium")
+	require.True(t, largeIdx >= 0, "Large bucket must render")
+	require.True(t, smallIdx > largeIdx, "Small must follow Large; got Large=%d Small=%d", largeIdx, smallIdx)
+	assert.True(t, mediumIdx < 0 || mediumIdx > smallIdx, "Medium bucket must be omitted (empty); got Medium=%d Small=%d", mediumIdx, smallIdx)
+}
+
+func TestRenderScreenshots_ImageIssuesAndPossiblyCoveredOmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "Only Missing",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "a", UserFacing: true}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, _ := r.Page(p).GetPlainText(nil)
+		assert.NotContains(t, txt, "Image Issues",
+			"Image Issues sub-heading must be omitted when ImageIssues is empty")
+		assert.NotContains(t, txt, "Possibly Covered",
+			"Possibly Covered sub-heading must be omitted when PossiblyCovered is empty")
+	}
+}
+
+func TestRenderScreenshots_AllSubSectionsRendered(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "All Sections",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+		},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "alpha", Pages: []string{"https://docs.example.com/a"}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "https://docs.example.com/a", ShouldShow: "ms-show", SuggestedAlt: "ms-alt", InsertionHint: "ms-hint", Priority: analyzer.PriorityLarge, PriorityReason: "ms-reason"},
+				{PageURL: "https://docs.example.com/a", ShouldShow: "ms-show2", Priority: analyzer.Priority("bogus"), PriorityReason: "skipped"},
+			},
+			ImageIssues: []analyzer.ImageIssue{
+				{PageURL: "https://docs.example.com/a", Src: "img-src", Reason: "ii-reason", SuggestedAction: "ii-action", Priority: analyzer.PriorityMedium, PriorityReason: "ii-why"},
+				{PageURL: "https://docs.example.com/a", Priority: analyzer.Priority("bogus"), PriorityReason: "skipped"},
+			},
+			PossiblyCovered: []analyzer.ScreenshotGap{
+				{PageURL: "https://docs.example.com/a", ShouldShow: "pc-show", Priority: analyzer.PrioritySmall, PriorityReason: "pc-reason"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	var all strings.Builder
+	for p := 1; p <= r.NumPage(); p++ {
+		txt, _ := r.Page(p).GetPlainText(nil)
+		all.WriteString(txt)
+	}
+	body := all.String()
+
+	// All three sub-sections rendered.
+	assert.Contains(t, body, "Missing Screenshots")
+	assert.Contains(t, body, "Image Issues")
+	assert.Contains(t, body, "Possibly Covered")
+
+	// Per-bucket finding fields rendered.
+	assert.Contains(t, body, "ms-show")
+	assert.Contains(t, body, "ms-alt")
+	assert.Contains(t, body, "ms-hint")
+	assert.Contains(t, body, "ms-reason")
+
+	assert.Contains(t, body, "img-src")
+	assert.Contains(t, body, "ii-reason")
+	assert.Contains(t, body, "ii-action")
+	assert.Contains(t, body, "ii-why")
+
+	assert.Contains(t, body, "pc-show")
+	assert.Contains(t, body, "pc-reason")
+
+	// Bogus-priority entries were skipped (their PriorityReason text
+	// "skipped" must not appear).
+	assert.NotContains(t, body, "ms-show2")
+}
+
+func TestRenderScreenshots_PageToFeatureCrosslink(t *testing.T) {
+	doc := newDoc()
+	anchors := newAnchorTable(doc)
+
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "single", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: true}},
+		},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "single", Pages: []string{"https://docs.example.com/lonely"}},
+			{Feature: "alpha", Pages: []string{"https://docs.example.com/shared"}},
+			{Feature: "beta", Pages: []string{"https://docs.example.com/shared"}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "https://docs.example.com/lonely", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "https://docs.example.com/shared", ShouldShow: "y", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+				{PageURL: "https://docs.example.com/unknown", ShouldShow: "z", Priority: analyzer.PrioritySmall, PriorityReason: "r"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+
+	doc.AddPage()
+	featAnchors := computeFeatureAnchors(in)
+	renderScreenshotsWithAnchors(doc, in, anchors, featAnchors)
+
+	// Single-feature page must have caused an anchor Get for feat-single.
+	_, single := anchors.links["feat-single"]
+	assert.True(t, single, "single-feature page must cross-link to feat-single")
+
+	// Multi-feature page must NOT cross-link to any one of its features.
+	_, alpha := anchors.links["feat-alpha"]
+	_, beta := anchors.links["feat-beta"]
+	assert.False(t, alpha, "shared page must NOT cross-link to feat-alpha; got %v", anchors.links)
+	assert.False(t, beta, "shared page must NOT cross-link to feat-beta; got %v", anchors.links)
+}
+
 func TestRenderFeatures_DisambiguatesSlugCollisions(t *testing.T) {
 	doc := newDoc()
 	anchors := newAnchorTable(doc)
