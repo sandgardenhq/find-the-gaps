@@ -144,3 +144,24 @@ func countWrappedLines(doc *fpdf.Fpdf, s string, w float64) int {
 	}
 	return n
 }
+
+// measureScreenshotCard returns the height the screenshot card needs to
+// hold a page-URL header line plus a slice of "Label: value" lines, all
+// wrapped to the card's content width. Used by renderMissingGap and
+// renderImageIssue to pre-size the card shell.
+func measureScreenshotCard(doc *fpdf.Fpdf, pageURL string, lines []string) float64 {
+	w := cardContentWidth(doc)
+
+	doc.SetFont("Helvetica", "B", fontSizeBody)
+	headLines := countWrappedLines(doc, pageURL, w)
+
+	doc.SetFont("Helvetica", "", fontSizeMeta)
+	bodyLines := 0
+	for _, ln := range lines {
+		bodyLines += countWrappedLines(doc, ln, w)
+	}
+
+	headLineH := 0.24
+	bodyLineH := 0.20
+	return cardPadY + headLineH*float64(headLines) + bodyLineH*float64(bodyLines) + cardPadY
+}

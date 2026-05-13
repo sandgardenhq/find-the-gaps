@@ -434,8 +434,9 @@ func renderImageIssueBuckets(
 }
 
 // renderMissingGap writes one ScreenshotGap (used for both Missing and
-// Possibly Covered). PageURL is rendered as the heading; should_show,
-// suggested_alt, and insertion_hint follow on indented lines.
+// Possibly Covered) inside a severity card. PageURL is rendered as the
+// header (clickable when it resolves to a single feature owner). Below
+// the header, four optional "Label: value" lines describe the gap.
 func renderMissingGap(
 	doc *fpdf.Fpdf,
 	anchors *anchorTable,
@@ -443,23 +444,20 @@ func renderMissingGap(
 	pageToFeatures map[string][]string,
 	g analyzer.ScreenshotGap,
 ) {
-	emitPageReference(doc, anchors, featAnchors, pageToFeatures, g.PageURL)
-
-	if g.ShouldShow != "" {
-		secondaryLine(doc, "Should show: "+sanitize(g.ShouldShow))
-	}
-	if g.SuggestedAlt != "" {
-		secondaryLine(doc, "Suggested alt: "+sanitize(g.SuggestedAlt))
-	}
-	if g.InsertionHint != "" {
-		secondaryLine(doc, "Insertion: "+sanitize(g.InsertionHint))
-	}
-	if g.PriorityReason != "" {
-		secondaryLine(doc, "Why: "+sanitize(g.PriorityReason))
-	}
+	pageURL := sanitize(g.PageURL)
+	lines := buildScreenshotLines(
+		"Should show", g.ShouldShow,
+		"Suggested alt", g.SuggestedAlt,
+		"Insertion", g.InsertionHint,
+		"Why", g.PriorityReason,
+	)
+	renderScreenshotCard(doc, anchors, featAnchors, pageToFeatures,
+		g.PageURL, pageURL, lines, priorityForeground(g.Priority))
 }
 
-// renderImageIssue writes one ImageIssue (Src / Reason / SuggestedAction).
+// renderImageIssue writes one ImageIssue inside a severity card with
+// the same shell shape as renderMissingGap. The body lines are the
+// Src / Reason / Action / Why fields.
 func renderImageIssue(
 	doc *fpdf.Fpdf,
 	anchors *anchorTable,
@@ -467,61 +465,93 @@ func renderImageIssue(
 	pageToFeatures map[string][]string,
 	i analyzer.ImageIssue,
 ) {
-	emitPageReference(doc, anchors, featAnchors, pageToFeatures, i.PageURL)
-
-	if i.Src != "" {
-		secondaryLine(doc, "Image: "+sanitize(i.Src))
-	}
-	if i.Reason != "" {
-		secondaryLine(doc, "Issue: "+sanitize(i.Reason))
-	}
-	if i.SuggestedAction != "" {
-		secondaryLine(doc, "Action: "+sanitize(i.SuggestedAction))
-	}
-	if i.PriorityReason != "" {
-		secondaryLine(doc, "Why: "+sanitize(i.PriorityReason))
-	}
+	pageURL := sanitize(i.PageURL)
+	lines := buildScreenshotLines(
+		"Image", i.Src,
+		"Issue", i.Reason,
+		"Action", i.SuggestedAction,
+		"Why", i.PriorityReason,
+	)
+	renderScreenshotCard(doc, anchors, featAnchors, pageToFeatures,
+		i.PageURL, pageURL, lines, priorityForeground(i.Priority))
 }
 
-// emitPageReference renders the page URL as a clickable cross-link when
-// the URL resolves to exactly one feature in the docs map. Pages that
-// resolve to zero or multiple features are rendered as plain text — the
-// reader doesn't get a misleading "this finding owns one specific
-// feature" hint.
-func emitPageReference(
+// buildScreenshotLines collects non-empty "label: value" pairs into a
+// flat slice of formatted lines. Empty values are skipped so the card
+// height shrinks for findings with sparse data. The label/value pairs
+// arrive as alternating arguments to keep the call site terse.
+func buildScreenshotLines(labelValuePairs ...string) []string {
+	var out []string
+	for i := 0; i+1 < len(labelValuePairs); i += 2 {
+		label, value := labelValuePairs[i], labelValuePairs[i+1]
+		if value == "" {
+			continue
+		}
+		out = append(out, label+": "+sanitize(value))
+	}
+	return out
+}
+
+// renderScreenshotCard draws the card shell and emits the header (page
+// URL, possibly linked to a feature anchor) plus body lines. Used by
+// both renderMissingGap and renderImageIssue so the shape stays
+// identical across the three screenshot sub-sections.
+func renderScreenshotCard(
 	doc *fpdf.Fpdf,
 	anchors *anchorTable,
 	featAnchors map[string]string,
 	pageToFeatures map[string][]string,
-	pageURL string,
+	pageURLRaw string, // original URL (used to resolve feature owners)
+	pageURL string, // sanitized URL (used to render text)
+	lines []string,
+	stripeHex int,
 ) {
-	doc.SetX(marginLeft + 0.2)
-	doc.SetFont("Helvetica", "B", fontSizeBody)
-	setTextColor(doc, colorBodyFg)
+	cardX := marginLeft
+	cardY := doc.GetY()
+	cardW := pageWidth(doc)
+	cardH := measureScreenshotCard(doc, pageURL, lines)
 
-	label := sanitize(pageURL)
-	owners := pageToFeatures[pageURL]
+	_, pageH := doc.GetPageSize()
+	if cardY+cardH > pageH-marginBottom {
+		doc.AddPage()
+		cardY = doc.GetY()
+	}
+
+	drawCard(doc, cardX, cardY, cardW, cardH, stripeHex)
+
+	innerX := cardContentX()
+	innerW := cardContentWidth(doc)
+
+	// Header: page URL. Clickable when the URL maps to exactly one feature.
+	doc.SetXY(innerX, cardY+cardPadY)
+	doc.SetFont("Helvetica", "B", fontSizeBody)
+	owners := pageToFeatures[pageURLRaw]
 	if len(owners) == 1 {
 		if anchor, ok := featAnchors[owners[0]]; ok {
 			linkID := anchors.Get(anchor)
 			setTextColor(doc, colorLinkFg)
-			doc.CellFormat(0, 0.24, label, "", 1, "L", false, linkID, "")
+			doc.CellFormat(innerW, 0.24, pageURL, "", 1, "L", false, linkID, "")
 			setTextColor(doc, colorBodyFg)
-			return
+		} else {
+			setTextColor(doc, colorBodyFg)
+			doc.CellFormat(innerW, 0.24, pageURL, "", 1, "L", false, 0, "")
 		}
+	} else {
+		setTextColor(doc, colorBodyFg)
+		doc.CellFormat(innerW, 0.24, pageURL, "", 1, "L", false, 0, "")
 	}
-	doc.CellFormat(0, 0.24, label, "", 1, "L", false, 0, "")
-}
 
-// secondaryLine writes an indented muted line under a screenshot finding
-// (Should show / Suggested alt / Insertion / Why / etc.). Text wraps via
-// MultiCell so long descriptions stay inside the page margins.
-func secondaryLine(doc *fpdf.Fpdf, text string) {
-	doc.SetX(marginLeft + 0.4)
+	// Body lines.
 	doc.SetFont("Helvetica", "", fontSizeMeta)
 	setTextColor(doc, colorMutedFg)
-	doc.MultiCell(pageWidth(doc)-0.4, 0.2, text, "", "L", false)
+	for _, ln := range lines {
+		doc.SetX(innerX)
+		doc.MultiCell(innerW, 0.20, ln, "", "L", false)
+	}
 	setTextColor(doc, colorBodyFg)
+
+	// Move below card with a small inter-card gap.
+	doc.SetY(cardY + cardH + 0.12)
 }
 
 // sectionHeading writes a top-level section title in the brand accent

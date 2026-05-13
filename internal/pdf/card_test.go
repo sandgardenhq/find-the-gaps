@@ -129,6 +129,78 @@ func TestRenderDriftFinding_CardContainsAllText(t *testing.T) {
 	assert.Contains(t, text, "docs.example.com/auth")
 }
 
+// TestRenderMissingGap_CardContainsAllFields pins that the new card
+// shell still emits every field of a missing-screenshot finding.
+func TestRenderMissingGap_CardContainsAllFields(t *testing.T) {
+	doc := newDoc()
+	doc.AddPage()
+	anchors := newAnchorTable(doc)
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+		},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "alpha", Pages: []string{"https://docs.example.com/a"}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{
+					PageURL:        "https://docs.example.com/a",
+					ShouldShow:     "SHOULD_SHOW_MARKER",
+					SuggestedAlt:   "ALT_MARKER",
+					InsertionHint:  "INSERTION_MARKER",
+					Priority:       analyzer.PriorityLarge,
+					PriorityReason: "WHY_MARKER",
+				},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+	featAnchors := computeFeatureAnchors(in)
+	renderScreenshotsWithAnchors(doc, in, anchors, featAnchors)
+
+	text := extractTextWhitebox(t, doc)
+	assert.Contains(t, text, "SHOULD_SHOW_MARKER")
+	assert.Contains(t, text, "ALT_MARKER")
+	assert.Contains(t, text, "INSERTION_MARKER")
+	assert.Contains(t, text, "WHY_MARKER")
+	assert.Contains(t, text, "docs.example.com/a")
+}
+
+// TestRenderImageIssue_CardContainsAllFields pins the same shape for
+// the ImageIssue variant of the screenshot card.
+func TestRenderImageIssue_CardContainsAllFields(t *testing.T) {
+	doc := newDoc()
+	doc.AddPage()
+	anchors := newAnchorTable(doc)
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			ImageIssues: []analyzer.ImageIssue{
+				{
+					PageURL:         "https://docs.example.com/img",
+					Src:             "IMG_SRC_MARKER",
+					Reason:          "IMG_REASON_MARKER",
+					SuggestedAction: "IMG_ACTION_MARKER",
+					Priority:        analyzer.PriorityMedium,
+					PriorityReason:  "IMG_WHY_MARKER",
+				},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+	featAnchors := computeFeatureAnchors(in)
+	renderScreenshotsWithAnchors(doc, in, anchors, featAnchors)
+
+	text := extractTextWhitebox(t, doc)
+	assert.Contains(t, text, "IMG_SRC_MARKER")
+	assert.Contains(t, text, "IMG_REASON_MARKER")
+	assert.Contains(t, text, "IMG_ACTION_MARKER")
+	assert.Contains(t, text, "IMG_WHY_MARKER")
+}
+
 // TestRenderGapsWithAnchors_UsesPillHeading pins that the priority
 // sub-heading inside the gaps section is the new uppercase pill, not
 // the old title-cased text.
