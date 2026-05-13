@@ -432,30 +432,31 @@ Find the Gaps ships a `fly.toml` and `Dockerfile` so you can run analysis as a o
 - A [Fly.io](https://fly.io) account.
 - The `flyctl` CLI installed and authenticated (`fly auth login`).
 
+You do **not** need to clone this repo. The published image at `ghcr.io/sandgardenhq/find-the-gaps:latest` is public and runs everything that `fly machine run` needs. Build-from-source is only required if you want to ship a fork (see [Building your own image](#building-your-own-image-forks--local-changes)).
+
 ### One-time setup
 
-Provision a Fly Storage (Tigris) bucket for the app. This is a one-time step per app; the command sets the bucket name and S3-compatible credentials as app secrets so every subsequent job picks them up automatically:
+Create your Fly app from the public image, then provision a Fly Storage (Tigris) bucket. The bucket step sets `BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL_S3` as app secrets, which `run-job.sh` reads on every invocation.
 
 ```sh
-fly storage create
+fly launch \
+  --image ghcr.io/sandgardenhq/find-the-gaps:latest \
+  --no-deploy \
+  --copy-config=false \
+  --name <your-app>
+
+fly storage create --app <your-app>
 ```
 
-When prompted, accept the defaults. The command stores `BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL_S3` as app secrets.
-
-### Deploying the image
-
-```sh
-fly deploy
-```
-
-This builds the image from the local `Dockerfile` and publishes it to `registry.fly.io/<app>:latest`. Re-run after any change to the entrypoint script, the Dockerfile, or `ftg` itself.
+Pick any app name you like — your Fly org pays for the Machines and owns the Tigris bucket. Accept the default region (or pass `--region <code>`); analyses can target any region at run time. Accept the bucket defaults when prompted.
 
 ### Running a job
 
-Use `fly machine run` to launch a throwaway Machine for a single analysis. Two positional arguments after `--` are required: the repository URL and the docs URL.
+Use `fly machine run` to launch a throwaway Machine for a single analysis, pulling the image directly from GHCR. Two positional arguments after `--` are required: the repository URL and the docs URL.
 
 ```sh
-fly machine run registry.fly.io/<app>:latest \
+fly machine run ghcr.io/sandgardenhq/find-the-gaps:latest \
+  --app <your-app> \
   --rm \
   --region ord \
   -- \
@@ -463,7 +464,7 @@ fly machine run registry.fly.io/<app>:latest \
   https://owner.example.com/docs
 ```
 
-`--rm` deletes the Machine on exit so stopped Machines don't accumulate. Pick a region close to the docs source for faster ingestion.
+`--rm` deletes the Machine on exit so stopped Machines don't accumulate. Pick a region close to the docs source for faster ingestion. The Machine inherits your app's secrets, so the report tarball lands in your Tigris bucket.
 
 ### Retrieving the report
 
@@ -482,6 +483,22 @@ URLs are valid for 30 days from generation.
 
 - Machines launched with `--rm` self-destroy when the job exits — no manual cleanup needed.
 - Tarballs in the Fly Storage bucket are **kept indefinitely**. Operators who want time-based retention should configure a bucket lifecycle rule directly with Tigris; Find the Gaps does not manage tarball cleanup.
+
+### Building your own image (forks / local changes)
+
+The public GHCR image is rebuilt on every push to `main` and every `v*` tag (see [`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml)), so most users never need to build locally. If you're iterating on the entrypoint script, the Dockerfile, or `ftg` itself in a fork, build and push from a checkout of your fork:
+
+```sh
+fly deploy --app <your-app>
+```
+
+This builds the image from the local `Dockerfile` and pushes it to `registry.fly.io/<your-app>:latest`, which is private to your Fly org. To run a job against your own build, swap the image reference:
+
+```sh
+fly machine run registry.fly.io/<your-app>:latest \
+  --app <your-app> --rm --region ord \
+  -- https://github.com/owner/repo https://owner.example.com/docs
+```
 
 ## Development
 

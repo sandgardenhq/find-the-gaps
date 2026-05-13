@@ -1,0 +1,76 @@
+name: publish-image
+
+# Publishes the container image to GitHub Container Registry so anyone can run
+# `ftg` as a Fly Machines job (or any Docker host) on their own account.
+#
+# Tags:
+#   - main pushes        -> :latest, :main-<sha>
+#   - v* tag pushes      -> :latest, :<tag> (e.g. :v0.4.0)
+#   - workflow_dispatch  -> :latest (manual rebuild)
+#
+# Multi-arch (linux/amd64, linux/arm64). The arm64 leg uses QEMU emulation and
+# is noticeably slower because the runtime stage compiles Go with CGO
+# (tree-sitter) and installs Hugo + Node + AWS CLI.
+#
+# ONE-TIME: after the first successful run, set the GHCR package visibility to
+# Public (GitHub UI: Org > Packages > find-the-gaps > Package settings >
+# Change visibility). Until that's flipped, `fly machine run
+# ghcr.io/sandgardenhq/find-the-gaps:latest` will fail with an auth error for
+# anyone outside the org.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
