@@ -10,13 +10,6 @@ primary_region = 'ord'
   [build.args]
     GO_VERSION = '1.26.2'
 
-# Named process groups. The image's ENTRYPOINT is `ftg`, so each value
-# below is appended to it. Override per-invocation with:
-#   fly machine run <image> --process-group analyze -- <extra args>
-[processes]
-  analyze = 'analyze'
-  doctor  = 'doctor'
-
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'

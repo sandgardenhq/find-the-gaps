@@ -423,6 +423,66 @@ Linux x86_64 only (`runs-on: ubuntu-latest`). The action exits with an error on 
 
 See [`docs/examples/`](docs/examples/) for ready-to-copy workflows: schedule, release, manual.
 
+## Running on Fly.io
+
+Find the Gaps ships a `fly.toml` and `Dockerfile` so you can run analysis as a one-shot job on [Fly.io](https://fly.io). Each invocation spins up a throwaway Machine, clones the target repo, runs `ftg analyze --experimental-check-screenshots`, uploads the report artifacts as a tarball to Fly Storage, and prints a presigned download URL.
+
+### Prerequisites
+
+- A [Fly.io](https://fly.io) account.
+- The `flyctl` CLI installed and authenticated (`fly auth login`).
+
+### One-time setup
+
+Provision a Fly Storage (Tigris) bucket for the app. This is a one-time step per app; the command sets the bucket name and S3-compatible credentials as app secrets so every subsequent job picks them up automatically:
+
+```sh
+fly storage create
+```
+
+When prompted, accept the defaults. The command stores `BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL_S3` as app secrets.
+
+### Deploying the image
+
+```sh
+fly deploy
+```
+
+This builds the image from the local `Dockerfile` and publishes it to `registry.fly.io/<app>:latest`. Re-run after any change to the entrypoint script, the Dockerfile, or `ftg` itself.
+
+### Running a job
+
+Use `fly machine run` to launch a throwaway Machine for a single analysis. Two positional arguments after `--` are required: the repository URL and the docs URL.
+
+```sh
+fly machine run registry.fly.io/<app>:latest \
+  --rm \
+  --region ord \
+  -- \
+  https://github.com/owner/repo \
+  https://owner.example.com/docs
+```
+
+`--rm` deletes the Machine on exit so stopped Machines don't accumulate. Pick a region close to the docs source for faster ingestion.
+
+### Retrieving the report
+
+The presigned download URL is the **last line of stdout**.
+
+- **Foreground run** (logs stream to your terminal): the URL appears at the end of the output. `curl -L -o report.tar.gz "<url>"` downloads the tarball, which extracts to `<repo-name>/site/`, `<repo-name>/site-src/`, and the generated markdown reports.
+- **Detached run** (`fly machine run --detach`): retrieve the URL from the Machine's logs:
+
+  ```sh
+  fly logs -i <machine-id> | tail -n 1
+  ```
+
+URLs are valid for 30 days from generation.
+
+### Cleanup
+
+- Machines launched with `--rm` self-destroy when the job exits — no manual cleanup needed.
+- Tarballs in the Fly Storage bucket are **kept indefinitely**. Operators who want time-based retention should configure a bucket lifecycle rule directly with Tigris; Find the Gaps does not manage tarball cleanup.
+
 ## Development
 
 See [CLAUDE.md](CLAUDE.md) for project conventions, tech stack, and TDD rules. See [.plans/VERIFICATION_PLAN.md](.plans/VERIFICATION_PLAN.md) for acceptance testing procedures.
