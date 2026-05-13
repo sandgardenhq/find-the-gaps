@@ -99,14 +99,14 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 
 	// Heading.
 	doc.SetXY(innerX, cardY+cardPadY)
-	doc.SetFont("Helvetica", "B", fontSizeH2)
+	doc.SetFont(bodyFont, "B", fontSizeH2)
 	setTextColor(doc, colorBodyFg)
 	doc.MultiCell(innerW, 0.32, name, "", "L", false)
 
 	// Description (italic, muted).
 	if desc != "" {
 		doc.SetX(innerX)
-		doc.SetFont("Helvetica", "I", fontSizeBody)
+		doc.SetFont(bodyFont, "I", fontSizeBody)
 		setTextColor(doc, colorMutedFg)
 		doc.MultiCell(innerW, 0.22, desc, "", "L", false)
 	}
@@ -117,7 +117,7 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 	doc.Ln(badgeHeight + 0.10)
 
 	// Files / Symbols / Documented-on.
-	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetFont(bodyFont, "", fontSizeMeta)
 	setTextColor(doc, colorBodyFg)
 	for _, ln := range []string{files, symbols, docPagesStr} {
 		if ln == "" {
@@ -344,7 +344,7 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 
 	// Header line: clickable feature name + en-dash + (truncated) issue head.
 	doc.SetXY(innerX, cardY+cardPadY)
-	doc.SetFont("Helvetica", "B", fontSizeBody)
+	doc.SetFont(bodyFont, "B", fontSizeBody)
 	if anchor, ok := featAnchors[b.Feature]; ok {
 		linkID := anchors.Get(anchor)
 		featW := doc.GetStringWidth(featureLabel) + 0.02
@@ -359,14 +359,14 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 
 	// Issue body — wraps.
 	doc.SetX(innerX)
-	doc.SetFont("Helvetica", "", fontSizeBody)
+	doc.SetFont(bodyFont, "", fontSizeBody)
 	setTextColor(doc, colorBodyFg)
 	doc.MultiCell(innerW, 0.22, issue, "", "L", false)
 
 	// Reason + page reference — wraps, italic muted.
 	doc.SetX(innerX)
 	setTextColor(doc, colorMutedFg)
-	doc.SetFont("Helvetica", "I", fontSizeMeta)
+	doc.SetFont(bodyFont, "I", fontSizeMeta)
 	secondary := reason
 	if page != "" {
 		secondary += "   (" + page + ")"
@@ -425,7 +425,7 @@ func computePageToFeatures(in Inputs) map[string][]string {
 // Screenshots, Image Issues, Possibly Covered).
 func subSectionHeading(doc *fpdf.Fpdf, title string) {
 	doc.Ln(0.1)
-	doc.SetFont("Helvetica", "B", fontSizeH2)
+	doc.SetFont(bodyFont, "B", fontSizeH2)
 	setTextColor(doc, colorBodyFg)
 	doc.CellFormat(0, 0.32, title, "", 1, "L", false, 0, "")
 }
@@ -588,7 +588,7 @@ func renderScreenshotCard(
 
 	// Header: page URL. Clickable when the URL maps to exactly one feature.
 	doc.SetXY(innerX, cardY+cardPadY)
-	doc.SetFont("Helvetica", "B", fontSizeBody)
+	doc.SetFont(bodyFont, "B", fontSizeBody)
 	owners := pageToFeatures[pageURLRaw]
 	if len(owners) == 1 {
 		if anchor, ok := featAnchors[owners[0]]; ok {
@@ -606,7 +606,7 @@ func renderScreenshotCard(
 	}
 
 	// Body lines.
-	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetFont(bodyFont, "", fontSizeMeta)
 	setTextColor(doc, colorMutedFg)
 	for _, ln := range lines {
 		doc.SetX(innerX)
@@ -622,7 +622,7 @@ func renderScreenshotCard(
 // color. Shared by every renderer so the visual treatment stays
 // consistent.
 func sectionHeading(doc *fpdf.Fpdf, title string) {
-	doc.SetFont("Helvetica", "B", fontSizeH1)
+	doc.SetFont(bodyFont, "B", fontSizeH1)
 	setTextColor(doc, colorLinkFg)
 	doc.CellFormat(0, 0.5, title, "", 1, "L", false, 0, "")
 	setTextColor(doc, colorBodyFg)

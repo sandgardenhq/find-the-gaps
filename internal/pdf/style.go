@@ -47,10 +47,6 @@ const (
 	colorBodyFg  = 0x0f172a // Tailwind slate-900
 	colorMutedFg = 0x64748b // --ftg-muted
 	colorLinkFg  = 0x2563eb // Tailwind blue-600
-
-	// Faint background band used behind the cover hero. Cooler than pure
-	// white so the cover reads as a distinct section.
-	colorCoverBandBg = 0xfafafa
 )
 
 // rgb breaks a packed 0xRRGGBB hex constant into the (r, g, b) tuple fpdf

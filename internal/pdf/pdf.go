@@ -70,11 +70,14 @@ func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string
 	}
 }
 
-// newDoc constructs the fpdf document the renderer writes into. Letter size,
-// portrait, inch-based units, no embedded fonts (core fonts only).
+// newDoc constructs the fpdf document the renderer writes into. Letter
+// size, portrait, inch-based units, Inter as the body face (registered
+// via embedded TTFs in fonts.go so report.pdf renders the same
+// typography as the Hextra-rendered site).
 func newDoc() *fpdf.Fpdf {
 	doc := fpdf.New("P", "in", "Letter", "")
 	doc.SetMargins(marginLeft, marginTop, marginRight)
 	doc.SetAutoPageBreak(true, marginBottom)
+	registerFonts(doc)
 	return doc
 }

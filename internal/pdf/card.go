@@ -29,7 +29,7 @@ const (
 func drawPill(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
 	label = strings.ToUpper(label)
 
-	doc.SetFont("Helvetica", "B", fontSizePill)
+	doc.SetFont(bodyFont, "B", fontSizePill)
 	w := pillWidth(doc, label)
 	x, y := doc.GetX(), doc.GetY()
 
@@ -58,7 +58,7 @@ func drawPill(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
 func pillWidth(doc *fpdf.Fpdf, label string) float64 {
 	label = strings.ToUpper(label)
 	// Save and restore font state so we don't perturb the caller.
-	doc.SetFont("Helvetica", "B", fontSizePill)
+	doc.SetFont(bodyFont, "B", fontSizePill)
 	return doc.GetStringWidth(label) + 2*pillPadX
 }
 
@@ -83,7 +83,7 @@ const (
 // is regular (mirroring `.ftg-badge` font-weight: 500), and padding is
 // tighter so badges sit compactly on a single row.
 func drawBadge(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
-	doc.SetFont("Helvetica", "", fontSizeBadge)
+	doc.SetFont(bodyFont, "", fontSizeBadge)
 	w := doc.GetStringWidth(label) + 2*badgePadX
 	x, y := doc.GetX(), doc.GetY()
 
@@ -111,13 +111,13 @@ func drawBadge(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
 func measureFeatureCard(doc *fpdf.Fpdf, name, description, files, symbols, docPages string) float64 {
 	w := cardContentWidth(doc)
 
-	doc.SetFont("Helvetica", "B", fontSizeH2)
+	doc.SetFont(bodyFont, "B", fontSizeH2)
 	nameLines := countWrappedLines(doc, name, w)
 
-	doc.SetFont("Helvetica", "I", fontSizeBody)
+	doc.SetFont(bodyFont, "I", fontSizeBody)
 	descLines := countWrappedLines(doc, description, w)
 
-	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetFont(bodyFont, "", fontSizeMeta)
 	filesLines := countWrappedLines(doc, files, w)
 	symbolsLines := countWrappedLines(doc, symbols, w)
 	docLines := countWrappedLines(doc, docPages, w)
@@ -181,17 +181,17 @@ func cardContentWidth(doc *fpdf.Fpdf) float64 {
 func measureDriftCard(doc *fpdf.Fpdf, feature, issue, reason, page string) float64 {
 	w := cardContentWidth(doc)
 
-	doc.SetFont("Helvetica", "B", fontSizeBody)
+	doc.SetFont(bodyFont, "B", fontSizeBody)
 	headLines := countWrappedLines(doc, feature+"  -", w)
 
-	doc.SetFont("Helvetica", "", fontSizeBody)
+	doc.SetFont(bodyFont, "", fontSizeBody)
 	issueLines := countWrappedLines(doc, issue, w)
 
 	secondary := reason
 	if page != "" {
 		secondary = strings.TrimSpace(reason + "   (" + page + ")")
 	}
-	doc.SetFont("Helvetica", "I", fontSizeMeta)
+	doc.SetFont(bodyFont, "I", fontSizeMeta)
 	reasonLines := countWrappedLines(doc, secondary, w)
 
 	bodyLineH := 0.22
@@ -220,10 +220,10 @@ func countWrappedLines(doc *fpdf.Fpdf, s string, w float64) int {
 func measureScreenshotCard(doc *fpdf.Fpdf, pageURL string, lines []string) float64 {
 	w := cardContentWidth(doc)
 
-	doc.SetFont("Helvetica", "B", fontSizeBody)
+	doc.SetFont(bodyFont, "B", fontSizeBody)
 	headLines := countWrappedLines(doc, pageURL, w)
 
-	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetFont(bodyFont, "", fontSizeMeta)
 	bodyLines := 0
 	for _, ln := range lines {
 		bodyLines += countWrappedLines(doc, ln, w)

@@ -8,46 +8,41 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
-// Cover layout constants.
+// Cover layout constants. The hero is plain white to match the site's
+// `bg-white` body — no tinted band, just typography and spacing.
 const (
-	heroBandTop    = 0.0  // band starts at top of page
-	heroBandBottom = 3.0  // band ends 3" down
-	heroTitleY     = 1.1  // title baseline within the band
-	heroMetaY      = 2.2  // metadata block start within the band
-	statCardW      = 1.85 // each stat card width
-	statCardH      = 1.30 // each stat card height
-	statCardGap    = 0.20 // gap between stat cards
-	statCardsY     = 4.2  // row baseline for the three stat cards
+	heroTitleY  = 1.4  // title baseline below the top margin
+	heroMetaY   = 2.7  // metadata block start
+	statCardW   = 1.85 // each stat card width
+	statCardH   = 1.30 // each stat card height
+	statCardGap = 0.20 // gap between stat cards
+	statCardsY  = 4.2  // row baseline for the three stat cards
 )
 
-// renderCover writes the cover page: a faint hero band carrying the
-// title block and project name, a left-aligned metadata block, and a
-// centered row of three stat cards (features / gaps / screenshot issues).
-// Cover suppresses the footer; subsequent pages render it themselves.
+// renderCover writes the cover page: centered title block + project
+// name, a left-aligned metadata block, and a centered row of three stat
+// cards (features / gaps / screenshot issues). Background stays white
+// — the Hextra site body is `bg-white`, so the cover matches.
 func renderCover(doc *fpdf.Fpdf, in Inputs) {
 	doc.AddPage()
 
 	pageW, _ := doc.GetPageSize()
 
-	// Faint hero band. Drawn first so everything else paints on top.
-	setFillColor(doc, colorCoverBandBg)
-	doc.Rect(0, heroBandTop, pageW, heroBandBottom, "F")
-
 	// Title block (centered).
 	doc.SetY(heroTitleY)
-	doc.SetFont("Helvetica", "B", fontSizeTitle)
+	doc.SetFont(bodyFont, "B", fontSizeTitle)
 	setTextColor(doc, colorBodyFg)
 	doc.CellFormat(0, 0.5, "Find the Gaps", "", 1, "C", false, 0, "")
 
 	if in.ProjectName != "" {
-		doc.SetFont("Helvetica", "", fontSizeH1)
+		doc.SetFont(bodyFont, "", fontSizeH1)
 		setTextColor(doc, colorMutedFg)
 		doc.CellFormat(0, 0.4, sanitize(in.ProjectName), "", 1, "C", false, 0, "")
 	}
 
 	// Metadata block (left-aligned under the title).
 	doc.SetY(heroMetaY)
-	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetFont(bodyFont, "", fontSizeMeta)
 	setTextColor(doc, colorBodyFg)
 	if in.RepoURL != "" {
 		doc.SetX(marginLeft)
@@ -126,13 +121,13 @@ func drawStatCard(doc *fpdf.Fpdf, x, y, w, h float64, s statCard) {
 
 	// Number centered in the upper portion of the card.
 	doc.SetXY(x, y+0.20)
-	doc.SetFont("Helvetica", "B", fontSizeStat)
+	doc.SetFont(bodyFont, "B", fontSizeStat)
 	setTextColor(doc, s.stripe)
 	doc.CellFormat(w, 0.6, fmt.Sprintf("%d", s.number), "", 1, "C", false, 0, "")
 
 	// Label below.
 	doc.SetXY(x, y+0.85)
-	doc.SetFont("Helvetica", "", fontSizeMeta)
+	doc.SetFont(bodyFont, "", fontSizeMeta)
 	setTextColor(doc, colorMutedFg)
 	doc.CellFormat(w, 0.3, s.label, "", 1, "C", false, 0, "")
 

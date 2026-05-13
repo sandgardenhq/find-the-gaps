@@ -155,7 +155,7 @@ func renderTOC(doc *fpdf.Fpdf, anchors *anchorTable, entries []tocEntry) []tocRo
 	doc.AddPage()
 
 	setTextColor(doc, colorBodyFg)
-	doc.SetFont("Helvetica", "B", fontSizeH1)
+	doc.SetFont(bodyFont, "B", fontSizeH1)
 	doc.CellFormat(0, 0.5, "Table of Contents", "", 1, "L", false, 0, "")
 	doc.Ln(0.15)
 
@@ -171,7 +171,7 @@ func renderTOC(doc *fpdf.Fpdf, anchors *anchorTable, entries []tocEntry) []tocRo
 		if e.Depth == 0 {
 			fontStyle = "B"
 		}
-		doc.SetFont("Helvetica", fontStyle, fontSizeBody)
+		doc.SetFont(bodyFont, fontStyle, fontSizeBody)
 		doc.SetX(marginLeft + indent)
 		labelWidth := 5.5 - indent
 		doc.CellFormat(labelWidth, 0.3, e.Label, "", 0, "L", false, linkID, "")
@@ -216,7 +216,7 @@ func finalizeTOC(doc *fpdf.Fpdf, rows []tocRow, anchors *anchorTable) {
 		doc.SetFillColor(255, 255, 255)
 		doc.CellFormat(0, 0.3, "", "", 0, "L", true, 0, "")
 		doc.SetXY(marginLeft+5.5, row.pageY)
-		doc.SetFont("Helvetica", "", fontSizeBody)
+		doc.SetFont(bodyFont, "", fontSizeBody)
 		setTextColor(doc, colorBodyFg)
 		doc.CellFormat(0, 0.3, fmt.Sprintf("%d", page), "", 1, "R", false, 0, "")
 	}
