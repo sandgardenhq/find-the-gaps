@@ -459,7 +459,16 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 - [ ] Step 9: `report.pdf` is untouched (timestamp from step 8 preserved).
 - [ ] Across all runs: no UTF-8 mojibake in the rendered text (em-dashes, curly quotes, ellipses, etc. render as their ASCII substitutes); long URLs and issue strings wrap inside the page margins rather than running off the right edge.
 
-**If Blocked**: If TOC links do not resolve, audit `anchorTable.pages` after section rendering — the most likely cause is a renderer that forgot to call `anchors.Mark` for an entry that `collectTOCEntries` listed. If the PDF contains mojibake (e.g. `â€"`), the `sanitize()` helper isn't reaching that call site — capture the offending string from `<projectDir>/drift.json` or `screenshots.json` and check whether the rendering function ran it through `sanitize` before `CellFormat`/`MultiCell`. If `report.pdf` appears under `<projectDir>/site/` instead of `<projectDir>/`, the wiring point in `analyze.go` was placed inside the `site.Build` invocation by mistake — flag and revert.
+**Visual alignment (added 2026-05-13)**. After every analyze run, open `<projectDir>/report.pdf` side-by-side with `<projectDir>/site/index.html` rendered by Hugo. Confirm:
+
+- [ ] Cover page hero band, centered title, and three stat cards (features / gaps / screenshot issues) are present. Stat-card colours follow .ftg-stat-card--good / --bad / --neutral (features = neutral, gaps = red when > 0 and green when 0, screenshot issues = same pattern).
+- [ ] Each finding (drift, missing screenshot, image issue, possibly covered) renders as a card with a 4-point coloured left stripe. Stripes for Large = `--ftg-bad` (#dc2626), Medium = `--ftg-warn` (#d97706), Small = `--ftg-neutral-border` (#cbd5e1, lighter than the body text).
+- [ ] Each priority bucket sub-heading is rendered as a tinted pill in uppercase (LARGE / MEDIUM / SMALL), matching `.ftg-priority` `text-transform: uppercase`.
+- [ ] Each feature card carries a metadata badge row containing one of `<layer>`, one of `user-facing` / `internal`, and one of `documented` / `undocumented`. Badge palette matches `.ftg-badge--*` modifiers.
+- [ ] Feature card stripe colours follow `.ftg-feature-card--documented` / `--undocumented`: green for documented, red for undocumented user-facing, neutral border for internal undocumented.
+- [ ] Section headings (`Features`, `Gaps`, `Screenshots`) render in the link-blue brand colour (`#2563eb`).
+
+**If Blocked**: If TOC links do not resolve, audit `anchorTable.pages` after section rendering — the most likely cause is a renderer that forgot to call `anchors.Mark` for an entry that `collectTOCEntries` listed. If the PDF contains mojibake (e.g. `â€"`), the `sanitize()` helper isn't reaching that call site — capture the offending string from `<projectDir>/drift.json` or `screenshots.json` and check whether the rendering function ran it through `sanitize` before `CellFormat`/`MultiCell`. If `report.pdf` appears under `<projectDir>/site/` instead of `<projectDir>/`, the wiring point in `analyze.go` was placed inside the `site.Build` invocation by mistake — flag and revert. If a card stripe colour reads off-palette, check `internal/pdf/style.go` against the matching `--ftg-*` block in `internal/site/assets/theme/hextra/assets/css/custom.css` — the SYNC table at the top of `style.go` is the cross-reference.
 
 ---
 

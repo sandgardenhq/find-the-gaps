@@ -1,5 +1,42 @@
 # Progress
 
+## Feature: PDF Visual Alignment with Site — COMPLETE
+- Started: 2026-05-13
+- Plan: `.plans/PDF_VISUAL_ALIGNMENT.md`
+- Summary: Aligned `report.pdf` with the Hextra-rendered site. Palette synced to `--ftg-*` tokens (good / bad / warn / neutral families, card-bg, card-border, muted, Tailwind link blue, Tailwind slate-900 body). Findings now render as cards with severity-coloured 4pt left stripes and 8pt rounded corners. Priority sub-headings are uppercase tinted pills. Feature cards carry a single row of badges (layer / user-facing-or-internal / documented-or-undocumented). Cover page rebuilt as a hero band + three stat cards.
+
+### Task 1: Palette swap — COMPLETE
+- Replaced ad-hoc colour triplets with packed-hex constants drawn straight from `internal/site/.../custom.css`. SYNC table comment block pins the source-of-truth pairing. New `rgb()` unpacker plus `setTextColor / setFillColor / setDrawColor` wrappers.
+- Coverage: 100% on `style.go`.
+
+### Task 2: Pill renderer — COMPLETE
+- `drawPill` / `pillWidth` in `card.go`. `priorityHeading` now emits an uppercase pill (LARGE / MEDIUM / SMALL) with tinted fill + border, matching `.ftg-priority` `text-transform: uppercase`.
+- Body-text test assertions migrated to UPPERCASE; TOC label casing kept title-case.
+
+### Task 3: Drift severity card — COMPLETE
+- `drawCard` + `measureDriftCard` + `countWrappedLines` in `card.go`. `renderDriftFinding` pre-flights card height (header + wrapped issue + wrapped reason + page reference), page-breaks if the card would overflow, draws a rounded-rect card with severity stripe, and emits content inside.
+
+### Task 4: Screenshot severity card — COMPLETE
+- Shared `renderScreenshotCard` helper handles missing-screenshot, image-issue, and possibly-covered findings with identical card shape. `buildScreenshotLines` packs (label, value) pairs into a flat slice and drops empty values so cards shrink for sparse findings.
+- `emitPageReference` and `secondaryLine` helpers retired.
+
+### Task 5: Feature card + badge metadata — COMPLETE
+- `drawBadge` / `measureFeatureCard` in `card.go`. `renderFeatureBlock` rewritten as a card with stripe colour reflecting documentation status (`featureStripeColor` mirrors `.ftg-feature-card--documented` / `--undocumented`). `renderFeatureBadges` emits the Layer + UserFacing-or-Internal + Documented-or-Undocumented row with `.ftg-badge--*`-matched palettes.
+- `labelValue` helper retired.
+
+### Task 6: Hero cover with stat cards — COMPLETE
+- Faint cool-grey hero band, centered title block, three stat cards in a row (1.85" × 1.30") with severity-coloured stripes. `buildStats` mirrors `.ftg-stat-card--good / --bad / --neutral`: features = neutral, gaps + screenshots = green if 0 else red.
+- Screenshot stat card omitted when `ScreenshotsRan=false`.
+
+### Task 7: Regenerate sample + fix Small stripe — COMPLETE
+- Visual regression caught while reviewing the regenerated sample: I was using the bucket's foreground for the Small card stripe (dark slate); site uses the lighter `--ftg-neutral-border` (#cbd5e1). Added asymmetric `priorityStripe(p)` helper so Large/Medium stay saturated while Small reads as a quiet outline.
+- `.plans/sample-report.pdf` regenerated.
+
+### Task 8: Verification plan update — COMPLETE
+- Appended a "Visual alignment" sub-clause to Scenario 18 in `.plans/VERIFICATION_PLAN.md` covering the new shapes and colour rules. Reviewer opens `report.pdf` side-by-side with `<projectDir>/site/index.html` and confirms each invariant.
+
+---
+
 ## Feature: PDF Report Export — COMPLETE
 - Started: 2026-05-13
 - Plan: `.plans/PDF_EXPORT.md`
