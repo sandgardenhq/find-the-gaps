@@ -11,7 +11,7 @@ primary_region = 'ord'
     GO_VERSION = '1.26.2'
 
 [[vm]]
-  memory = '1gb'
+  memory = '8gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 8192
