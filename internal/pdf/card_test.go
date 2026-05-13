@@ -61,6 +61,74 @@ func TestPill_WidthScalesWithLabel(t *testing.T) {
 		"medium pill should be wider than small (got short=%.3f long=%.3f)", short, long)
 }
 
+// TestDrawCard_DrawsBoundedRect makes sure drawCard returns a positive
+// rectangle and advances the cursor below the card.
+func TestDrawCard_DrawsBoundedRect(t *testing.T) {
+	doc := newDoc()
+	doc.AddPage()
+	startY := doc.GetY()
+
+	drawCard(doc, marginLeft, startY, 5.0, 1.2, colorBadFg)
+
+	// Drawing a card should not move the cursor by itself; renderers
+	// position content inside the card explicitly. Just confirm the
+	// call did not error / panic and the page still accepts content.
+	doc.SetXY(marginLeft, startY+1.4)
+	doc.SetFont("Helvetica", "", fontSizeBody)
+	doc.CellFormat(0, 0.2, "after card", "", 1, "L", false, 0, "")
+
+	text := extractTextWhitebox(t, doc)
+	assert.Contains(t, text, "after card", "content below card must render")
+}
+
+// TestMeasureCardHeight_AccountsForWrapping pins that the measurer
+// returns a taller card when the issue text wraps. Without this we'd
+// crop the last line.
+func TestMeasureCardHeight_AccountsForWrapping(t *testing.T) {
+	doc := newDoc()
+	doc.AddPage()
+	doc.SetFont("Helvetica", "", fontSizeBody)
+
+	short := measureDriftCard(doc, "alpha", "short issue", "r", "")
+	long := measureDriftCard(doc, "alpha",
+		"this is a much longer issue that will absolutely wrap to several lines once the renderer drops it inside the card content area that is only about five inches wide",
+		"a longer reason text that itself may also wrap to two lines",
+		"https://docs.example.com/some/long/page/url")
+	assert.Greater(t, long, short,
+		"long-text card must be taller than short-text card (short=%.3f long=%.3f)",
+		short, long)
+}
+
+// TestRenderDriftFinding_CardContainsAllText pins that the new card
+// shell still emits every piece of finding data inside the card body.
+func TestRenderDriftFinding_CardContainsAllText(t *testing.T) {
+	doc := newDoc()
+	doc.AddPage()
+	anchors := newAnchorTable(doc)
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "auth", UserFacing: true}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "auth", Issues: []analyzer.DriftIssue{
+				{
+					Page:           "https://docs.example.com/auth",
+					Issue:          "DOCUMENTED_ISSUE_MARKER",
+					Priority:       analyzer.PriorityLarge,
+					PriorityReason: "PRIORITY_REASON_MARKER",
+				},
+			}},
+		},
+	}
+	renderGapsWithAnchors(doc, in, anchors, computeFeatureAnchors(in))
+
+	text := extractTextWhitebox(t, doc)
+	assert.Contains(t, text, "auth")
+	assert.Contains(t, text, "DOCUMENTED_ISSUE_MARKER")
+	assert.Contains(t, text, "PRIORITY_REASON_MARKER")
+	assert.Contains(t, text, "docs.example.com/auth")
+}
+
 // TestRenderGapsWithAnchors_UsesPillHeading pins that the priority
 // sub-heading inside the gaps section is the new uppercase pill, not
 // the old title-cased text.

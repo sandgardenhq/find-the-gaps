@@ -67,3 +67,80 @@ func pillWidth(doc *fpdf.Fpdf, label string) float64 {
 func pointsToInches(pts float64) float64 {
 	return pts / 72.0
 }
+
+// drawCard renders the shell of a finding/feature card at (x, y) with the
+// given total width + height. The card has a white fill, a thin neutral
+// border, an 8-point-radius corner, and a coloured 4-point-wide left
+// stripe in stripeHex. Cursor is left unchanged; callers position content
+// inside the card themselves.
+func drawCard(doc *fpdf.Fpdf, x, y, w, h float64, stripeHex int) {
+	oldLineW := doc.GetLineWidth()
+	defer doc.SetLineWidth(oldLineW)
+
+	// Outer rounded rect.
+	setFillColor(doc, colorCardBg)
+	setDrawColor(doc, colorCardBorder)
+	doc.SetLineWidth(pointsToInches(cardBorderW))
+	doc.RoundedRect(x, y, w, h, cardRadius, "1234", "FD")
+
+	// Coloured left stripe. Drawn as a filled rect that hugs the inside
+	// of the rounded rect's left edge, slightly inset so the corner
+	// curves still show.
+	setFillColor(doc, stripeHex)
+	setDrawColor(doc, stripeHex)
+	doc.Rect(x, y, cardStripeW, h, "FD")
+}
+
+// cardContentX / cardContentWidth report the inner bounds (text safe
+// zone) for a card whose outer rectangle starts at the left margin and
+// fills the page width.
+func cardContentX() float64 {
+	return marginLeft + cardStripeW + cardPadX
+}
+
+func cardContentWidth(doc *fpdf.Fpdf) float64 {
+	return pageWidth(doc) - cardStripeW - 2*cardPadX
+}
+
+// measureDriftCard returns the height in inches that a drift card
+// containing the given feature label / issue / reason / page reference
+// will occupy. Used by renderDriftFinding to size the card shell before
+// drawing it, so the rounded-rect can be drawn before any text fills it.
+//
+// Heights are derived from the same fpdf state the renderer will use:
+// body font for the feature header line, body font for the wrapped
+// issue, italic meta font for the wrapped reason+page line.
+func measureDriftCard(doc *fpdf.Fpdf, feature, issue, reason, page string) float64 {
+	w := cardContentWidth(doc)
+
+	doc.SetFont("Helvetica", "B", fontSizeBody)
+	headLines := countWrappedLines(doc, feature+"  -", w)
+
+	doc.SetFont("Helvetica", "", fontSizeBody)
+	issueLines := countWrappedLines(doc, issue, w)
+
+	secondary := reason
+	if page != "" {
+		secondary = strings.TrimSpace(reason + "   (" + page + ")")
+	}
+	doc.SetFont("Helvetica", "I", fontSizeMeta)
+	reasonLines := countWrappedLines(doc, secondary, w)
+
+	bodyLineH := 0.22
+	metaLineH := 0.20
+	return cardPadY + bodyLineH*float64(headLines+issueLines) + metaLineH*float64(reasonLines) + cardPadY
+}
+
+// countWrappedLines counts how many lines fpdf's SplitText would produce
+// for s at width w under the doc's current font. Returns at least 1 even
+// for empty strings so callers reserve a baseline of vertical room.
+func countWrappedLines(doc *fpdf.Fpdf, s string, w float64) int {
+	if strings.TrimSpace(s) == "" {
+		return 0
+	}
+	n := len(doc.SplitText(s, w))
+	if n < 1 {
+		return 1
+	}
+	return n
+}

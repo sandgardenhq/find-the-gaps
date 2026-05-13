@@ -249,55 +249,70 @@ func priorityBorder(p analyzer.Priority) int {
 }
 
 
-// renderDriftFinding writes one finding line: clickable feature name +
-// issue text + priority reason. Feature name is rendered as a clickable
-// internal link to its feat-<slug> anchor when the feature exists in the
-// mapping; features unknown to the mapping (which can happen if the
-// drift LLM names a feature the mapping didn't enumerate) fall back to
-// plain text. Long issue/reason strings wrap via MultiCell so they
-// stay inside the page margins.
+// renderDriftFinding writes one finding inside a severity card. The card
+// shell carries a coloured left stripe in the priority's foreground hex;
+// body text wraps inside the card's content area. The feature label is a
+// clickable cross-link into the Features section when the feature exists
+// in the mapping, otherwise plain text.
 func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string]string, b bucketedDrift) {
 	featureLabel := sanitize(b.Feature)
 	issue := sanitize(b.Issue.Issue)
 	reason := sanitize(b.Issue.PriorityReason)
 	page := sanitize(b.Issue.Page)
 
-	doc.SetX(marginLeft + 0.2)
-	doc.SetFont("Helvetica", "B", fontSizeBody)
-	setTextColor(doc, colorBodyFg)
+	cardX := marginLeft
+	cardY := doc.GetY()
+	cardW := pageWidth(doc)
+	cardH := measureDriftCard(doc, featureLabel, issue, reason, page)
 
-	// Feature name + " - " on the first line. Feature name is a clickable
-	// cross-link when the feature is in the mapping.
+	// If the card would cross the bottom margin, force a page break first
+	// so the whole card stays on one page.
+	_, pageH := doc.GetPageSize()
+	if cardY+cardH > pageH-marginBottom {
+		doc.AddPage()
+		cardY = doc.GetY()
+	}
+
+	drawCard(doc, cardX, cardY, cardW, cardH, priorityForeground(b.Issue.Priority))
+
+	innerX := cardContentX()
+	innerW := cardContentWidth(doc)
+
+	// Header line: clickable feature name + en-dash + (truncated) issue head.
+	doc.SetXY(innerX, cardY+cardPadY)
+	doc.SetFont("Helvetica", "B", fontSizeBody)
 	if anchor, ok := featAnchors[b.Feature]; ok {
 		linkID := anchors.Get(anchor)
 		featW := doc.GetStringWidth(featureLabel) + 0.02
 		setTextColor(doc, colorLinkFg)
-		doc.CellFormat(featW, 0.24, featureLabel, "", 0, "L", false, linkID, "")
+		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, linkID, "")
 		setTextColor(doc, colorBodyFg)
 	} else {
 		featW := doc.GetStringWidth(featureLabel) + 0.02
-		doc.CellFormat(featW, 0.24, featureLabel, "", 0, "L", false, 0, "")
+		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, 0, "")
 	}
-	doc.CellFormat(0, 0.24, " - ", "", 1, "L", false, 0, "")
+	doc.CellFormat(0, 0.22, " - ", "", 1, "L", false, 0, "")
 
-	// Issue text wraps if it exceeds page width. Indent the wrapped lines
-	// under the feature label.
-	doc.SetX(marginLeft + 0.4)
+	// Issue body — wraps.
+	doc.SetX(innerX)
 	doc.SetFont("Helvetica", "", fontSizeBody)
-	doc.MultiCell(pageWidth(doc)-0.4, 0.22, issue, "", "L", false)
+	setTextColor(doc, colorBodyFg)
+	doc.MultiCell(innerW, 0.22, issue, "", "L", false)
 
-	// Priority reason and source page on a secondary line, indented and
-	// muted, MultiCell so the line wraps cleanly.
-	doc.SetX(marginLeft + 0.4)
+	// Reason + page reference — wraps, italic muted.
+	doc.SetX(innerX)
 	setTextColor(doc, colorMutedFg)
 	doc.SetFont("Helvetica", "I", fontSizeMeta)
 	secondary := reason
 	if page != "" {
 		secondary += "   (" + page + ")"
 	}
-	doc.MultiCell(pageWidth(doc)-0.4, 0.2, secondary, "", "L", false)
+	doc.MultiCell(innerW, 0.20, secondary, "", "L", false)
 	setTextColor(doc, colorBodyFg)
-	doc.Ln(0.05)
+
+	// Drop cursor to just below the card with a small gap before the
+	// next sibling card. doc.SetY is what later renderers consult.
+	doc.SetY(cardY + cardH + 0.12)
 }
 
 // renderScreenshotsWithAnchors emits the Screenshots section (Missing
