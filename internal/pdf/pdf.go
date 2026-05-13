@@ -33,6 +33,7 @@ type Inputs struct {
 // WriteReport renders the report PDF into dir as "report.pdf".
 func WriteReport(dir string, in Inputs) error {
 	doc := newDoc()
+	registerFooter(doc, in.ProjectName)
 	renderCover(doc, in)
 
 	out := filepath.Join(dir, "report.pdf")

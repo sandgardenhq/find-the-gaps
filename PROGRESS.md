@@ -18,6 +18,12 @@
 - Build: ✅ `go build ./...` clean
 - Notes: Cover page emits title block, project name, repo URL, docs URL, generated-at timestamp formatted UTC, and summary counts (features / gaps / screenshot issues). Screenshot count omitted when `ScreenshotsRan=false`. Style tokens (palette, margins, font sizes) extracted to `style.go` and cross-referenced to `hextra-custom.css`.
 
+### Task 3: Page header/footer — COMPLETE
+- Tests: 7 passing (added `TestRegisterFooter_PageNumbersOnAllButCover`, `TestRegisterFooter_OmitsProjectNameWhenEmpty`, `TestWriteReport_RegistersFooter`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Footer prints `<project> - page N of M` centered, suppressed on page 1 (cover). Uses fpdf's `{nb}` alias for total-page substitution at output time. White-box tests in `package pdf` so the helper can be exercised directly without polluting the public API.
+
 ## Task: Halt on Unsupported-Language Repo - COMPLETE
 - Started: 2026-05-08
 - Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)
