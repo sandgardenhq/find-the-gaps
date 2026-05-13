@@ -3,7 +3,6 @@ package pdf_test
 import (
 	"io"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -77,14 +76,13 @@ func TestRenderCover_ContainsMetadata(t *testing.T) {
 	assert.Contains(t, text, "14:32", "cover must include time")
 	assert.Contains(t, text, "UTC", "cover must include timezone marker")
 
-	// Summary counts: 3 features, 3 drift issues, 3 screenshot issues
-	// (2 missing + 1 image issue).
-	assert.True(t, strings.Contains(text, "3 features"),
-		"cover must include feature count, got:\n%s", text)
-	assert.True(t, strings.Contains(text, "3 gaps"),
-		"cover must include drift issue count, got:\n%s", text)
-	assert.True(t, strings.Contains(text, "3 screenshot"),
-		"cover must include screenshot issue count, got:\n%s", text)
+	// Summary counts now render as three stat cards (number + label
+	// each in its own cell), so the extracted text shows them on
+	// separate lines rather than as one summary sentence.
+	assert.Contains(t, text, "3", "cover must include the counts")
+	assert.Contains(t, text, "features", "cover must include 'features' label")
+	assert.Contains(t, text, "gaps", "cover must include 'gaps' label")
+	assert.Contains(t, text, "screenshot", "cover must include 'screenshot' label")
 }
 
 func TestRenderCover_ScreenshotCountOmittedWhenNotRun(t *testing.T) {

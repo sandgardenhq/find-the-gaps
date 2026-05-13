@@ -201,6 +201,64 @@ func TestRenderImageIssue_CardContainsAllFields(t *testing.T) {
 	assert.Contains(t, text, "IMG_WHY_MARKER")
 }
 
+// TestRenderCover_HasStatCards pins that the cover renders a row of
+// three stat cards with the feature / gap / screenshot-issue counts.
+func TestRenderCover_HasStatCards(t *testing.T) {
+	doc := newDoc()
+	in := Inputs{
+		ProjectName: "Sample Project",
+		RepoURL:     "https://repo.example.com/x",
+		DocsURL:     "https://docs.example.com/x",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "a", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "b", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "c", UserFacing: true}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "a", Issues: []analyzer.DriftIssue{
+				{Issue: "x", Priority: analyzer.PriorityLarge, PriorityReason: "y"},
+				{Issue: "x", Priority: analyzer.PriorityMedium, PriorityReason: "y"},
+			}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+	renderCover(doc, in)
+
+	text := extractTextWhitebox(t, doc)
+	// Three numbers and three labels should be visible. The labels are
+	// the same as the pre-card cover summary line so we keep "features",
+	// "gaps", "screenshots" in extracted text.
+	assert.Contains(t, text, "3", "feature count")
+	assert.Contains(t, text, "2", "drift issue count")
+	assert.Contains(t, text, "4", "screenshot issue count")
+	assert.Contains(t, text, "features")
+	assert.Contains(t, text, "gaps")
+	assert.Contains(t, text, "screenshot")
+}
+
+// TestRenderCover_OmitsScreenshotStatWhenNotRun pins that the third
+// stat card disappears when ScreenshotsRan=false.
+func TestRenderCover_OmitsScreenshotStatWhenNotRun(t *testing.T) {
+	doc := newDoc()
+	in := Inputs{
+		ProjectName:    "x",
+		ScreenshotsRan: false,
+	}
+	renderCover(doc, in)
+
+	text := extractTextWhitebox(t, doc)
+	assert.NotContains(t, text, "screenshot",
+		"screenshot stat card must be hidden when ScreenshotsRan=false")
+}
+
 // TestRenderFeatureBlock_RendersBadgeRow pins that a feature card emits
 // badge labels for Layer, User-facing / Internal, and Documented /
 // Undocumented status, mirroring the .ftg-badge components on the site.
