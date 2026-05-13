@@ -432,7 +432,7 @@ Find the Gaps ships a `fly.toml` and `Dockerfile` so you can run analysis as a o
 - A [Fly.io](https://fly.io) account.
 - The `flyctl` CLI installed and authenticated (`fly auth login`).
 
-You do **not** need to clone this repo. The published image at `ghcr.io/sandgardenhq/find-the-gaps:latest` is public and runs everything that `fly machine run` needs. Build-from-source is only required if you want to ship a fork (see [Building your own image](#building-your-own-image-forks--local-changes)).
+You do **not** need to clone this repo. The published image at `ghcr.io/sandgardenhq/find-the-gaps:latest` is public and runs everything that `fly machine run` needs.
 
 ### One-time setup
 
@@ -483,22 +483,6 @@ URLs are valid for 30 days from generation.
 
 - Machines launched with `--rm` self-destroy when the job exits — no manual cleanup needed.
 - Tarballs in the Fly Storage bucket are **kept indefinitely**. Operators who want time-based retention should configure a bucket lifecycle rule directly with Tigris; Find the Gaps does not manage tarball cleanup.
-
-### Building your own image (forks / local changes)
-
-The public GHCR image is rebuilt on every push to `main` and every `v*` tag (see [`.github/workflows/publish-image.yml`](.github/workflows/publish-image.yml)), so most users never need to build locally. If you're iterating on the entrypoint script, the Dockerfile, or `ftg` itself in a fork, build and push from a checkout of your fork:
-
-```sh
-fly deploy --app <your-app>
-```
-
-This builds the image from the local `Dockerfile` and pushes it to `registry.fly.io/<your-app>:latest`, which is private to your Fly org. To run a job against your own build, swap the image reference:
-
-```sh
-fly machine run registry.fly.io/<your-app>:latest \
-  --app <your-app> --rm --region ord \
-  -- https://github.com/owner/repo https://owner.example.com/docs
-```
 
 ## Development
 
