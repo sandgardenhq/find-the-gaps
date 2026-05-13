@@ -184,15 +184,18 @@ func isKnownPriority(p analyzer.Priority) bool {
 	return false
 }
 
-// priorityHeading writes the sub-heading for one priority bucket. The
-// rendered label is the title-cased priority value ("Large", "Medium",
-// "Small").
+// priorityHeading writes the sub-heading for one priority bucket as an
+// uppercase tinted pill, matching the .ftg-priority component in
+// custom.css. The cursor advances onto a fresh line below the pill so
+// finding cards start cleanly.
 func priorityHeading(doc *fpdf.Fpdf, p analyzer.Priority) {
-	doc.Ln(0.1)
-	doc.SetFont("Helvetica", "B", fontSizeH2)
-	doc.SetTextColor(priorityRGB(p))
-	doc.CellFormat(0, 0.3, priorityLabel(p), "", 1, "L", false, 0, "")
-	setTextColor(doc, colorBodyFg)
+	doc.Ln(0.12)
+	doc.SetX(marginLeft)
+	drawPill(doc, priorityLabel(p),
+		priorityForeground(p), priorityBackground(p), priorityBorder(p))
+	// drawPill advances X past the pill but stays on the same Y. Drop to
+	// the next line so finding cards start cleanly underneath.
+	doc.Ln(pillHeight + 0.08)
 }
 
 // priorityLabel returns the human-readable bucket name.
@@ -245,13 +248,6 @@ func priorityBorder(p analyzer.Priority) int {
 	return colorNeutralBorder
 }
 
-// priorityRGB returns the foreground colour used for the priority
-// sub-heading. Kept as a thin wrapper over priorityForeground so older
-// call sites in this file stay readable while the migration to packed
-// hex constants completes.
-func priorityRGB(p analyzer.Priority) (int, int, int) {
-	return rgb(priorityForeground(p))
-}
 
 // renderDriftFinding writes one finding line: clickable feature name +
 // issue text + priority reason. Feature name is rendered as a clickable

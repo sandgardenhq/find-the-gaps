@@ -131,13 +131,14 @@ func TestRenderGaps_BucketsByPriority(t *testing.T) {
 	}
 	require.NotEmpty(t, gapsText, "Gaps section body must render with at least one finding")
 
-	// Order: Large appears before Medium appears before Small on the
-	// gaps body page.
-	largeIdx := strings.Index(gapsText, "Large")
-	mediumIdx := strings.Index(gapsText, "Medium")
-	smallIdx := strings.Index(gapsText, "Small")
+	// Order: LARGE appears before MEDIUM appears before SMALL on the
+	// gaps body page. Priority labels render as uppercase pills now
+	// (matching .ftg-priority `text-transform: uppercase`).
+	largeIdx := strings.Index(gapsText, "LARGE")
+	mediumIdx := strings.Index(gapsText, "MEDIUM")
+	smallIdx := strings.Index(gapsText, "SMALL")
 	require.True(t, largeIdx >= 0 && mediumIdx > largeIdx && smallIdx > mediumIdx,
-		"buckets must appear in Large → Medium → Small order; got large=%d medium=%d small=%d in:\n%s",
+		"buckets must appear in LARGE -> MEDIUM -> SMALL order; got large=%d medium=%d small=%d in:\n%s",
 		largeIdx, mediumIdx, smallIdx, gapsText)
 
 	// All three issues must be referenced.
@@ -179,11 +180,12 @@ func TestRenderGaps_EmptyBucketsOmitted(t *testing.T) {
 	}
 	require.NotEmpty(t, gapsText)
 
-	// Only Small bucket has content; Large/Medium sub-headings must NOT
-	// appear under Gaps.
-	assert.NotContains(t, gapsText, "Large", "empty Large bucket must be omitted")
-	assert.NotContains(t, gapsText, "Medium", "empty Medium bucket must be omitted")
-	assert.Contains(t, gapsText, "Small")
+	// Only Small bucket has content; LARGE/MEDIUM pills must NOT
+	// appear under Gaps. (Uppercase because pills now render with
+	// text-transform: uppercase.)
+	assert.NotContains(t, gapsText, "LARGE", "empty Large bucket must be omitted")
+	assert.NotContains(t, gapsText, "MEDIUM", "empty Medium bucket must be omitted")
+	assert.Contains(t, gapsText, "SMALL")
 }
 
 func TestBucketDrift_SkipsUnknownPriority(t *testing.T) {
@@ -335,13 +337,13 @@ func TestRenderScreenshots_MissingBucketed(t *testing.T) {
 	assert.Contains(t, section, "the big dialog")
 	assert.Contains(t, section, "form X")
 
-	// Buckets in Large → Small order (no Medium because empty).
-	largeIdx := strings.Index(section, "Large")
-	smallIdx := strings.Index(section, "Small")
-	mediumIdx := strings.Index(section, "Medium")
-	require.True(t, largeIdx >= 0, "Large bucket must render")
-	require.True(t, smallIdx > largeIdx, "Small must follow Large; got Large=%d Small=%d", largeIdx, smallIdx)
-	assert.True(t, mediumIdx < 0 || mediumIdx > smallIdx, "Medium bucket must be omitted (empty); got Medium=%d Small=%d", mediumIdx, smallIdx)
+	// Buckets in LARGE → SMALL order (no MEDIUM because empty).
+	largeIdx := strings.Index(section, "LARGE")
+	smallIdx := strings.Index(section, "SMALL")
+	mediumIdx := strings.Index(section, "MEDIUM")
+	require.True(t, largeIdx >= 0, "LARGE bucket must render")
+	require.True(t, smallIdx > largeIdx, "SMALL must follow LARGE; got LARGE=%d SMALL=%d", largeIdx, smallIdx)
+	assert.True(t, mediumIdx < 0 || mediumIdx > smallIdx, "MEDIUM bucket must be omitted (empty); got MEDIUM=%d SMALL=%d", mediumIdx, smallIdx)
 }
 
 func TestRenderScreenshots_ImageIssuesAndPossiblyCoveredOmittedWhenEmpty(t *testing.T) {
