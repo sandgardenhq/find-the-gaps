@@ -30,6 +30,12 @@
 - Build: ✅ `go build ./...` clean
 - Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
 
+### Task 8: TOC sub-entries — COMPLETE
+- Tests: 30 passing (added `TestTOC_HasSubEntries`, `TestCollectTOCEntries_DepthsMatchStructure`; updated `TestFinalizeTOC_*` for new `anchorTable`-based API)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: `collectTOCEntries` returns depth 0 (sections) + depth 1 (per-feature, per-bucket, per-sub-section) + depth 2 (per-priority bucket inside a screenshots sub-section). Empty buckets and empty sub-sections pruned. `anchorTable` now tracks page numbers via `Mark`/`Page`; `finalizeTOC` consults the table directly instead of a separate `targets` map. Sub-bucket anchor naming: `gaps-<priority>`, `screenshots-<sub>`, `screenshots-<sub>-<priority>`. TOC overflow handled by `AutoPageBreak`; depth indentation 0.25" per level; depth 0 entries rendered bold for visual separation.
+
 ### Task 7: Screenshots section (gated) — COMPLETE
 - Tests: 28 passing (added `TestRenderScreenshots_OmittedWhenNotRun`, `TestRenderScreenshots_MissingBucketed`, `TestRenderScreenshots_ImageIssuesAndPossiblyCoveredOmittedWhenEmpty`, `TestRenderScreenshots_AllSubSectionsRendered`, `TestRenderScreenshots_PageToFeatureCrosslink`)
 - Coverage: `internal/pdf` 100.0% statements

@@ -35,16 +35,12 @@ func WriteReport(dir string, in Inputs) error {
 	doc := newDoc()
 	registerFooter(doc, in.ProjectName)
 	anchors := newAnchorTable(doc)
+	featAnchors := computeFeatureAnchors(in)
 
 	renderCover(doc, in)
-	tocRows := renderTOC(doc, anchors, collectTopLevelTOC(in))
-
-	// Render section bodies. For Task 4 each section is a stub that simply
-	// starts a new page and marks its anchor; Tasks 5-7 will fill them in
-	// with real content.
-	targets := renderSections(doc, anchors, in)
-
-	finalizeTOC(doc, tocRows, targets)
+	tocRows := renderTOC(doc, anchors, collectTOCEntries(in))
+	renderSections(doc, anchors, featAnchors, in)
+	finalizeTOC(doc, tocRows, anchors)
 
 	out := filepath.Join(dir, "report.pdf")
 	if err := doc.OutputFileAndClose(out); err != nil {
@@ -53,31 +49,25 @@ func WriteReport(dir string, in Inputs) error {
 	return nil
 }
 
-// renderSections renders every top-level section and returns a map from
-// anchor name to the page number the section starts on. The map feeds
-// finalizeTOC so the table of contents shows the right page for each
-// section. Sections are stubbed until Tasks 5-7 land.
-func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, in Inputs) map[string]int {
-	targets := map[string]int{}
-
+// renderSections renders every top-level section. Each section starts on
+// a fresh page and marks its top-level anchor; the section renderers
+// themselves mark per-feature / per-bucket / per-sub-section anchors. The
+// page numbers needed by the TOC are read back from the shared anchor
+// table after rendering completes.
+func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string]string, in Inputs) {
 	doc.AddPage()
 	anchors.Mark("features")
-	targets["features"] = doc.PageNo()
 	renderFeatures(doc, in, anchors)
 
 	doc.AddPage()
 	anchors.Mark("gaps")
-	targets["gaps"] = doc.PageNo()
-	renderGaps(doc, in, anchors)
+	renderGapsWithAnchors(doc, in, anchors, featAnchors)
 
 	if in.ScreenshotsRan {
 		doc.AddPage()
 		anchors.Mark("screenshots")
-		targets["screenshots"] = doc.PageNo()
-		renderScreenshots(doc, in, anchors)
+		renderScreenshotsWithAnchors(doc, in, anchors, featAnchors)
 	}
-
-	return targets
 }
 
 // newDoc constructs the fpdf document the renderer writes into. Letter size,

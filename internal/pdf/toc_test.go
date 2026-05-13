@@ -75,6 +75,111 @@ func TestTOC_OmitsScreenshotsWhenNotRun(t *testing.T) {
 	assert.NotContains(t, tocText, "Screenshots", "Screenshots entry must be omitted when ScreenshotsRan=false")
 }
 
+func TestTOC_HasSubEntries(t *testing.T) {
+	dir := t.TempDir()
+
+	in := Inputs{
+		ProjectName: "Sub TOC",
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: true}},
+		},
+		DocsMap: analyzer.DocsFeatureMap{
+			{Feature: "alpha", Pages: []string{"https://docs.example.com/a"}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "alpha", Issues: []analyzer.DriftIssue{
+				{Issue: "large issue", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+			}},
+			{Feature: "beta", Issues: []analyzer.DriftIssue{
+				{Issue: "medium issue", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+			}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "https://docs.example.com/a", ShouldShow: "x", Priority: analyzer.PrioritySmall, PriorityReason: "r"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+
+	require.NoError(t, WriteReport(dir, in))
+
+	f, r, err := pdfreader.Open(filepath.Join(dir, "report.pdf"))
+	require.NoError(t, err)
+	defer f.Close()
+
+	// TOC is page 2.
+	tocText, err := r.Page(2).GetPlainText(nil)
+	require.NoError(t, err)
+
+	// Features section with two feature rows.
+	assert.Contains(t, tocText, "Features")
+	assert.Contains(t, tocText, "alpha")
+	assert.Contains(t, tocText, "beta")
+
+	// Gaps section with Large + Medium rows but NOT Small (the bucket is empty).
+	assert.Contains(t, tocText, "Gaps")
+	assert.Contains(t, tocText, "Large")
+	assert.Contains(t, tocText, "Medium")
+	// Small priority bucket of drift is empty; the screenshot Missing bucket
+	// IS Small, so "Small" SHOULD appear, but the drift-Small TOC row
+	// should not. We don't have a clean way to distinguish via text alone,
+	// so we instead verify the Screenshots side has the right entries.
+
+	// Screenshots section with Missing Screenshots row + Small sub-bucket;
+	// no Image Issues, no Possibly Covered.
+	assert.Contains(t, tocText, "Screenshots")
+	assert.Contains(t, tocText, "Missing Screenshots")
+	assert.Contains(t, tocText, "Small")
+	assert.NotContains(t, tocText, "Image Issues", "Image Issues TOC entry must be omitted when ImageIssues empty")
+	assert.NotContains(t, tocText, "Possibly Covered", "Possibly Covered TOC entry must be omitted when PossiblyCovered empty")
+}
+
+func TestCollectTOCEntries_DepthsMatchStructure(t *testing.T) {
+	in := Inputs{
+		Mapping: analyzer.FeatureMap{
+			{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "beta", UserFacing: true}},
+		},
+		Drift: []analyzer.DriftFinding{
+			{Feature: "alpha", Issues: []analyzer.DriftIssue{
+				{Issue: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+			}},
+		},
+		Screenshots: analyzer.ScreenshotResult{
+			MissingGaps: []analyzer.ScreenshotGap{
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PrioritySmall, PriorityReason: "r"},
+			},
+		},
+		ScreenshotsRan: true,
+	}
+
+	entries := collectTOCEntries(in)
+
+	// Build expected sequence: Features(0), alpha(1), beta(1), Gaps(0),
+	// Large(1), Screenshots(0), Missing Screenshots(1), Small(2).
+	type want struct {
+		label string
+		depth int
+	}
+	expected := []want{
+		{"Features", 0},
+		{"alpha", 1},
+		{"beta", 1},
+		{"Gaps", 0},
+		{"Large", 1},
+		{"Screenshots", 0},
+		{"Missing Screenshots", 1},
+		{"Small", 2},
+	}
+	require.Equal(t, len(expected), len(entries), "got %d entries, want %d: %#v", len(entries), len(expected), entries)
+	for i, e := range expected {
+		assert.Equal(t, e.label, entries[i].Label, "entries[%d].Label", i)
+		assert.Equal(t, e.depth, entries[i].Depth, "entries[%d].Depth (Label=%s)", i, entries[i].Label)
+	}
+}
+
 func TestAnchorTable_StableIDs(t *testing.T) {
 	doc := newDoc()
 	a := newAnchorTable(doc)
@@ -105,9 +210,10 @@ func TestSlugify(t *testing.T) {
 func TestFinalizeTOC_NoOpOnEmptyRows(t *testing.T) {
 	doc := newDoc()
 	doc.AddPage() // ensure the doc has a current page
+	anchors := newAnchorTable(doc)
 	// Should not panic and should leave the document writable.
-	finalizeTOC(doc, nil, nil)
-	finalizeTOC(doc, []tocRow{}, map[string]int{})
+	finalizeTOC(doc, nil, anchors)
+	finalizeTOC(doc, []tocRow{}, anchors)
 	doc.SetFont("Helvetica", "", fontSizeBody)
 	doc.CellFormat(0, 0.25, "still works", "", 1, "L", false, 0, "")
 }
@@ -121,9 +227,11 @@ func TestFinalizeTOC_SkipsRowWithoutTarget(t *testing.T) {
 		{Label: "Gaps", Anchor: "gaps", Depth: 0},
 	})
 
-	// Provide a target only for "features"; "gaps" should be silently left
-	// as the "..." placeholder rather than crashing or corrupting the doc.
-	finalizeTOC(doc, rows, map[string]int{"features": 3})
+	// Mark only "features"; "gaps" stays unmarked and finalizeTOC must
+	// silently leave its "..." placeholder rather than crash.
+	doc.AddPage()
+	anchors.Mark("features")
+	finalizeTOC(doc, rows, anchors)
 
 	path := filepath.Join(t.TempDir(), "ok.pdf")
 	require.NoError(t, doc.OutputFileAndClose(path))

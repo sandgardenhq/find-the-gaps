@@ -123,16 +123,11 @@ func pageWidth(doc *fpdf.Fpdf) float64 {
 	return w - marginLeft - marginRight
 }
 
-// renderGaps emits the Gaps section, priority-bucketed and cross-linked
-// to features. Caller-side variant uses the default feature-anchor map;
-// renderGapsWithAnchors lets the dispatcher reuse a precomputed map.
-func renderGaps(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable) {
-	renderGapsWithAnchors(doc, in, anchors, computeFeatureAnchors(in))
-}
-
 // renderGapsWithAnchors emits Gaps with caller-supplied feature anchors.
 // Findings are bucketed by priority (Large → Medium → Small); empty
-// buckets are omitted along with their sub-heading.
+// buckets are omitted along with their sub-heading. Each non-empty bucket
+// marks `gaps-<priority>` so the TOC sub-entries resolve to the right
+// page.
 func renderGapsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, featAnchors map[string]string) {
 	sectionHeading(doc, "Gaps")
 
@@ -142,6 +137,7 @@ func renderGapsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, feat
 		if len(findings) == 0 {
 			continue
 		}
+		anchors.Mark(gapsBucketAnchor(p))
 		priorityHeading(doc, p)
 		for _, f := range findings {
 			renderDriftFinding(doc, anchors, featAnchors, f)
@@ -266,33 +262,31 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 	doc.SetTextColor(colorBodyR, colorBodyG, colorBodyB)
 }
 
-// renderScreenshots emits the Screenshots section (Missing Screenshots,
-// Image Issues, Possibly Covered). Caller is responsible for gating on
-// in.ScreenshotsRan; this function assumes the section should render.
-func renderScreenshots(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable) {
-	renderScreenshotsWithAnchors(doc, in, anchors, computeFeatureAnchors(in))
-}
-
-// renderScreenshotsWithAnchors is the explicit-anchors variant used by
-// renderSections. Each sub-section (Missing, Image Issues, Possibly
-// Covered) is priority-bucketed; empty sub-sections and their headings
-// are omitted entirely.
+// renderScreenshotsWithAnchors emits the Screenshots section (Missing
+// Screenshots, Image Issues, Possibly Covered). The caller is responsible
+// for gating on in.ScreenshotsRan; this function assumes the section
+// should render. Each sub-section is priority-bucketed; empty
+// sub-sections and their headings are omitted entirely. Sub-section and
+// per-bucket anchors are marked so the TOC sub-entries resolve.
 func renderScreenshotsWithAnchors(doc *fpdf.Fpdf, in Inputs, anchors *anchorTable, featAnchors map[string]string) {
 	sectionHeading(doc, "Screenshots")
 
 	pageToFeatures := computePageToFeatures(in)
 
 	if len(in.Screenshots.MissingGaps) > 0 {
+		anchors.Mark("screenshots-missing")
 		subSectionHeading(doc, "Missing Screenshots")
-		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, in.Screenshots.MissingGaps, renderMissingGap)
+		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, "missing", in.Screenshots.MissingGaps, renderMissingGap)
 	}
 	if len(in.Screenshots.ImageIssues) > 0 {
+		anchors.Mark("screenshots-image-issues")
 		subSectionHeading(doc, "Image Issues")
-		renderImageIssueBuckets(doc, anchors, featAnchors, pageToFeatures, in.Screenshots.ImageIssues)
+		renderImageIssueBuckets(doc, anchors, featAnchors, pageToFeatures, "image-issues", in.Screenshots.ImageIssues)
 	}
 	if len(in.Screenshots.PossiblyCovered) > 0 {
+		anchors.Mark("screenshots-possibly-covered")
 		subSectionHeading(doc, "Possibly Covered")
-		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, in.Screenshots.PossiblyCovered, renderMissingGap)
+		renderGapBuckets(doc, anchors, featAnchors, pageToFeatures, "possibly-covered", in.Screenshots.PossiblyCovered, renderMissingGap)
 	}
 }
 
@@ -321,12 +315,15 @@ func subSectionHeading(doc *fpdf.Fpdf, title string) {
 
 // renderGapBuckets walks ScreenshotGap items, groups by priority, and
 // dispatches to renderOne per item. Used for both Missing Screenshots
-// and Possibly Covered, which share the gap shape.
+// and Possibly Covered, which share the gap shape. slug is the
+// sub-section identifier ("missing", "possibly-covered") used to build
+// per-bucket anchor names so the TOC sub-entries resolve.
 func renderGapBuckets(
 	doc *fpdf.Fpdf,
 	anchors *anchorTable,
 	featAnchors map[string]string,
 	pageToFeatures map[string][]string,
+	slug string,
 	gaps []analyzer.ScreenshotGap,
 	renderOne func(*fpdf.Fpdf, *anchorTable, map[string]string, map[string][]string, analyzer.ScreenshotGap),
 ) {
@@ -342,6 +339,7 @@ func renderGapBuckets(
 		if len(batch) == 0 {
 			continue
 		}
+		anchors.Mark(screenshotsBucketAnchor(slug, p))
 		priorityHeading(doc, p)
 		for _, g := range batch {
 			renderOne(doc, anchors, featAnchors, pageToFeatures, g)
@@ -358,6 +356,7 @@ func renderImageIssueBuckets(
 	anchors *anchorTable,
 	featAnchors map[string]string,
 	pageToFeatures map[string][]string,
+	slug string,
 	issues []analyzer.ImageIssue,
 ) {
 	buckets := map[analyzer.Priority][]analyzer.ImageIssue{}
@@ -372,6 +371,7 @@ func renderImageIssueBuckets(
 		if len(batch) == 0 {
 			continue
 		}
+		anchors.Mark(screenshotsBucketAnchor(slug, p))
 		priorityHeading(doc, p)
 		for _, i := range batch {
 			renderImageIssue(doc, anchors, featAnchors, pageToFeatures, i)

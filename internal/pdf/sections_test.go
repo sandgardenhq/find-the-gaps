@@ -116,21 +116,23 @@ func TestRenderGaps_BucketsByPriority(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	// Locate the Gaps section page by scanning for the "Gaps" heading.
+	// Locate the gaps body page by scanning for an actual issue text.
+	// (Both the TOC page and the gaps page contain the word "Large", so
+	// "Large" alone is not enough to disambiguate; the issue strings only
+	// appear on the gaps body page.)
 	var gapsText string
 	for p := 1; p <= r.NumPage(); p++ {
 		txt, err := r.Page(p).GetPlainText(nil)
 		require.NoError(t, err)
-		// Must include the section heading, "Large" sub-heading, and at
-		// least one finding to count as the gaps page.
-		if strings.Contains(txt, "Gaps") && strings.Contains(txt, "Large") {
+		if strings.Contains(txt, "wrong error code documented") {
 			gapsText = txt
 			break
 		}
 	}
-	require.NotEmpty(t, gapsText, "Gaps section must render with sub-headings")
+	require.NotEmpty(t, gapsText, "Gaps section body must render with at least one finding")
 
-	// Order: Large appears before Medium appears before Small.
+	// Order: Large appears before Medium appears before Small on the
+	// gaps body page.
 	largeIdx := strings.Index(gapsText, "Large")
 	mediumIdx := strings.Index(gapsText, "Medium")
 	smallIdx := strings.Index(gapsText, "Small")
@@ -317,17 +319,17 @@ func TestRenderScreenshots_MissingBucketed(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	// Collect the screenshot section text — first page containing the
-	// "Missing Screenshots" sub-heading.
+	// Collect the screenshot body page — TOC also contains "Missing
+	// Screenshots", so disambiguate by searching for an actual finding.
 	var section string
 	for p := 1; p <= r.NumPage(); p++ {
 		txt, _ := r.Page(p).GetPlainText(nil)
-		if strings.Contains(txt, "Missing Screenshots") {
+		if strings.Contains(txt, "the big dialog") {
 			section = txt
 			break
 		}
 	}
-	require.NotEmpty(t, section, "Missing Screenshots sub-heading must render when MissingGaps is non-empty")
+	require.NotEmpty(t, section, "Missing Screenshots body must render at least one gap")
 
 	// Both passages must appear.
 	assert.Contains(t, section, "the big dialog")
