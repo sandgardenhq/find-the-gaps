@@ -1,6 +1,6 @@
 # Progress
 
-## Feature: PDF Report Export — IN PROGRESS
+## Feature: PDF Report Export — COMPLETE
 - Started: 2026-05-13
 - Plan: `.plans/PDF_EXPORT.md`
 - Summary: New `internal/pdf` package emits `report.pdf` alongside the existing markdown reports and Hugo site. Pure-Go via `go-pdf/fpdf`. Default-on with `--no-pdf` opt-out. Hybrid layout (Features / Gaps / Screenshots) with clickable TOC.
@@ -34,6 +34,17 @@
 - Tests: 32 passing in `internal/pdf` + new `TestRenderCmd_EmitsPDFByDefault`, `TestRenderCmd_SkipsPDFWithNoPDFFlag` in `internal/cli`; testscripts `analyze_no_pdf.txtar` and `analyze_pdf_help.txtar` added.
 - Build: ✅ `go build ./...` clean
 - Notes: `--no-pdf` flag added to both `analyze` and `render` commands (default false). `pdf.WriteReport` invoked from analyze after the `site.Build` block (gated on `!noPDF`) and from render after the markdown reporters. New `report.pdf` line appended to the stdout `reports:` block, with `(skipped)` annotation when `--no-pdf` is set. `internal/cli/analyze.go` and `internal/cli/render.go` both import `internal/pdf`. Pre-existing CLI test failures (TestAnalyze_forgeURL_*) are environmental (git commit signing failures in the sandbox); confirmed they fail on the stashed branch as well, unrelated to this task.
+
+### Polish: TOC stamping, line wrapping, UTF-8 sanitization — COMPLETE
+- Visual review of `sample-report.pdf` surfaced three rendering issues; all three resolved in one commit (`fix(pdf): clean TOC page-number column, ...`).
+- `finalizeTOC` now paints a white rectangle over the placeholder column before stamping the resolved page number (was leaving leading dots from `...`).
+- `renderDriftFinding` and `secondaryLine` now use `MultiCell` so long issue text and URLs wrap inside the page margins.
+- New `sanitize()` helper translates em-dash, en-dash, curly quotes, ellipsis, arrows, and bullets to ASCII; applied at every user-content rendering site so fpdf's core fonts no longer produce mojibake.
+- `TestSanitize` covers all of the above plus Latin-1 passthrough.
+
+### Task 10: Verification plan update — COMPLETE
+- Added Scenario 18 to `.plans/VERIFICATION_PLAN.md` covering the full PDF surface: default emission, `--no-pdf` opt-out, content matches `drift.json` / `screenshots.json` / `mapping.md`, TOC link navigation, screenshots-gated sub-sections, render command re-emission, and the no-mojibake / no-overflow invariants.
+- `sample-report.pdf` retained under `.plans/` so reviewers can grab the artifact off the branch.
 
 ### Task 8: TOC sub-entries — COMPLETE
 - Tests: 30 passing (added `TestTOC_HasSubEntries`, `TestCollectTOCEntries_DepthsMatchStructure`; updated `TestFinalizeTOC_*` for new `anchorTable`-based API)

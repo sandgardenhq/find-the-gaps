@@ -433,6 +433,36 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 ---
 
+### Scenario 18: PDF Report Export
+
+**Context**: Verify the `report.pdf` artifact is produced by default, opts out cleanly via `--no-pdf`, and its contents match `drift.json` / `screenshots.json` / `mapping.md` on a real fixture. Same fixture as Scenario 9 (a small, real open-source Go project pinned to a known commit). The renderer is implemented in `internal/pdf` and is invoked from both `ftg analyze` and `ftg render`.
+
+**Steps**:
+1. From a clean state (`rm -rf <projectDir>`), run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<known-good-docs>` (default flags — no `--no-pdf`).
+2. Confirm `<projectDir>/report.pdf` exists and the stdout `reports:` block includes a `report.pdf` line (without `(skipped)`).
+3. Open the PDF in a viewer (Preview, Skim, Acrobat). Inspect the cover page, the TOC, and each section.
+4. Run `pdftotext -layout <projectDir>/report.pdf -` and grep the extracted text for every `feature` in `drift.json` and every `page_url` in `screenshots.json`. Every entry must appear.
+5. In a real PDF reader, click each TOC entry (top-level and sub-entries) and confirm it jumps to the matching anchor.
+6. From a clean state, re-run with `--no-pdf`. Confirm `<projectDir>/report.pdf` does NOT exist. Confirm the stdout `reports:` block lists `report.pdf (skipped)`.
+7. From a clean state, re-run with `--experimental-check-screenshots`. Confirm the Screenshots section appears in the PDF, and that any non-empty `image_issues` or `possibly_covered` buckets render as their own sub-sections in the PDF.
+8. Run `ftg render --project <name> --cache-dir <cacheDir>` against the same project. Confirm `<projectDir>/report.pdf` is re-emitted (timestamp newer than step 1's run).
+9. Run `ftg render --project <name> --cache-dir <cacheDir> --no-pdf` and confirm `report.pdf` is left untouched (NOT re-written, NOT deleted).
+
+**Success Criteria**:
+- [ ] Step 2: `report.pdf` exists, is non-zero in size, parses as a valid PDF (`file report.pdf` reports `PDF document`). Stdout reports block contains `<projectDir>/report.pdf` (no `(skipped)` annotation).
+- [ ] Step 3: cover renders the project name, repo URL, docs URL, and a `YYYY-MM-DD HH:MM UTC` timestamp; TOC heading reads `Table of Contents` and lists Features / Gaps / Screenshots (Screenshots present iff `--experimental-check-screenshots` was set on this run); every non-empty priority bucket has an indented row beneath its parent; per-feature rows appear under Features; page numbers are present and non-zero.
+- [ ] Step 4: every drift `feature` name and every screenshot `page_url` from the JSON artifacts appears in the extracted text.
+- [ ] Step 5: each TOC entry jumps to the right anchor. Drift findings: clicking the feature name jumps to the Features-section block for that feature. Screenshot findings on a page that maps to exactly one feature: clicking the page URL jumps to the same Features block. Screenshot findings on a multi-feature page render as plain text (no link annotation).
+- [ ] Step 6: `report.pdf` does not exist after the run; stdout reports block lists `<projectDir>/report.pdf (skipped)`.
+- [ ] Step 7: PDF contains a `Screenshots` heading on its own page; sub-sections `Missing Screenshots`, `Image Issues`, `Possibly Covered` are rendered if and only if the corresponding slice in `screenshotResult` is non-empty. Each rendered sub-section has its non-empty priority buckets in Large → Medium → Small order.
+- [ ] Step 8: `report.pdf` timestamp is newer than step 1; the file remains under `<projectDir>/`, not under `<projectDir>/site/`.
+- [ ] Step 9: `report.pdf` is untouched (timestamp from step 8 preserved).
+- [ ] Across all runs: no UTF-8 mojibake in the rendered text (em-dashes, curly quotes, ellipses, etc. render as their ASCII substitutes); long URLs and issue strings wrap inside the page margins rather than running off the right edge.
+
+**If Blocked**: If TOC links do not resolve, audit `anchorTable.pages` after section rendering — the most likely cause is a renderer that forgot to call `anchors.Mark` for an entry that `collectTOCEntries` listed. If the PDF contains mojibake (e.g. `â€"`), the `sanitize()` helper isn't reaching that call site — capture the offending string from `<projectDir>/drift.json` or `screenshots.json` and check whether the rendering function ran it through `sanitize` before `CellFormat`/`MultiCell`. If `report.pdf` appears under `<projectDir>/site/` instead of `<projectDir>/`, the wiring point in `analyze.go` was placed inside the `site.Build` invocation by mistake — flag and revert.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
