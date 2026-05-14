@@ -124,7 +124,6 @@ func Build(ctx context.Context, in Inputs, opts BuildOptions) error {
 		"--source", absSrc,
 		"--destination", absDest,
 		"--minify",
-		"--quiet",
 		"--baseURL", "/",
 	)
 	var stderr strings.Builder
