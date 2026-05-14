@@ -47,7 +47,7 @@ func drawPill(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
 	doc.CellFormat(w, pillHeight, label, "", 0, "C", false, 0, "")
 
 	// Restore body text colour so subsequent calls don't inherit the pill fg.
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	doc.SetXY(x+w, y)
 	return w
 }
@@ -99,7 +99,7 @@ func drawBadge(doc *fpdf.Fpdf, label string, fg, bg, border int) float64 {
 	doc.SetXY(x, y)
 	doc.CellFormat(w, badgeHeight, label, "", 0, "C", false, 0, "")
 
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	doc.SetXY(x+w, y)
 	return w
 }
@@ -146,8 +146,8 @@ func drawCard(doc *fpdf.Fpdf, x, y, w, h float64, stripeHex int) {
 	defer doc.SetLineWidth(oldLineW)
 
 	// Outer rounded rect.
-	setFillColor(doc, colorCardBg)
-	setDrawColor(doc, colorCardBorder)
+	setFillColor(doc, colorSurface)
+	setDrawColor(doc, colorRule)
 	doc.SetLineWidth(pointsToInches(cardBorderW))
 	doc.RoundedRect(x, y, w, h, cardRadius, "1234", "FD")
 

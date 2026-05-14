@@ -31,19 +31,19 @@ func renderCover(doc *fpdf.Fpdf, in Inputs) {
 	// Title block (centered, serif).
 	doc.SetY(heroTitleY)
 	doc.SetFont(titleFont, "B", fontSizeTitle)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	doc.CellFormat(0, 0.5, "Find the Gaps", "", 1, "C", false, 0, "")
 
 	if in.ProjectName != "" {
 		doc.SetFont(titleFont, "", fontSizeH1)
-		setTextColor(doc, colorMutedFg)
+		setTextColor(doc, colorInkMute)
 		doc.CellFormat(0, 0.4, sanitize(in.ProjectName), "", 1, "C", false, 0, "")
 	}
 
 	// Metadata block (left-aligned under the title).
 	doc.SetY(heroMetaY)
 	doc.SetFont(bodyFont, "", fontSizeMeta)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	if in.RepoURL != "" {
 		doc.SetX(marginLeft)
 		doc.CellFormat(0, 0.25, "Repo:  "+sanitize(in.RepoURL), "", 1, "L", false, 0, "")
@@ -85,11 +85,12 @@ type statCard struct {
 }
 
 // buildStats produces the slice of stat cards to render on the cover.
-// Colour rules mirror the .ftg-stat-card--good / --bad / --neutral
-// modifiers in custom.css.
+// Colour rules mirror the brand block in custom.css: features uses the
+// neutral rule colour; gaps and screenshots use sev-small (green) when
+// at zero (clean run) and sev-large (magenta) when positive.
 func buildStats(in Inputs) []statCard {
 	cards := []statCard{
-		{number: len(in.Mapping), label: "features", stripe: colorNeutralBorder},
+		{number: len(in.Mapping), label: "features", stripe: colorRule},
 		{number: totalDriftIssues(in.Drift), label: "gaps",
 			stripe: countStripe(totalDriftIssues(in.Drift))},
 	}
@@ -105,12 +106,13 @@ func buildStats(in Inputs) []statCard {
 }
 
 // countStripe maps a count to a stripe colour: 0 reads as a clean run
-// (good/green), any positive count reads as work to do (bad/red).
+// (sev-small green); any positive count reads as work to do (sev-large
+// magenta).
 func countStripe(n int) int {
 	if n == 0 {
-		return colorGoodFg
+		return colorSevSmall
 	}
-	return colorBadFg
+	return colorSevLarge
 }
 
 // drawStatCard renders one stat-card box at (x, y). Big number on top,
@@ -128,10 +130,10 @@ func drawStatCard(doc *fpdf.Fpdf, x, y, w, h float64, s statCard) {
 	// Label below.
 	doc.SetXY(x, y+0.85)
 	doc.SetFont(bodyFont, "", fontSizeMeta)
-	setTextColor(doc, colorMutedFg)
+	setTextColor(doc, colorInkMute)
 	doc.CellFormat(w, 0.3, s.label, "", 1, "C", false, 0, "")
 
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 }
 
 // summaryLine remains for callers that prefer the inline-summary form

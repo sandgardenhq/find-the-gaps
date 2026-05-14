@@ -21,7 +21,7 @@ func registerFooter(doc *fpdf.Fpdf, projectName string) {
 		}
 		doc.SetY(-marginBottom + 0.3)
 		doc.SetFont(bodyFont, "", fontSizeFooter)
-		setTextColor(doc, colorMutedFg)
+		setTextColor(doc, colorInkMute)
 		doc.CellFormat(0, 0.25, footerText(projectName, doc.PageNo()), "", 0, "C", false, 0, "")
 	})
 }

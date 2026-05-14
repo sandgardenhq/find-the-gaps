@@ -41,7 +41,7 @@ func TestPill_DrawsLabel(t *testing.T) {
 	doc.AddPage()
 	doc.SetXY(marginLeft, marginTop)
 
-	width := drawPill(doc, "large", colorBadFg, colorBadBg, colorBadBorder)
+	width := drawPill(doc, "large", colorSevLarge, colorSevLargeTint, colorSevLarge)
 	assert.Greater(t, width, 0.0, "pill width must be positive")
 
 	text := extractTextWhitebox(t, doc)
@@ -68,7 +68,7 @@ func TestDrawCard_DrawsBoundedRect(t *testing.T) {
 	doc.AddPage()
 	startY := doc.GetY()
 
-	drawCard(doc, marginLeft, startY, 5.0, 1.2, colorBadFg)
+	drawCard(doc, marginLeft, startY, 5.0, 1.2, colorSevLarge)
 
 	// Drawing a card should not move the cursor by itself; renderers
 	// position content inside the card explicitly. Just confirm the

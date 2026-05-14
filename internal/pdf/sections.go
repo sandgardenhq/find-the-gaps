@@ -100,14 +100,14 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 	// Heading (serif).
 	doc.SetXY(innerX, cardY+cardPadY)
 	doc.SetFont(titleFont, "B", fontSizeH2)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	doc.MultiCell(innerW, 0.32, name, "", "L", false)
 
 	// Description (italic, muted).
 	if desc != "" {
 		doc.SetX(innerX)
 		doc.SetFont(bodyFont, "I", fontSizeBody)
-		setTextColor(doc, colorMutedFg)
+		setTextColor(doc, colorInkMute)
 		doc.MultiCell(innerW, 0.22, desc, "", "L", false)
 	}
 
@@ -118,7 +118,7 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 
 	// Files / Symbols / Documented-on.
 	doc.SetFont(bodyFont, "", fontSizeMeta)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	for _, ln := range []string{files, symbols, docPagesStr} {
 		if ln == "" {
 			continue
@@ -136,32 +136,32 @@ func renderFeatureBlock(doc *fpdf.Fpdf, entry analyzer.FeatureEntry, docPages []
 func featureStripeColor(userFacing, documented bool) int {
 	switch {
 	case documented:
-		return colorGoodFg
+		return colorSevSmall
 	case userFacing:
-		return colorBadFg
+		return colorSevLarge
 	}
-	return colorNeutralBorder
+	return colorRule
 }
 
 // renderFeatureBadges emits the metadata badge row for a feature card:
 // Layer (when present), User-facing / Internal, and Documented /
 // Undocumented. Colours follow the .ftg-badge--* modifiers in
-// custom.css.
+// custom.css (line 805-812 + the dark-mode overrides further down).
 func renderFeatureBadges(doc *fpdf.Fpdf, f analyzer.CodeFeature, documented bool) {
 	if f.Layer != "" {
-		drawBadge(doc, sanitize(f.Layer), colorNeutralFg, colorNeutralBg, colorNeutralBorder)
+		drawBadge(doc, sanitize(f.Layer), colorBadgeLayerFg, colorBadgeLayerBg, colorBadgeLayerBg)
 		doc.SetX(doc.GetX() + 0.08)
 	}
 	if f.UserFacing {
-		drawBadge(doc, "user-facing", colorWarnFg, colorWarnBg, colorWarnBorder)
+		drawBadge(doc, "user-facing", colorBadgeUserFg, colorBadgeUserBg, colorBadgeUserBg)
 	} else {
-		drawBadge(doc, "internal", colorMutedFg, colorNeutralBg, colorNeutralBorder)
+		drawBadge(doc, "internal", colorBadgeInternalFg, colorBadgeInternalBg, colorBadgeInternalBg)
 	}
 	doc.SetX(doc.GetX() + 0.08)
 	if documented {
-		drawBadge(doc, "documented", colorGoodFg, colorGoodBg, colorGoodBorder)
+		drawBadge(doc, "documented", colorBadgeDocFg, colorBadgeDocBg, colorBadgeDocBg)
 	} else {
-		drawBadge(doc, "undocumented", colorBadFg, colorBadBg, colorBadBorder)
+		drawBadge(doc, "undocumented", colorSevLarge, colorSevLargeTint, colorSevLargeTint)
 	}
 }
 
@@ -288,56 +288,43 @@ func priorityLabel(p analyzer.Priority) string {
 	return string(p)
 }
 
-// priorityForeground returns the foreground (text/icon) hex colour
-// associated with one priority bucket. Mirrors the --ftg-bad / --ftg-warn /
-// --ftg-neutral mappings in custom.css.
+// priorityForeground returns the foreground (text/icon) hex colour for
+// one priority bucket. Mirrors --ftg-sev-{large,medium,small} in
+// custom.css.
 func priorityForeground(p analyzer.Priority) int {
 	switch p {
 	case analyzer.PriorityLarge:
-		return colorBadFg
+		return colorSevLarge
 	case analyzer.PriorityMedium:
-		return colorWarnFg
+		return colorSevMedium
 	}
-	return colorNeutralFg
+	return colorSevSmall
 }
 
-// priorityBackground returns the pill fill colour for one priority bucket.
+// priorityBackground returns the pill fill colour for one priority
+// bucket. Uses the pre-blended sev-*-tint values from style.go.
 func priorityBackground(p analyzer.Priority) int {
 	switch p {
 	case analyzer.PriorityLarge:
-		return colorBadBg
+		return colorSevLargeTint
 	case analyzer.PriorityMedium:
-		return colorWarnBg
+		return colorSevMediumTint
 	}
-	return colorNeutralBg
+	return colorSevSmallTint
 }
 
-// priorityBorder returns the pill border colour for one priority bucket.
-// The Small bucket uses the neutral *border* token (not the neutral
-// foreground) so its pill matches the lighter outline used on the site.
+// priorityBorder returns the pill border colour for one priority
+// bucket. The site uses the same hue as the foreground but at the
+// tint's saturation; we approximate by re-using the foreground hex.
 func priorityBorder(p analyzer.Priority) int {
-	switch p {
-	case analyzer.PriorityLarge:
-		return colorBadBorder
-	case analyzer.PriorityMedium:
-		return colorWarnBorder
-	}
-	return colorNeutralBorder
+	return priorityForeground(p)
 }
 
-// priorityStripe returns the card-stripe colour for one priority bucket.
-// Mirrors .ftg-stale--large / --medium / --small: Large and Medium use
-// the priority's foreground (saturated red / amber), Small uses the
-// lighter neutral *border* so the small-severity card reads as a quiet
-// outline rather than a dark slate band.
+// priorityStripe returns the card-stripe colour for one priority
+// bucket. Mirrors .ftg-stale--large / --medium / --small in
+// custom.css.
 func priorityStripe(p analyzer.Priority) int {
-	switch p {
-	case analyzer.PriorityLarge:
-		return colorBadFg
-	case analyzer.PriorityMedium:
-		return colorWarnFg
-	}
-	return colorNeutralBorder
+	return priorityForeground(p)
 }
 
 
@@ -370,9 +357,9 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 	if anchor, ok := featAnchors[b.Feature]; ok {
 		linkID := anchors.Get(anchor)
 		featW := doc.GetStringWidth(featureLabel) + 0.02
-		setTextColor(doc, colorLinkFg)
+		setTextColor(doc, colorMagenta)
 		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, linkID, "")
-		setTextColor(doc, colorBodyFg)
+		setTextColor(doc, colorInk)
 	} else {
 		featW := doc.GetStringWidth(featureLabel) + 0.02
 		doc.CellFormat(featW, 0.22, featureLabel, "", 0, "L", false, 0, "")
@@ -382,19 +369,19 @@ func renderDriftFinding(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[st
 	// Issue body — wraps.
 	doc.SetX(innerX)
 	doc.SetFont(bodyFont, "", fontSizeBody)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	doc.MultiCell(innerW, 0.22, issue, "", "L", false)
 
 	// Reason + page reference — wraps, italic muted.
 	doc.SetX(innerX)
-	setTextColor(doc, colorMutedFg)
+	setTextColor(doc, colorInkMute)
 	doc.SetFont(bodyFont, "I", fontSizeMeta)
 	secondary := reason
 	if page != "" {
 		secondary += "   (" + page + ")"
 	}
 	doc.MultiCell(innerW, 0.20, secondary, "", "L", false)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 
 	// Drop cursor to just below the card with a small gap before the
 	// next sibling card. doc.SetY is what later renderers consult.
@@ -468,7 +455,7 @@ func computePageToFeatures(in Inputs) map[string][]string {
 func subSectionHeading(doc *fpdf.Fpdf, title string) {
 	doc.Ln(0.1)
 	doc.SetFont(titleFont, "B", fontSizeH2)
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 	doc.CellFormat(0, 0.32, title, "", 1, "L", false, 0, "")
 }
 
@@ -705,39 +692,38 @@ func renderScreenshotCard(
 	if len(owners) == 1 {
 		if anchor, ok := featAnchors[owners[0]]; ok {
 			linkID := anchors.Get(anchor)
-			setTextColor(doc, colorLinkFg)
+			setTextColor(doc, colorMagenta)
 			doc.CellFormat(innerW, 0.24, pageURL, "", 1, "L", false, linkID, "")
-			setTextColor(doc, colorBodyFg)
+			setTextColor(doc, colorInk)
 		} else {
-			setTextColor(doc, colorBodyFg)
+			setTextColor(doc, colorInk)
 			doc.CellFormat(innerW, 0.24, pageURL, "", 1, "L", false, 0, "")
 		}
 	} else {
-		setTextColor(doc, colorBodyFg)
+		setTextColor(doc, colorInk)
 		doc.CellFormat(innerW, 0.24, pageURL, "", 1, "L", false, 0, "")
 	}
 
 	// Body lines.
 	doc.SetFont(bodyFont, "", fontSizeMeta)
-	setTextColor(doc, colorMutedFg)
+	setTextColor(doc, colorInkMute)
 	for _, ln := range lines {
 		doc.SetX(innerX)
 		doc.MultiCell(innerW, 0.20, ln, "", "L", false)
 	}
-	setTextColor(doc, colorBodyFg)
+	setTextColor(doc, colorInk)
 
 	// Move below card with a small inter-card gap.
 	doc.SetY(cardY + cardH + 0.12)
 }
 
-// sectionHeading writes a top-level section title in the brand accent
-// color. Shared by every renderer so the visual treatment stays
-// consistent. Uses the serif titleFont to anchor the typographic
-// hierarchy against the sans-serif body.
+// sectionHeading writes a top-level section title in the brand magenta.
+// Uses the Poppins titleFont to anchor the typographic hierarchy
+// against the Inter body.
 func sectionHeading(doc *fpdf.Fpdf, title string) {
 	doc.SetFont(titleFont, "B", fontSizeH1)
-	setTextColor(doc, colorLinkFg)
-	doc.CellFormat(0, 0.5, title, "", 1, "L", false, 0, "")
-	setTextColor(doc, colorBodyFg)
-	doc.Ln(0.1)
+	setTextColor(doc, colorMagenta)
+	doc.CellFormat(0, 0.4, title, "", 1, "L", false, 0, "")
+	setTextColor(doc, colorInk)
+	doc.Ln(0.06)
 }

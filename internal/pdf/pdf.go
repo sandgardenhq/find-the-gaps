@@ -71,13 +71,29 @@ func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string
 }
 
 // newDoc constructs the fpdf document the renderer writes into. Letter
-// size, portrait, inch-based units, Inter as the body face (registered
-// via embedded TTFs in fonts.go so report.pdf renders the same
-// typography as the Hextra-rendered site).
+// size, portrait, inch-based units, Inter as the body face and Poppins
+// as the display face (registered via embedded TTFs in fonts.go so
+// report.pdf renders the same typography as the Hextra-rendered site).
+//
+// A header function paints the warm-paper background on every new page
+// so the document body matches `--ftg-paper-warm` from custom.css. The
+// paint runs before any content draws, so cards and pills sit on the
+// tinted background just like they do on the site.
 func newDoc() *fpdf.Fpdf {
 	doc := fpdf.New("P", "in", "Letter", "")
 	doc.SetMargins(marginLeft, marginTop, marginRight)
 	doc.SetAutoPageBreak(true, marginBottom)
 	registerFonts(doc)
+
+	doc.SetHeaderFunc(func() {
+		w, h := doc.GetPageSize()
+		setFillColor(doc, colorPaperWarm)
+		doc.Rect(0, 0, w, h, "F")
+		// SetHeaderFunc would otherwise leave the cursor wherever the
+		// fill ended; reset to the top margin so the first content
+		// draw starts where the page expects.
+		doc.SetXY(marginLeft, marginTop)
+	})
+
 	return doc
 }
