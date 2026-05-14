@@ -157,21 +157,22 @@ func TestCollectTOCEntries_DepthsMatchStructure(t *testing.T) {
 
 	entries := collectTOCEntries(in)
 
-	// Build expected sequence: Features(0), alpha(1), beta(1), Gaps(0),
-	// Large(1), Screenshots(0), Missing Screenshots(1), Small(2).
+	// Build expected sequence in the canonical Gaps -> Screenshots ->
+	// Features order: Gaps(0), Large(1), Screenshots(0), Missing
+	// Screenshots(1), Small(2), Features(0), alpha(1), beta(1).
 	type want struct {
 		label string
 		depth int
 	}
 	expected := []want{
-		{"Features", 0},
-		{"alpha", 1},
-		{"beta", 1},
 		{"Gaps", 0},
 		{"Large", 1},
 		{"Screenshots", 0},
 		{"Missing Screenshots", 1},
 		{"Small", 2},
+		{"Features", 0},
+		{"alpha", 1},
+		{"beta", 1},
 	}
 	require.Equal(t, len(expected), len(entries), "got %d entries, want %d: %#v", len(entries), len(expected), entries)
 	for i, e := range expected {

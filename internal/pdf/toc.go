@@ -30,24 +30,14 @@ type tocRow struct {
 }
 
 // collectTOCEntries returns every row the TOC must render, in document
-// order. Top-level sections are depth 0; per-feature, per-bucket, and
-// per-sub-section rows are depth 1; the Large/Medium/Small buckets *inside*
-// a Missing Screenshots / Image Issues / Possibly Covered sub-section are
-// depth 2. Empty buckets and empty sub-sections are pruned so the TOC
-// matches the rendered body exactly.
+// order (Gaps → Screenshots → Features). Top-level sections are depth
+// 0; per-feature, per-bucket, and per-sub-section rows are depth 1; the
+// Large/Medium/Small buckets *inside* a Missing Screenshots / Image
+// Issues / Possibly Covered sub-section are depth 2. Empty buckets and
+// empty sub-sections are pruned so the TOC matches the rendered body
+// exactly.
 func collectTOCEntries(in Inputs) []tocEntry {
 	var entries []tocEntry
-
-	// Features
-	entries = append(entries, tocEntry{Label: "Features", Anchor: "features", Depth: 0})
-	featAnchors := computeFeatureAnchors(in)
-	for _, entry := range in.Mapping {
-		entries = append(entries, tocEntry{
-			Label:  entry.Feature.Name,
-			Anchor: featAnchors[entry.Feature.Name],
-			Depth:  1,
-		})
-	}
 
 	// Gaps
 	entries = append(entries, tocEntry{Label: "Gaps", Anchor: "gaps", Depth: 0})
@@ -69,6 +59,17 @@ func collectTOCEntries(in Inputs) []tocEntry {
 		entries = append(entries, screenshotSubEntries("Missing Screenshots", "missing", in.Screenshots.MissingGaps)...)
 		entries = append(entries, imageIssueSubEntries("Image Issues", "image-issues", in.Screenshots.ImageIssues)...)
 		entries = append(entries, screenshotSubEntries("Possibly Covered", "possibly-covered", in.Screenshots.PossiblyCovered)...)
+	}
+
+	// Features
+	entries = append(entries, tocEntry{Label: "Features", Anchor: "features", Depth: 0})
+	featAnchors := computeFeatureAnchors(in)
+	for _, entry := range in.Mapping {
+		entries = append(entries, tocEntry{
+			Label:  entry.Feature.Name,
+			Anchor: featAnchors[entry.Feature.Name],
+			Depth:  1,
+		})
 	}
 
 	return entries

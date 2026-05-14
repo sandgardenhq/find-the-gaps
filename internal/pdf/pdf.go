@@ -49,16 +49,13 @@ func WriteReport(dir string, in Inputs) error {
 	return nil
 }
 
-// renderSections renders every top-level section. Each section starts on
-// a fresh page and marks its top-level anchor; the section renderers
-// themselves mark per-feature / per-bucket / per-sub-section anchors. The
-// page numbers needed by the TOC are read back from the shared anchor
-// table after rendering completes.
+// renderSections renders every top-level section in the canonical
+// order Gaps → Screenshots → Features. Each section starts on a fresh
+// page and marks its top-level anchor; the section renderers themselves
+// mark per-feature / per-bucket / per-sub-section anchors. The page
+// numbers needed by the TOC are read back from the shared anchor table
+// after rendering completes.
 func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string]string, in Inputs) {
-	doc.AddPage()
-	anchors.Mark("features")
-	renderFeatures(doc, in, anchors)
-
 	doc.AddPage()
 	anchors.Mark("gaps")
 	renderGapsWithAnchors(doc, in, anchors, featAnchors)
@@ -68,6 +65,10 @@ func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string
 		anchors.Mark("screenshots")
 		renderScreenshotsWithAnchors(doc, in, anchors, featAnchors)
 	}
+
+	doc.AddPage()
+	anchors.Mark("features")
+	renderFeatures(doc, in, anchors)
 }
 
 // newDoc constructs the fpdf document the renderer writes into. Letter

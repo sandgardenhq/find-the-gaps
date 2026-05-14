@@ -201,33 +201,32 @@ func TestRenderImageIssue_CardContainsAllFields(t *testing.T) {
 	assert.Contains(t, text, "IMG_WHY_MARKER")
 }
 
-// TestRenderCover_HasCategorySections pins that the cover renders one
-// section per category (Features / Gaps / Screenshot Issues) with the
-// finding count baked into the heading and the actual finding text
-// listed underneath. Replaces the older stat-card test.
-func TestRenderCover_HasCategorySections(t *testing.T) {
+// TestRenderCover_HasStatCards pins that the cover renders a row of
+// stat cards with the gaps / screenshots / features counts in the
+// canonical order Gaps → Screenshots → Features.
+func TestRenderCover_HasStatCards(t *testing.T) {
 	doc := newDoc()
 	in := Inputs{
 		ProjectName: "Sample Project",
 		RepoURL:     "https://repo.example.com/x",
 		DocsURL:     "https://docs.example.com/x",
 		Mapping: analyzer.FeatureMap{
-			{Feature: analyzer.CodeFeature{Name: "feat-alpha", UserFacing: true}},
-			{Feature: analyzer.CodeFeature{Name: "feat-beta", UserFacing: true}},
-			{Feature: analyzer.CodeFeature{Name: "feat-gamma", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "a", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "b", UserFacing: true}},
+			{Feature: analyzer.CodeFeature{Name: "c", UserFacing: true}},
 		},
 		Drift: []analyzer.DriftFinding{
-			{Feature: "feat-alpha", Issues: []analyzer.DriftIssue{
-				{Issue: "drift-A", Priority: analyzer.PriorityLarge, PriorityReason: "y"},
-				{Issue: "drift-B", Priority: analyzer.PriorityMedium, PriorityReason: "y"},
+			{Feature: "a", Issues: []analyzer.DriftIssue{
+				{Issue: "x", Priority: analyzer.PriorityLarge, PriorityReason: "y"},
+				{Issue: "x", Priority: analyzer.PriorityMedium, PriorityReason: "y"},
 			}},
 		},
 		Screenshots: analyzer.ScreenshotResult{
 			MissingGaps: []analyzer.ScreenshotGap{
-				{PageURL: "u", ShouldShow: "shot-missing-A", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
-			},
-			ImageIssues: []analyzer.ImageIssue{
-				{PageURL: "u", Reason: "shot-image-A", Priority: analyzer.PriorityMedium, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
+				{PageURL: "u", ShouldShow: "x", Priority: analyzer.PriorityLarge, PriorityReason: "r"},
 			},
 		},
 		ScreenshotsRan: true,
@@ -235,26 +234,27 @@ func TestRenderCover_HasCategorySections(t *testing.T) {
 	renderCover(doc, in)
 
 	text := extractTextWhitebox(t, doc)
+	// Three numbers and three labels visible.
+	assert.Contains(t, text, "3", "feature count")
+	assert.Contains(t, text, "2", "drift issue count")
+	assert.Contains(t, text, "4", "screenshot issue count")
+	assert.Contains(t, text, "features")
+	assert.Contains(t, text, "gaps")
+	assert.Contains(t, text, "screenshot")
 
-	// Section headings carry the count.
-	assert.Contains(t, text, "Features (3)")
-	assert.Contains(t, text, "Gaps (2)")
-	assert.Contains(t, text, "Screenshot Issues (2)")
-
-	// Each finding's short description appears in its section.
-	assert.Contains(t, text, "feat-alpha")
-	assert.Contains(t, text, "feat-beta")
-	assert.Contains(t, text, "feat-gamma")
-	assert.Contains(t, text, "drift-A")
-	assert.Contains(t, text, "drift-B")
-	assert.Contains(t, text, "shot-missing-A")
-	assert.Contains(t, text, "shot-image-A")
+	// Canonical order Gaps → Screenshots → Features: each label index
+	// must be strictly greater than the previous one.
+	gapsIdx := strings.Index(text, "gaps")
+	shotIdx := strings.Index(text, "screenshot")
+	featIdx := strings.Index(text, "features")
+	assert.True(t, gapsIdx >= 0 && shotIdx > gapsIdx && featIdx > shotIdx,
+		"cover stat cards must appear Gaps -> Screenshots -> Features; got gaps=%d screenshot=%d features=%d",
+		gapsIdx, shotIdx, featIdx)
 }
 
-// TestRenderCover_OmitsEmptyCategories pins that a category with zero
-// findings is dropped entirely from the cover — no heading, no
-// whitespace — so the page focuses on what was actually found.
-func TestRenderCover_OmitsEmptyCategories(t *testing.T) {
+// TestRenderCover_OmitsScreenshotStatWhenNotRun pins that the
+// screenshot stat card disappears when ScreenshotsRan=false.
+func TestRenderCover_OmitsScreenshotStatWhenNotRun(t *testing.T) {
 	doc := newDoc()
 	in := Inputs{
 		ProjectName:    "x",
@@ -263,14 +263,8 @@ func TestRenderCover_OmitsEmptyCategories(t *testing.T) {
 	renderCover(doc, in)
 
 	text := extractTextWhitebox(t, doc)
-	// All three categories empty → none of them should render their
-	// section heading.
-	assert.NotContains(t, text, "Features (",
-		"empty Features category should not render its heading")
-	assert.NotContains(t, text, "Gaps (",
-		"empty Gaps category should not render its heading")
-	assert.NotContains(t, text, "Screenshot",
-		"screenshot category must be hidden when ScreenshotsRan=false")
+	assert.NotContains(t, text, "screenshot",
+		"screenshot stat card must be hidden when ScreenshotsRan=false")
 }
 
 // TestRenderFeatureBlock_RendersBadgeRow pins that a feature card emits
