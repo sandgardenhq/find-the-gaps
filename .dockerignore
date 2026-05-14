@@ -1,0 +1,129 @@
+# flyctl launch added from .find-the-gaps/bun.v1/site-src/themes/hextra/.gitignore
+.find-the-gaps/bun.v1/site-src/themes/hextra/**/node_modules
+.find-the-gaps/bun.v1/site-src/themes/hextra/**/public
+.find-the-gaps/bun.v1/site-src/themes/hextra/**/resources
+
+.find-the-gaps/bun.v1/site-src/themes/hextra/**/.hugo_build.lock
+
+# Playwright
+.find-the-gaps/bun.v1/site-src/themes/hextra/**/playwright-report
+.find-the-gaps/bun.v1/site-src/themes/hextra/**/test-results
+
+# flyctl launch added from .find-the-gaps/sg-mono/site-src/themes/hextra/.gitignore
+.find-the-gaps/sg-mono/site-src/themes/hextra/**/node_modules
+.find-the-gaps/sg-mono/site-src/themes/hextra/**/public
+.find-the-gaps/sg-mono/site-src/themes/hextra/**/resources
+
+.find-the-gaps/sg-mono/site-src/themes/hextra/**/.hugo_build.lock
+
+# Playwright
+.find-the-gaps/sg-mono/site-src/themes/hextra/**/playwright-report
+.find-the-gaps/sg-mono/site-src/themes/hextra/**/test-results
+
+# flyctl launch added from .find-the-gaps/sg-mono.v5/site-src/themes/hextra/.gitignore
+.find-the-gaps/sg-mono.v5/site-src/themes/hextra/**/node_modules
+.find-the-gaps/sg-mono.v5/site-src/themes/hextra/**/public
+.find-the-gaps/sg-mono.v5/site-src/themes/hextra/**/resources
+
+.find-the-gaps/sg-mono.v5/site-src/themes/hextra/**/.hugo_build.lock
+
+# Playwright
+.find-the-gaps/sg-mono.v5/site-src/themes/hextra/**/playwright-report
+.find-the-gaps/sg-mono.v5/site-src/themes/hextra/**/test-results
+
+# flyctl launch added from .find-the-gaps/sg-mono.v6/site-src/themes/hextra/.gitignore
+.find-the-gaps/sg-mono.v6/site-src/themes/hextra/**/node_modules
+.find-the-gaps/sg-mono.v6/site-src/themes/hextra/**/public
+.find-the-gaps/sg-mono.v6/site-src/themes/hextra/**/resources
+
+.find-the-gaps/sg-mono.v6/site-src/themes/hextra/**/.hugo_build.lock
+
+# Playwright
+.find-the-gaps/sg-mono.v6/site-src/themes/hextra/**/playwright-report
+.find-the-gaps/sg-mono.v6/site-src/themes/hextra/**/test-results
+
+# flyctl launch added from .find-the-gaps/sg-mono.v7/site-src/themes/hextra/.gitignore
+.find-the-gaps/sg-mono.v7/site-src/themes/hextra/**/node_modules
+.find-the-gaps/sg-mono.v7/site-src/themes/hextra/**/public
+.find-the-gaps/sg-mono.v7/site-src/themes/hextra/**/resources
+
+.find-the-gaps/sg-mono.v7/site-src/themes/hextra/**/.hugo_build.lock
+
+# Playwright
+.find-the-gaps/sg-mono.v7/site-src/themes/hextra/**/playwright-report
+.find-the-gaps/sg-mono.v7/site-src/themes/hextra/**/test-results
+
+# flyctl launch added from .find-the-gaps/sg-mono.v8/site-src/themes/hextra/.gitignore
+.find-the-gaps/sg-mono.v8/site-src/themes/hextra/**/node_modules
+.find-the-gaps/sg-mono.v8/site-src/themes/hextra/**/public
+.find-the-gaps/sg-mono.v8/site-src/themes/hextra/**/resources
+
+.find-the-gaps/sg-mono.v8/site-src/themes/hextra/**/.hugo_build.lock
+
+# Playwright
+.find-the-gaps/sg-mono.v8/site-src/themes/hextra/**/playwright-report
+.find-the-gaps/sg-mono.v8/site-src/themes/hextra/**/test-results
+
+# flyctl launch added from .gitignore
+# Compiled binaries
+find-the-gaps
+find-the-gaps.exe
+bin
+dist
+
+# Go build and test artifacts
+**/*.test
+**/*.out
+**/*.prof
+**/coverage.out
+**/coverage.txt
+**/coverage.html
+
+# Go module download cache (should never appear, but be safe)
+vendor
+
+# goreleaser scratch and snapshot output
+**/dist
+**/.goreleaser-snapshot
+
+# Project-local runtime state (per CLAUDE.md: ~/.find-the-gaps/ or .find-the-gaps/)
+**/.find-the-gaps
+
+# Secrets and local env overrides
+**/.env
+**/.env.*
+!**/.env.example
+
+# Editor and IDE
+**/.vscode
+**/.idea
+**/*.iml
+**/*.swp
+**/*.swo
+**/*~
+
+# macOS / Windows noise
+**/.DS_Store
+**/Thumbs.db
+
+# Conductor workspace (per-machine scratch dir, not for the repo)
+**/.context
+**/.worktrees
+
+# Playwright MCP state
+**/.playwright-mcp
+
+ftg
+
+
+# flyctl launch added from internal/site/assets/theme/hextra/.gitignore
+internal/site/assets/theme/hextra/**/node_modules
+internal/site/assets/theme/hextra/**/public
+internal/site/assets/theme/hextra/**/resources
+
+internal/site/assets/theme/hextra/**/.hugo_build.lock
+
+# Playwright
+internal/site/assets/theme/hextra/**/playwright-report
+internal/site/assets/theme/hextra/**/test-results
+fly.toml

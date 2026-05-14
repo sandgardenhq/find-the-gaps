@@ -1,0 +1,17 @@
+# fly.toml app configuration file generated for find-the-gaps on 2026-05-12T13:17:42-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'find-the-gaps'
+primary_region = 'ord'
+
+[build]
+  [build.args]
+    GO_VERSION = '1.26.2'
+
+[[vm]]
+  memory = '8gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 8192

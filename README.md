@@ -423,6 +423,67 @@ Linux x86_64 only (`runs-on: ubuntu-latest`). The action exits with an error on 
 
 See [`docs/examples/`](docs/examples/) for ready-to-copy workflows: schedule, release, manual.
 
+## Running on Fly.io
+
+Find the Gaps ships a `fly.toml` and `Dockerfile` so you can run analysis as a one-shot job on [Fly.io](https://fly.io). Each invocation spins up a throwaway Machine, clones the target repo, runs `ftg analyze --experimental-check-screenshots`, uploads the report artifacts as a tarball to Fly Storage, and prints a presigned download URL.
+
+### Prerequisites
+
+- A [Fly.io](https://fly.io) account.
+- The `flyctl` CLI installed and authenticated (`fly auth login`).
+
+You do **not** need to clone this repo. The published image at `ghcr.io/sandgardenhq/find-the-gaps:latest` is public and runs everything that `fly machine run` needs.
+
+### One-time setup
+
+Create your Fly app from the public image, then provision a Fly Storage (Tigris) bucket. The bucket step sets `BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL_S3` as app secrets, which `run-job.sh` reads on every invocation.
+
+```sh
+fly launch \
+  --image ghcr.io/sandgardenhq/find-the-gaps:latest \
+  --no-deploy \
+  --copy-config=false \
+  --name <your-app>
+
+fly storage create --app <your-app>
+```
+
+Pick any app name you like — your Fly org pays for the Machines and owns the Tigris bucket. Accept the default region (or pass `--region <code>`); analyses can target any region at run time. Accept the bucket defaults when prompted.
+
+### Running a job
+
+Use `fly machine run` to launch a throwaway Machine for a single analysis, pulling the image directly from GHCR. Two positional arguments after `--` are required: the repository URL and the docs URL.
+
+```sh
+fly machine run ghcr.io/sandgardenhq/find-the-gaps:latest \
+  --app <your-app> \
+  --rm \
+  --region ord \
+  -- \
+  https://github.com/owner/repo \
+  https://owner.example.com/docs
+```
+
+`--rm` deletes the Machine on exit so stopped Machines don't accumulate. Pick a region close to the docs source for faster ingestion. The Machine inherits your app's secrets, so the report tarball lands in your Tigris bucket.
+
+### Retrieving the report
+
+The presigned download URL is the **last line of stdout**.
+
+- **Foreground run** (logs stream to your terminal): the URL appears at the end of the output. `curl -L -o report.tar.gz "<url>"` downloads the tarball, which extracts to `<repo-name>/site/`, `<repo-name>/site-src/`, and the generated markdown reports.
+- **Detached run** (`fly machine run --detach`): retrieve the URL from the Machine's logs:
+
+  ```sh
+  fly logs -i <machine-id> | tail -n 1
+  ```
+
+URLs are valid for 30 days from generation.
+
+### Cleanup
+
+- Machines launched with `--rm` self-destroy when the job exits — no manual cleanup needed.
+- Tarballs in the Fly Storage bucket are **kept indefinitely**. Operators who want time-based retention should configure a bucket lifecycle rule directly with Tigris; Find the Gaps does not manage tarball cleanup.
+
 ## Development
 
 See [CLAUDE.md](CLAUDE.md) for project conventions, tech stack, and TDD rules. See [.plans/VERIFICATION_PLAN.md](.plans/VERIFICATION_PLAN.md) for acceptance testing procedures.
