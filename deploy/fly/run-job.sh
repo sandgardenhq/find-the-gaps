@@ -77,6 +77,7 @@ git clone --depth=1 "$REPO_URL" "$WORK_DIR/$REPO_NAME" >&2
 current_step="ftg analyze"
 log "running ftg analyze on $REPO_NAME against $DOCS_URL"
 ftg analyze \
+    --cache-dir "$HOME/.find-the-gaps" \
     --repo "$WORK_DIR/$REPO_NAME" \
     --docs "$DOCS_URL" \
     --experimental-check-screenshots >&2
