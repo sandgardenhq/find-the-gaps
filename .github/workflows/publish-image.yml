@@ -9,9 +9,12 @@ name: publish-image
 #   - workflow_dispatch  -> :latest (manual rebuild)
 #
 # Release-day dedupe: pushing a tag with `git push --follow-tags` fires two push
-# events (branch + tag) that would otherwise both build the same commit. The
-# `guard` job below skips the main-branch run when HEAD already carries a v*
-# tag, so the tag-triggered run is the only one that publishes.
+# events (branch + tag) for the same commit. We key the concurrency group on
+# the commit SHA with `cancel-in-progress: true`, so when the tag-triggered run
+# starts it cancels the still-running main-triggered run for the same SHA, and
+# only the tag run publishes. Earlier attempts to skip the main run via a guard
+# job that did `git tag --points-at HEAD` were racy — the tag is not always
+# visible to a git-fetch by the time the main-push webhook runs.
 #
 # Multi-arch (linux/amd64, linux/arm64). The arm64 leg uses QEMU emulation and
 # is noticeably slower because the runtime stage compiles Go with CGO
@@ -34,35 +37,11 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-image-${{ github.ref }}
-  cancel-in-progress: false
+  group: publish-image-${{ github.sha }}
+  cancel-in-progress: true
 
 jobs:
-  guard:
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-tags: true
-          fetch-depth: 0
-      - id: check
-        name: Skip main-branch run if HEAD is also a release tag
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
-            tag=$(git tag --points-at HEAD --list 'v*' | head -n1)
-            if [[ -n "$tag" ]]; then
-              echo "HEAD is also tagged $tag; the tag-triggered run will publish the image. Skipping this main-branch run."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-
   build-and-push:
-    needs: guard
-    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
