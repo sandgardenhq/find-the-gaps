@@ -100,12 +100,10 @@ func TestWriteGaps_NoneFound(t *testing.T) {
 	}
 }
 
-// TestWriteGaps_UndocumentedFeatures verifies that a user-facing feature
-// with code but no documentation page appears in the Undocumented Features
-// section as a prominent `.ftg-undoc` problem card. The card carries a
-// heading row (alert icon supplied by `.ftg-undoc::before` in CSS,
-// feature name as the heading), a description body pulled from the
-// feature map, and a "Why document this" rationale section.
+// TestWriteGaps_UndocumentedFeatures verifies that a user-facing feature with
+// code but no documentation page appears in the Undocumented Features section
+// as a plain-markdown block: feature heading, optional description blockquote,
+// and a "Why document this:" rationale paragraph.
 func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
@@ -121,17 +119,17 @@ func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"## Undocumented Features",
-		`<div class="ftg-undoc">`,
-		`<div class="ftg-undoc-head">`,
-		`<span class="ftg-undoc-name">auth</span>`,
-		`<div class="ftg-undoc-body">`,
-		`<p class="ftg-undoc-description">Login and session management.</p>`,
-		`<div class="ftg-undoc-rationale">`,
-		`<span class="ftg-undoc-rationale-label">Why document this</span>`,
+		"### auth",
+		"> Login and session management.",
+		"**Why document this:**",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing %q in gaps.md:\n%s", want, content)
 		}
+	}
+	// No HTML.
+	if strings.Contains(content, "<div") || strings.Contains(content, "<span") {
+		t.Errorf("gaps.md must be plain markdown, no <div>/<span>; got:\n%s", content)
 	}
 	// "Undocumented Code" was renamed; the section heading must not appear.
 	if strings.Contains(content, "## Undocumented Code") {
@@ -140,9 +138,9 @@ func TestWriteGaps_UndocumentedFeatures(t *testing.T) {
 }
 
 // TestWriteGaps_UndocumentedFeaturesNoDescription pins that an undocumented
-// feature with an empty Description still renders the card structure
-// (head + rationale) but omits the description paragraph entirely rather
-// than emitting an empty `<p>`.
+// feature with an empty Description still renders the feature heading and the
+// rationale paragraph, and omits the blockquote rather than emitting an empty
+// one.
 func TestWriteGaps_UndocumentedFeaturesNoDescription(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
@@ -156,14 +154,14 @@ func TestWriteGaps_UndocumentedFeaturesNoDescription(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, `<div class="ftg-undoc-head">`) {
-		t.Errorf("expected card head even without description; got:\n%s", content)
+	if !strings.Contains(content, "### auth") {
+		t.Errorf("expected feature heading even without description; got:\n%s", content)
 	}
-	if !strings.Contains(content, `<div class="ftg-undoc-rationale">`) {
+	if !strings.Contains(content, "**Why document this:**") {
 		t.Errorf("expected rationale even without description; got:\n%s", content)
 	}
-	if strings.Contains(content, `class="ftg-undoc-description"></p>`) || strings.Contains(content, `<p class="ftg-undoc-description"></p>`) {
-		t.Errorf("empty description must not render an empty <p>; got:\n%s", content)
+	if strings.Contains(content, "> \n") || strings.Contains(content, "> \n\n") {
+		t.Errorf("empty description must not render an empty blockquote; got:\n%s", content)
 	}
 }
 
@@ -230,10 +228,11 @@ func TestWriteGaps_FeatureNoFiles_NotUndocumented(t *testing.T) {
 	}
 }
 
-// TestWriteGaps_StaleDocCardAndPriorityHeader pins the new shape for
-// stale-doc findings: each entry renders as an `.ftg-stale` card, each
-// priority sub-heading is wrapped in `.ftg-priority--{large,medium,small}`.
-func TestWriteGaps_StaleDocCardAndPriorityHeader(t *testing.T) {
+// TestWriteGaps_StaleDocBulletAndPriorityHeader pins the shape for stale-doc
+// findings: each entry renders as a markdown bullet under a priority
+// sub-heading, with the page rendered as a markdown link and a nested
+// "Why" sub-bullet for the priority reason.
+func TestWriteGaps_StaleDocBulletAndPriorityHeader(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "search", UserFacing: true}, Files: []string{"s.go"}},
@@ -249,26 +248,23 @@ func TestWriteGaps_StaleDocCardAndPriorityHeader(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(dir, "gaps.md"))
 	content := string(data)
 	for _, want := range []string{
-		`<div class="ftg-priority ftg-priority--large">`,
 		"### Large",
-		`<div class="ftg-stale ftg-stale--large">`,
-		`<span class="ftg-stale-feature">search</span>`,
-		`href="https://docs.example.com/search"`,
-		`<span class="ftg-stale-issue">old signature</span>`,
-		`<div class="ftg-stale-why"><span class="ftg-stale-why-label">Why</span><p class="ftg-stale-why-text">user-impact</p></div>`,
+		"- **search** — [https://docs.example.com/search](https://docs.example.com/search) — old signature",
+		"  - _Why:_ user-impact",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing %q in gaps.md:\n%s", want, content)
 		}
 	}
+	if strings.Contains(content, "<div") || strings.Contains(content, "<span") {
+		t.Errorf("gaps.md must be plain markdown; got:\n%s", content)
+	}
 }
 
-// TestWriteGaps_EscapesHTMLSpecialChars pins that LLM-derived text fields
-// (Issue, PriorityReason, Page, feature name) are HTML-escaped before being
-// interpolated into the raw-HTML cards. Without escaping, an Issue containing
-// `<` or `&` (common in code-like content and URLs) would corrupt the
-// rendered page or get reinterpreted as markup.
-func TestWriteGaps_EscapesHTMLSpecialChars(t *testing.T) {
+// TestWriteGaps_PreservesRawSpecialChars pins that LLM-derived text fields are
+// emitted verbatim into the plain-markdown output — no HTML escaping, since
+// there's no raw-HTML interpolation site to protect anymore.
+func TestWriteGaps_PreservesRawSpecialChars(t *testing.T) {
 	dir := t.TempDir()
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "search & index", UserFacing: true}, Files: []string{"s.go"}},
@@ -293,37 +289,26 @@ func TestWriteGaps_EscapesHTMLSpecialChars(t *testing.T) {
 	content := string(data)
 
 	for _, want := range []string{
-		// Feature name in undoc list and stale card escapes &.
-		"search &amp; index",
-		// Issue text escapes < and >.
-		"signature changed from Foo() to Foo[T any]() &lt;breaking&gt;",
-		// Priority reason escapes <T>.
-		"user-impact: callers must update &lt;T&gt;",
-		// Page URL escapes & inside the href and the visible link text.
-		`href="https://docs.example.com/search?a=1&amp;b=&lt;2&gt;"`,
+		"search & index",
+		"signature changed from Foo() to Foo[T any]() <breaking>",
+		"user-impact: callers must update <T>",
+		"https://docs.example.com/search?a=1&b=<2>",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing %q in gaps.md:\n%s", want, content)
 		}
 	}
-	// Spans/anchors must not contain raw `<breaking>` or `<T>` (would render
-	// as a stray tag). Code-fenced content and markdown text are escaped by
-	// goldmark at render time, but raw-HTML interpolation is not, so the
-	// reporter must escape before writing.
-	for _, bad := range []string{
-		`<span class="ftg-stale-issue">signature changed from Foo() to Foo[T any]() <breaking>`,
-		`<p class="ftg-stale-why-text">user-impact: callers must update <T>`,
-		`href="https://docs.example.com/search?a=1&b=<2>"`,
-	} {
+	// No HTML entity escaping should leak into the plain-markdown output.
+	for _, bad := range []string{"&amp;", "&lt;", "&gt;", "&#39;"} {
 		if strings.Contains(content, bad) {
-			t.Errorf("unescaped raw HTML interpolation leaked: %q in gaps.md:\n%s", bad, content)
+			t.Errorf("gaps.md must not contain HTML entities (%q); got:\n%s", bad, content)
 		}
 	}
 }
 
-// TestWriteScreenshots_EscapesHTMLSpecialChars pins the same escaping
-// behavior for missing-screenshot, possibly-covered, and image-issue cards.
-func TestWriteScreenshots_EscapesHTMLSpecialChars(t *testing.T) {
+// TestWriteScreenshots_PreservesRawSpecialChars pins the same plain-text
+// behavior for missing-screenshot, possibly-covered, and image-issue blocks.
+func TestWriteScreenshots_PreservesRawSpecialChars(t *testing.T) {
 	dir := t.TempDir()
 	res := analyzer.ScreenshotResult{
 		MissingGaps: []analyzer.ScreenshotGap{{
@@ -357,31 +342,23 @@ func TestWriteScreenshots_EscapesHTMLSpecialChars(t *testing.T) {
 	content := string(data)
 
 	for _, want := range []string{
-		"the &lt;Save&gt; button",
-		"Save &amp; Apply",
-		"after &lt;h1&gt;",
-		"user-impact &lt;flow&gt;",
-		"alt text mentions &lt;Save&gt;",
-		"rewrite alt to remove &lt;Save&gt;",
-		"AA violation &lt;wcag&gt;",
-		`href="https://x.example/p?a=1&amp;b=2"`,
-		`href="https://x.example/p?c=1&amp;d=2"`,
+		"the <Save> button",
+		"Save & Apply",
+		"after <h1>",
+		"user-impact <flow>",
+		"alt text mentions <Save>",
+		"rewrite alt to remove <Save>",
+		"AA violation <wcag>",
+		"https://x.example/p?a=1&b=2",
+		"https://x.example/p?c=1&d=2",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing %q in screenshots.md:\n%s", want, content)
 		}
 	}
-	// Raw-HTML interpolation sites must not pass `<...>` content through.
-	for _, bad := range []string{
-		`<span class="ftg-shot-label">Should show</span>the <Save>`,
-		`<code>Save & Apply</code>`,
-		`<span class="ftg-shot-label">Insert</span>after <h1>`,
-		`<span class="ftg-shot-label">Issue</span>alt text mentions <Save>`,
-		`href="https://x.example/p?a=1&b=2"`,
-		`href="https://x.example/p?c=1&d=2"`,
-	} {
+	for _, bad := range []string{"&amp;", "&lt;", "&gt;", "&#39;"} {
 		if strings.Contains(content, bad) {
-			t.Errorf("unescaped raw HTML interpolation leaked: %q in screenshots.md:\n%s", bad, content)
+			t.Errorf("screenshots.md must not contain HTML entities (%q); got:\n%s", bad, content)
 		}
 	}
 }
@@ -746,22 +723,21 @@ func TestWriteScreenshots_CreatesFile_WithFindings(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
 	s := string(body)
-	// Root heading is promoted to # (the doc is now its own root).
 	assert.Contains(t, s, "# Missing Screenshots")
-	// Page grouping inside the priority bucket, first-occurrence order. With
-	// priority grouping, page headings live under "#### " rather than "### ".
-	// The heading text is now a derived page label (URL → "Quickstart") so
-	// the URL itself can live inside the card as a link.
+	// Page subheadings live at `#### ` inside the priority bucket and use a
+	// derived label so they read as page names, not repeated URLs.
 	assert.Regexp(t, `#### Quickstart[\s\S]*#### Setup`, s)
-	// The URL still appears inside each card body via the head link.
-	assert.Contains(t, s, `<a href="https://example.com/quickstart">https://example.com/quickstart</a>`)
-	// Each gap's four fields render.
+	// The URL appears inline as a markdown link.
+	assert.Contains(t, s, "[https://example.com/quickstart](https://example.com/quickstart)")
+	// Each gap's fields render verbatim.
 	assert.Contains(t, s, "Run the command and see the output.")
 	assert.Contains(t, s, "Terminal showing the analyze summary")
 	assert.Contains(t, s, "Terminal output of find-the-gaps analyze")
-	// Apostrophes in LLM-derived fields are HTML-escaped (`&#39;`) when
-	// emitted into raw-HTML cards.
-	assert.Contains(t, s, "after the paragraph ending &#39;...see the output.&#39;")
+	// Apostrophes in LLM-derived fields are NOT HTML-escaped in plain markdown.
+	assert.Contains(t, s, "after the paragraph ending '...see the output.'")
+	// No HTML in the output.
+	assert.NotContains(t, s, "<div")
+	assert.NotContains(t, s, "<span")
 }
 
 func TestWriteScreenshots_Empty_WritesNoneFound(t *testing.T) {
@@ -789,23 +765,14 @@ func TestWriteScreenshots_PreservesPageOrder(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(dir, "screenshots.md"))
 	require.NoError(t, err)
 	s := string(body)
-	// /second appears first because it shows up first in the input. Page
-	// headings live under "#### " inside the priority bucket and now use
-	// a derived label so they read as page names, not repeated URLs.
 	assert.Regexp(t, `#### Second[\s\S]*#### First`, s)
 }
 
 // TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks pins the
 // rendering of QuotedPassage when it contains real newlines, tabs, double
-// quotes, or backslashes. Previously the reporter used the %q format verb,
-// which converts newlines to the two-character escape `\n`, tabs to `\t`,
-// quotes to `\"`, and backslashes to `\\`. That produced literal backslash-n
-// text in screenshots.md and — because mirror-mode site materialization
-// copies screenshots.md verbatim — in the rendered Hugo screenshot page,
-// where the user saw "step 1.\n\nstep 2." instead of paragraph breaks.
-//
-// The output must contain the original characters as-is and MUST NOT contain
-// any of the Go-syntax escape sequences `\n`, `\t`, or `\"` as text.
+// quotes, or backslashes. The output must contain the original characters
+// as-is and MUST NOT contain any of the Go-syntax escape sequences `\n`,
+// `\t`, or `\"` as text.
 func TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks(t *testing.T) {
 	dir := t.TempDir()
 	const passage = "2. Click Add API Key.\n \n3. Enter a Name.\n \n4. Create the key, then run `curl -H \"Authorization: Bearer <token>\"`."
@@ -831,14 +798,8 @@ func TestWriteScreenshots_PassageWithNewlinesPreservesLineBreaks(t *testing.T) {
 }
 
 // TestWriteScreenshots_PerPageHeadingHasExplicitAnchor pins the fix for a
-// Hugo-rendering bug: when a heading consists entirely of an autolinked URL,
-// Hugo's default auto-heading-ID generator returns an empty id. The result
-// is that the inline permalink span and the right-hand TOC both link to
-// "#" instead of a real anchor. The reporter MUST emit an explicit
-// `{#anchor}` attribute so goldmark uses our deterministic id and bypasses
-// the broken auto-id path. The slug is deterministic (lowercase, runs of
-// non-alphanumerics collapsed to a single hyphen, leading/trailing hyphens
-// trimmed) so refreshing the report doesn't churn anchors.
+// Hugo-rendering bug: explicit `{#anchor}` IDs survive on per-page headings
+// so the inline permalink / right-rail TOC keep working after the rename.
 func TestWriteScreenshots_PerPageHeadingHasExplicitAnchor(t *testing.T) {
 	dir := t.TempDir()
 	gaps := []analyzer.ScreenshotGap{
@@ -850,9 +811,6 @@ func TestWriteScreenshots_PerPageHeadingHasExplicitAnchor(t *testing.T) {
 	require.NoError(t, err)
 	s := string(body)
 
-	// Page headings now live at #### under the priority bucket. The text is
-	// a derived label (last path segment, prettified). Anchor IDs remain
-	// URL-derived so existing TOC + permalink wiring keeps working.
 	assert.Contains(t, s, "#### Start {#https-example-com-docs-start}")
 	assert.Contains(t, s, "#### Admin {#https-example-com-docs-admin}")
 }
@@ -1117,11 +1075,10 @@ func TestBuildGapsStaleSection_emptyInput(t *testing.T) {
 	assert.NotContains(t, got, "### Small")
 }
 
-// TestWriteGaps_byteIdenticalToBuilders is the safety net Task 4's GapsWriter
-// will rely on: composing the two helpers produces exactly the bytes
-// WriteGaps writes to disk. A regression here means the writer goroutine
-// will silently disagree with the legacy writer, churning gaps.md by one
-// newline on every run.
+// TestWriteGaps_byteIdenticalToBuilders is the safety net for the streaming
+// GapsWriter: composing the two helpers produces exactly the bytes WriteGaps
+// writes to disk. A regression here means the writer goroutine will silently
+// disagree with WriteGaps and churn gaps.md by one newline on every run.
 func TestWriteGaps_byteIdenticalToBuilders(t *testing.T) {
 	mapping := analyzer.FeatureMap{
 		{Feature: analyzer.CodeFeature{Name: "alpha", UserFacing: true}, Files: []string{"a.go"}},

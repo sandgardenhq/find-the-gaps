@@ -76,18 +76,3 @@ func priorityHeading(p analyzer.Priority) string {
 	}
 }
 
-// priorityClass returns the CSS class suffix used by the rendered site to
-// color priority sub-headings and per-finding cards. Mirrors priorityHeading
-// but returns lowercase (matches the `.ftg-priority--*` modifier convention).
-func priorityClass(p analyzer.Priority) string {
-	switch p {
-	case analyzer.PriorityLarge:
-		return "large"
-	case analyzer.PriorityMedium:
-		return "medium"
-	case analyzer.PrioritySmall:
-		return "small"
-	default:
-		return string(p)
-	}
-}

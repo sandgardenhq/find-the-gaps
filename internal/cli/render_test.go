@@ -130,8 +130,8 @@ func TestRenderCmd_RegeneratesGapsAndBuildsSite(t *testing.T) {
 		t.Fatalf("render failed: %v\nstderr: %s", err, stderr.String())
 	}
 
-	// gaps.md must be regenerated with the new HTML-card output and contain
-	// the drift finding pulled from drift.json.
+	// gaps.md must be regenerated as plain markdown containing the drift
+	// finding pulled from drift.json.
 	gapsBytes, err := os.ReadFile(filepath.Join(projectDir, "gaps.md"))
 	if err != nil {
 		t.Fatalf("gaps.md not written: %v", err)
@@ -139,17 +139,16 @@ func TestRenderCmd_RegeneratesGapsAndBuildsSite(t *testing.T) {
 	gaps := string(gapsBytes)
 	for _, want := range []string{
 		"## Stale Documentation",
-		`<div class="ftg-priority ftg-priority--large">`,
 		"### Large",
-		`<div class="ftg-stale ftg-stale--large">`,
-		`<span class="ftg-stale-feature">search</span>`,
-		`href="https://docs.example.com/search"`,
-		`<span class="ftg-stale-issue">old signature</span>`,
-		`<div class="ftg-stale-why"><span class="ftg-stale-why-label">Why</span><p class="ftg-stale-why-text">user-impact</p></div>`,
+		"- **search** — [https://docs.example.com/search](https://docs.example.com/search) — old signature",
+		"  - _Why:_ user-impact",
 	} {
 		if !strings.Contains(gaps, want) {
 			t.Errorf("missing %q in regenerated gaps.md:\n%s", want, gaps)
 		}
+	}
+	if strings.Contains(gaps, "<div") || strings.Contains(gaps, "<span") {
+		t.Errorf("regenerated gaps.md must be plain markdown; got:\n%s", gaps)
 	}
 
 	// mapping.md is unconditionally regenerated.
@@ -167,9 +166,9 @@ func TestRenderCmd_RegeneratesGapsAndBuildsSite(t *testing.T) {
 }
 
 // TestRenderCmd_RewritesScreenshotsWhenCached pins that a cached
-// screenshots.json triggers regeneration of screenshots.md (with the new
-// .ftg-shot card markup) and that the file is also re-emitted as JSON so
-// future reads stay self-consistent.
+// screenshots.json triggers regeneration of screenshots.md (as plain
+// markdown) and that the file is also re-emitted as JSON so future reads
+// stay self-consistent.
 func TestRenderCmd_RewritesScreenshotsWhenCached(t *testing.T) {
 	cleanup := installFakeHugo(t)
 	defer cleanup()
@@ -211,14 +210,17 @@ func TestRenderCmd_RewritesScreenshotsWhenCached(t *testing.T) {
 	shots := string(shotsBytes)
 	for _, want := range []string{
 		"# Missing Screenshots",
-		`<div class="ftg-priority ftg-priority--medium">`,
-		`<div class="ftg-shot ftg-shot--medium">`,
-		"the dashboard view",
-		"<code>dashboard</code>",
+		"### Medium",
+		"- **Page:** [https://docs.example.com/start](https://docs.example.com/start)",
+		"- **Should show:** the dashboard view",
+		"- **Alt text:** `dashboard`",
 	} {
 		if !strings.Contains(shots, want) {
 			t.Errorf("missing %q in regenerated screenshots.md:\n%s", want, shots)
 		}
+	}
+	if strings.Contains(shots, "<div") || strings.Contains(shots, "<span") {
+		t.Errorf("regenerated screenshots.md must be plain markdown; got:\n%s", shots)
 	}
 	// JSON is re-emitted on disk.
 	if _, err := os.Stat(filepath.Join(projectDir, "screenshots.json")); err != nil {
