@@ -210,10 +210,13 @@ func finalizeTOC(doc *fpdf.Fpdf, rows []tocRow, anchors *anchorTable) {
 		}
 		doc.SetPage(row.page)
 		doc.SetXY(marginLeft+5.5, row.pageY)
-		// Paint the page-number column white before stamping so the "..."
-		// placeholder underneath gets fully erased. Without this, the
-		// shorter number leaves leading dots visible.
-		doc.SetFillColor(255, 255, 255)
+		// Paint the page-number column in the body background colour
+		// before stamping so the "..." placeholder underneath gets fully
+		// erased. Using the paper-warm body background means the patch
+		// is invisible against the rest of the page; an earlier version
+		// used pure white, which left a visible white rectangle on the
+		// tinted body.
+		setFillColor(doc, colorPaperWarm)
 		doc.CellFormat(0, 0.3, "", "", 0, "L", true, 0, "")
 		doc.SetXY(marginLeft+5.5, row.pageY)
 		doc.SetFont(bodyFont, "", fontSizeBody)
