@@ -459,6 +459,8 @@ fly machine run ghcr.io/sandgardenhq/find-the-gaps:latest \
   --app <your-app> \
   --rm \
   --region ord \
+  --vm-cpus 4 \
+  --vm-memory 8192 \
   -- \
   https://github.com/owner/repo \
   https://owner.example.com/docs

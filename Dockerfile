@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 ARG GO_VERSION=1.26.2
-ARG HUGO_VERSION=0.140.2
+ARG HUGO_VERSION=0.151.0
 
 # ---- build stage -----------------------------------------------------------
 FROM golang:${GO_VERSION}-bookworm AS builder
