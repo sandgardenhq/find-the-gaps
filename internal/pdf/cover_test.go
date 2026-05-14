@@ -76,13 +76,16 @@ func TestRenderCover_ContainsMetadata(t *testing.T) {
 	assert.Contains(t, text, "14:32", "cover must include time")
 	assert.Contains(t, text, "UTC", "cover must include timezone marker")
 
-	// Summary counts now render as three stat cards (number + label
-	// each in its own cell), so the extracted text shows them on
-	// separate lines rather than as one summary sentence.
-	assert.Contains(t, text, "3", "cover must include the counts")
-	assert.Contains(t, text, "features", "cover must include 'features' label")
-	assert.Contains(t, text, "gaps", "cover must include 'gaps' label")
-	assert.Contains(t, text, "screenshot", "cover must include 'screenshot' label")
+	// Category-summary sections render counts inside their headings
+	// ("Features (3)", "Gaps (3)", "Screenshot Issues (3)") and list
+	// the findings underneath.
+	assert.Contains(t, text, "Features (3)", "cover must show Features count")
+	assert.Contains(t, text, "Gaps (3)", "cover must show Gaps count")
+	assert.Contains(t, text, "Screenshot Issues (3)", "cover must show Screenshot Issues count")
+	// Item lines appear: at least one feature, one drift, one screenshot.
+	assert.Contains(t, text, "alpha", "feature name in summary")
+	assert.Contains(t, text, "stale signature", "drift issue in summary")
+	assert.Contains(t, text, "dialog", "missing-screenshot ShouldShow in summary")
 }
 
 func TestRenderCover_ScreenshotCountOmittedWhenNotRun(t *testing.T) {
@@ -98,5 +101,8 @@ func TestRenderCover_ScreenshotCountOmittedWhenNotRun(t *testing.T) {
 	require.NoError(t, err)
 
 	text := extractText(t, filepath.Join(dir, "report.pdf"))
-	assert.NotContains(t, text, "screenshot", "cover must omit screenshot count when screenshots did not run")
+	// "Screenshot" appears in body section pages even when no findings,
+	// so scope this check to the cover-page heading specifically.
+	assert.NotContains(t, text, "Screenshot Issues (",
+		"cover must omit Screenshot Issues section when screenshots did not run")
 }

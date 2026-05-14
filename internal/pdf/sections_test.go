@@ -116,15 +116,15 @@ func TestRenderGaps_BucketsByPriority(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	// Locate the gaps body page by scanning for an actual issue text.
-	// (Both the TOC page and the gaps page contain the word "Large", so
-	// "Large" alone is not enough to disambiguate; the issue strings only
-	// appear on the gaps body page.)
+	// Locate the gaps body page by scanning for a priority reason
+	// string. The cover now also lists "feature - issue" text, so the
+	// issue itself can't disambiguate; priority reasons appear only on
+	// the body page.
 	var gapsText string
 	for p := 1; p <= r.NumPage(); p++ {
 		txt, err := r.Page(p).GetPlainText(nil)
 		require.NoError(t, err)
-		if strings.Contains(txt, "wrong error code documented") {
+		if strings.Contains(txt, "blocks integration") {
 			gapsText = txt
 			break
 		}
@@ -170,10 +170,13 @@ func TestRenderGaps_EmptyBucketsOmitted(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
+	// Locate the gaps body page by the priority reason — the cover now
+	// also lists the issue text so "minor typo" is no longer unique to
+	// the body page.
 	var gapsText string
 	for p := 1; p <= r.NumPage(); p++ {
 		txt, _ := r.Page(p).GetPlainText(nil)
-		if strings.Contains(txt, "minor typo") {
+		if strings.Contains(txt, "cosmetic") {
 			gapsText = txt
 			break
 		}
@@ -321,12 +324,14 @@ func TestRenderScreenshots_MissingBucketed(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	// Collect the screenshot body page — TOC also contains "Missing
-	// Screenshots", so disambiguate by searching for an actual finding.
+	// Collect the screenshot body page. TOC contains "Missing
+	// Screenshots" and the cover lists "Missing: the big dialog"; the
+	// body page is the one that carries the priority reason
+	// "primary".
 	var section string
 	for p := 1; p <= r.NumPage(); p++ {
 		txt, _ := r.Page(p).GetPlainText(nil)
-		if strings.Contains(txt, "the big dialog") {
+		if strings.Contains(txt, "primary") {
 			section = txt
 			break
 		}
