@@ -1,5 +1,112 @@
 # Progress
 
+## Feature: PDF Visual Alignment with Site — COMPLETE
+- Started: 2026-05-13
+- Plan: `.plans/PDF_VISUAL_ALIGNMENT.md`
+- Summary: Aligned `report.pdf` with the Hextra-rendered site. Palette synced to `--ftg-*` tokens (good / bad / warn / neutral families, card-bg, card-border, muted, Tailwind link blue, Tailwind slate-900 body). Findings now render as cards with severity-coloured 4pt left stripes and 8pt rounded corners. Priority sub-headings are uppercase tinted pills. Feature cards carry a single row of badges (layer / user-facing-or-internal / documented-or-undocumented). Cover page rebuilt as a hero band + three stat cards.
+
+### Task 1: Palette swap — COMPLETE
+- Replaced ad-hoc colour triplets with packed-hex constants drawn straight from `internal/site/.../custom.css`. SYNC table comment block pins the source-of-truth pairing. New `rgb()` unpacker plus `setTextColor / setFillColor / setDrawColor` wrappers.
+- Coverage: 100% on `style.go`.
+
+### Task 2: Pill renderer — COMPLETE
+- `drawPill` / `pillWidth` in `card.go`. `priorityHeading` now emits an uppercase pill (LARGE / MEDIUM / SMALL) with tinted fill + border, matching `.ftg-priority` `text-transform: uppercase`.
+- Body-text test assertions migrated to UPPERCASE; TOC label casing kept title-case.
+
+### Task 3: Drift severity card — COMPLETE
+- `drawCard` + `measureDriftCard` + `countWrappedLines` in `card.go`. `renderDriftFinding` pre-flights card height (header + wrapped issue + wrapped reason + page reference), page-breaks if the card would overflow, draws a rounded-rect card with severity stripe, and emits content inside.
+
+### Task 4: Screenshot severity card — COMPLETE
+- Shared `renderScreenshotCard` helper handles missing-screenshot, image-issue, and possibly-covered findings with identical card shape. `buildScreenshotLines` packs (label, value) pairs into a flat slice and drops empty values so cards shrink for sparse findings.
+- `emitPageReference` and `secondaryLine` helpers retired.
+
+### Task 5: Feature card + badge metadata — COMPLETE
+- `drawBadge` / `measureFeatureCard` in `card.go`. `renderFeatureBlock` rewritten as a card with stripe colour reflecting documentation status (`featureStripeColor` mirrors `.ftg-feature-card--documented` / `--undocumented`). `renderFeatureBadges` emits the Layer + UserFacing-or-Internal + Documented-or-Undocumented row with `.ftg-badge--*`-matched palettes.
+- `labelValue` helper retired.
+
+### Task 6: Hero cover with stat cards — COMPLETE
+- Faint cool-grey hero band, centered title block, three stat cards in a row (1.85" × 1.30") with severity-coloured stripes. `buildStats` mirrors `.ftg-stat-card--good / --bad / --neutral`: features = neutral, gaps + screenshots = green if 0 else red.
+- Screenshot stat card omitted when `ScreenshotsRan=false`.
+
+### Task 7: Regenerate sample + fix Small stripe — COMPLETE
+- Visual regression caught while reviewing the regenerated sample: I was using the bucket's foreground for the Small card stripe (dark slate); site uses the lighter `--ftg-neutral-border` (#cbd5e1). Added asymmetric `priorityStripe(p)` helper so Large/Medium stay saturated while Small reads as a quiet outline.
+- `.plans/sample-report.pdf` regenerated.
+
+### Task 8: Verification plan update — COMPLETE
+- Appended a "Visual alignment" sub-clause to Scenario 18 in `.plans/VERIFICATION_PLAN.md` covering the new shapes and colour rules. Reviewer opens `report.pdf` side-by-side with `<projectDir>/site/index.html` and confirms each invariant.
+
+---
+
+## Feature: PDF Report Export — COMPLETE
+- Started: 2026-05-13
+- Plan: `.plans/PDF_EXPORT.md`
+- Summary: New `internal/pdf` package emits `report.pdf` alongside the existing markdown reports and Hugo site. Pure-Go via `go-pdf/fpdf`. Default-on with `--no-pdf` opt-out. Hybrid layout (Features / Gaps / Screenshots) with clickable TOC.
+
+### Task 1: Package skeleton + first failing test — COMPLETE
+- Tests: 2 passing (`TestWriteReport_EmitsFile`, `TestWriteReport_ReturnsErrorWhenDirMissing`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Lint: `go vet` clean. `golangci-lint` not run (pre-existing toolchain mismatch: linter built against go1.25, project targets go1.26.2 — environment issue, not code).
+- Notes: `pdf.Inputs` shape introduced. `WriteReport(dir, in)` emits a 1-page PDF stub. `newDoc()` constructor seam for downstream renderers.
+
+### Task 2: Cover page content — COMPLETE
+- Tests: 4 passing (added `TestRenderCover_ContainsMetadata`, `TestRenderCover_ScreenshotCountOmittedWhenNotRun`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Cover page emits title block, project name, repo URL, docs URL, generated-at timestamp formatted UTC, and summary counts (features / gaps / screenshot issues). Screenshot count omitted when `ScreenshotsRan=false`. Style tokens (palette, margins, font sizes) extracted to `style.go` and cross-referenced to `hextra-custom.css`.
+
+### Task 3: Page header/footer — COMPLETE
+- Tests: 7 passing (added `TestRegisterFooter_PageNumbersOnAllButCover`, `TestRegisterFooter_OmitsProjectNameWhenEmpty`, `TestWriteReport_RegistersFooter`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Footer prints `<project> - page N of M` centered, suppressed on page 1 (cover). Uses fpdf's `{nb}` alias for total-page substitution at output time. White-box tests in `package pdf` so the helper can be exercised directly without polluting the public API.
+
+### Task 4: Anchor table + TOC scaffold — COMPLETE
+- Tests: 13 passing (added TOC, anchor, slug, and finalize edge-case tests)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: `anchorTable.Get/Mark` for stable per-name fpdf link IDs (lazy alloc, current-page+y binding). `renderTOC` lays out the TOC page with "..." placeholders for page numbers and clickable rows. `finalizeTOC` returns to the TOC page via `doc.SetPage` and stamps the resolved page number after sections render. `renderSections` is the top-level dispatch — it `AddPage`s before each section, marks the anchor, captures the page number, and delegates to per-section renderers (stubbed in Tasks 5-7). Screenshots section is omitted entirely (TOC entry + section page) when `ScreenshotsRan=false`.
+
+### Task 9: Wire into ftg analyze + render — COMPLETE
+- Tests: 32 passing in `internal/pdf` + new `TestRenderCmd_EmitsPDFByDefault`, `TestRenderCmd_SkipsPDFWithNoPDFFlag` in `internal/cli`; testscripts `analyze_no_pdf.txtar` and `analyze_pdf_help.txtar` added.
+- Build: ✅ `go build ./...` clean
+- Notes: `--no-pdf` flag added to both `analyze` and `render` commands (default false). `pdf.WriteReport` invoked from analyze after the `site.Build` block (gated on `!noPDF`) and from render after the markdown reporters. New `report.pdf` line appended to the stdout `reports:` block, with `(skipped)` annotation when `--no-pdf` is set. `internal/cli/analyze.go` and `internal/cli/render.go` both import `internal/pdf`. Pre-existing CLI test failures (TestAnalyze_forgeURL_*) are environmental (git commit signing failures in the sandbox); confirmed they fail on the stashed branch as well, unrelated to this task.
+
+### Polish: TOC stamping, line wrapping, UTF-8 sanitization — COMPLETE
+- Visual review of `sample-report.pdf` surfaced three rendering issues; all three resolved in one commit (`fix(pdf): clean TOC page-number column, ...`).
+- `finalizeTOC` now paints a white rectangle over the placeholder column before stamping the resolved page number (was leaving leading dots from `...`).
+- `renderDriftFinding` and `secondaryLine` now use `MultiCell` so long issue text and URLs wrap inside the page margins.
+- New `sanitize()` helper translates em-dash, en-dash, curly quotes, ellipsis, arrows, and bullets to ASCII; applied at every user-content rendering site so fpdf's core fonts no longer produce mojibake.
+- `TestSanitize` covers all of the above plus Latin-1 passthrough.
+
+### Task 10: Verification plan update — COMPLETE
+- Added Scenario 18 to `.plans/VERIFICATION_PLAN.md` covering the full PDF surface: default emission, `--no-pdf` opt-out, content matches `drift.json` / `screenshots.json` / `mapping.md`, TOC link navigation, screenshots-gated sub-sections, render command re-emission, and the no-mojibake / no-overflow invariants.
+- `sample-report.pdf` retained under `.plans/` so reviewers can grab the artifact off the branch.
+
+### Task 8: TOC sub-entries — COMPLETE
+- Tests: 30 passing (added `TestTOC_HasSubEntries`, `TestCollectTOCEntries_DepthsMatchStructure`; updated `TestFinalizeTOC_*` for new `anchorTable`-based API)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: `collectTOCEntries` returns depth 0 (sections) + depth 1 (per-feature, per-bucket, per-sub-section) + depth 2 (per-priority bucket inside a screenshots sub-section). Empty buckets and empty sub-sections pruned. `anchorTable` now tracks page numbers via `Mark`/`Page`; `finalizeTOC` consults the table directly instead of a separate `targets` map. Sub-bucket anchor naming: `gaps-<priority>`, `screenshots-<sub>`, `screenshots-<sub>-<priority>`. TOC overflow handled by `AutoPageBreak`; depth indentation 0.25" per level; depth 0 entries rendered bold for visual separation.
+
+### Task 7: Screenshots section (gated) — COMPLETE
+- Tests: 28 passing (added `TestRenderScreenshots_OmittedWhenNotRun`, `TestRenderScreenshots_MissingBucketed`, `TestRenderScreenshots_ImageIssuesAndPossiblyCoveredOmittedWhenEmpty`, `TestRenderScreenshots_AllSubSectionsRendered`, `TestRenderScreenshots_PageToFeatureCrosslink`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Three sub-sections — Missing Screenshots → Image Issues → Possibly Covered — each priority-bucketed (Large/Medium/Small) with empty buckets and empty sub-sections omitted. Page URL cross-links to a feature anchor only when the URL maps to exactly one feature in `DocsMap`; zero or many resolves to plain text. `computePageToFeatures` inverts `DocsMap` once per render. `renderGapBuckets` and `renderImageIssueBuckets` share the bucketing pattern; per-finding renderers (`renderMissingGap` and `renderImageIssue`) differ only in which fields they print.
+
+### Task 6: Gaps section priority-bucketed cross-linked — COMPLETE
+- Tests: 22 passing (added `TestRenderGaps_BucketsByPriority`, `TestRenderGaps_EmptyBucketsOmitted`, `TestRenderGaps_RegistersFeatureCrosslink`, `TestRenderGaps_UnmappedFeatureRendersAsPlainText`, `TestBucketDrift_SkipsUnknownPriority`, `TestPriorityLabel_UnknownReturnsRawString`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: Drift issues bucketed by Large → Medium → Small via `bucketDrift`; empty buckets and their sub-headings omitted. Feature names rendered as clickable cross-links into the Features section (`feat-<slug>`); features missing from the mapping fall back to plain text. Priority sub-headings colored from the same palette as the priority pills in `style.go`. `computeFeatureAnchors` extracted so renderFeatures and renderGaps share one disambiguation pass.
+
+### Task 5: Features section — COMPLETE
+- Tests: 16 passing (added `TestRenderFeatures_OneBlockPerFeature`, `TestRenderFeatures_RegistersAnchorPerFeature`, `TestRenderFeatures_DisambiguatesSlugCollisions`)
+- Coverage: `internal/pdf` 100.0% statements
+- Build: ✅ `go build ./...` clean
+- Notes: One block per feature with description, layer, user-facing flag, doc status, files, symbols, documented-on pages — same field set as `reporter.WriteMapping`. Anchors `feat-<slug>` registered via `anchorTable.Mark`; collisions disambiguated with `-2`, `-3`, etc. (verified by `TestRenderFeatures_DisambiguatesSlugCollisions`). Label+value rendered in a single cell (not bold+regular) so PDF text extractors keep them on one line — a font swap mid-row breaks parse-back assertions.
+
 ## Task: Halt on Unsupported-Language Repo - COMPLETE
 - Started: 2026-05-08
 - Tests: 1264 passing, 0 failing (added 5 unit tests + 1 testscript fixture)

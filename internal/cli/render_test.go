@@ -251,6 +251,64 @@ func TestRenderCmd_NoScreenshotsWhenJSONAbsent(t *testing.T) {
 	}
 }
 
+// TestRenderCmd_EmitsPDFByDefault pins that `ftg render` writes
+// <projectDir>/report.pdf next to the existing markdown reports unless
+// --no-pdf is passed. Verifies the integration of internal/pdf with the
+// render command.
+func TestRenderCmd_EmitsPDFByDefault(t *testing.T) {
+	cleanup := installFakeHugo(t)
+	defer cleanup()
+
+	cacheDir := t.TempDir()
+	projectDir := renderProjectFixture(t, cacheDir, "demo")
+
+	cmd := newRenderCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs([]string{"--cache-dir", cacheDir, "--project", "demo"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("render failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	info, err := os.Stat(filepath.Join(projectDir, "report.pdf"))
+	if err != nil {
+		t.Fatalf("report.pdf must be emitted by default: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Error("report.pdf must be non-empty")
+	}
+}
+
+// TestRenderCmd_SkipsPDFWithNoPDFFlag pins that --no-pdf suppresses
+// the report.pdf artifact while leaving every other output in place.
+func TestRenderCmd_SkipsPDFWithNoPDFFlag(t *testing.T) {
+	cleanup := installFakeHugo(t)
+	defer cleanup()
+
+	cacheDir := t.TempDir()
+	projectDir := renderProjectFixture(t, cacheDir, "demo")
+
+	cmd := newRenderCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs([]string{"--cache-dir", cacheDir, "--project", "demo", "--no-pdf"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("render failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, "report.pdf")); !os.IsNotExist(err) {
+		t.Errorf("report.pdf must NOT be written when --no-pdf is set; got err=%v", err)
+	}
+	// Markdown reports still emitted.
+	if _, err := os.Stat(filepath.Join(projectDir, "mapping.md")); err != nil {
+		t.Errorf("mapping.md must still be written with --no-pdf: %v", err)
+	}
+}
+
 // TestRenderCmd_FailsWithoutFeatureMap pins that render exits non-zero with
 // a clear "run analyze first" message when the required cache files are
 // missing — the user gets a real signal, not a partial run.

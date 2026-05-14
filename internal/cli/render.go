@@ -14,6 +14,7 @@ import (
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
+	"github.com/sandgardenhq/find-the-gaps/internal/pdf"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
 	"github.com/sandgardenhq/find-the-gaps/internal/site"
 	"github.com/sandgardenhq/find-the-gaps/internal/spider"
@@ -39,6 +40,7 @@ func newRenderCmd() *cobra.Command {
 		projectFlag    string
 		siteMode       string
 		keepSiteSource bool
+		noPDF          bool
 	)
 
 	cmd := &cobra.Command{
@@ -156,6 +158,21 @@ func newRenderCmd() *cobra.Command {
 				return fmt.Errorf("build site: %w", err)
 			}
 
+			if !noPDF {
+				if err := pdf.WriteReport(projectDir, pdf.Inputs{
+					ProjectName:    projectName,
+					GeneratedAt:    time.Now(),
+					Summary:        productSummary,
+					Mapping:        featureMap,
+					DocsMap:        docsFeatureMap,
+					Drift:          driftFindings,
+					Screenshots:    screenshotResult,
+					ScreenshotsRan: screenshotsRan,
+				}); err != nil {
+					return fmt.Errorf("write pdf: %w", err)
+				}
+			}
+
 			_, _ = fmt.Fprintf(cc.OutOrStdout(), "rendered %s/site/\n", projectDir)
 			return nil
 		},
@@ -166,6 +183,7 @@ func newRenderCmd() *cobra.Command {
 	cmd.Flags().StringVar(&projectFlag, "project", "", "name of an analyzed project under <cache-dir>/; bypasses the picker")
 	cmd.Flags().StringVar(&siteMode, "site-mode", "mirror", "site content shape: \"mirror\" or \"expanded\"")
 	cmd.Flags().BoolVar(&keepSiteSource, "keep-site-source", true, "preserve generated Hugo source at <projectDir>/site-src/ (pass --keep-site-source=false to discard)")
+	cmd.Flags().BoolVar(&noPDF, "no-pdf", false, "skip the report.pdf artifact; markdown reports and site still emitted")
 
 	return cmd
 }
