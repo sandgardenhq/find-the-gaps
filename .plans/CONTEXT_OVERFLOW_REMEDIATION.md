@@ -340,7 +340,8 @@ func TestChunk_SmallInput_ReturnsSinglePiece(t *testing.T) {
 }
 
 func TestChunk_SplitsAtHeadingBoundary(t *testing.T) {
-	// Two H2 sections, each ~50 tokens. Budget 60 forces a split between them.
+	// Two H2 sections (49 / 61 tokens, actual cl100k_base counts). Budget 60
+	// forces a split between them.
 	a := "## A\n\n" + strings.Repeat("alpha beta gamma delta ", 12)
 	b := "## B\n\n" + strings.Repeat("epsilon zeta eta theta ", 12)
 	in := a + "\n\n" + b
@@ -370,7 +371,7 @@ func TestChunk_NeverSplitsInsideFencedCode(t *testing.T) {
 func TestChunk_PrefersHeadingOverParagraphBoundary(t *testing.T) {
 	// Both boundaries are available; chunker should choose the heading first.
 	in := "Intro.\n\n## Section\n\nBody one.\n\nBody two."
-	chunks := Chunk(in, 12) // tight budget forces an early split
+	chunks := Chunk(in, 4) // tight budget forces an early split
 	if len(chunks) < 2 {
 		t.Fatalf("expected ≥2 chunks, got %d", len(chunks))
 	}

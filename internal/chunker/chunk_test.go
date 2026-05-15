@@ -44,11 +44,19 @@ func TestChunk_NeverSplitsInsideFencedCode(t *testing.T) {
 func TestChunk_PrefersHeadingOverParagraphBoundary(t *testing.T) {
 	// Both boundaries are available; chunker should choose the heading first.
 	in := "Intro.\n\n## Section\n\nBody one.\n\nBody two."
-	chunks := Chunk(in, 12) // tight budget forces an early split
+	chunks := Chunk(in, 4) // tight budget forces an early split
 	if len(chunks) < 2 {
 		t.Fatalf("expected >=2 chunks, got %d", len(chunks))
 	}
 	if !strings.HasPrefix(chunks[1], "## Section") {
 		t.Fatalf("expected second chunk to start at heading, got %q", chunks[1])
+	}
+}
+
+func TestChunk_KeepsParentHeadingWithSubheading(t *testing.T) {
+	in := "## API\n\n### Endpoints\n\n" + strings.Repeat("word ", 30)
+	chunks := Chunk(in, 20)
+	if !strings.Contains(chunks[0], "## API") || !strings.Contains(chunks[0], "### Endpoints") {
+		t.Fatalf("parent heading orphaned from subheading: %q", chunks[0])
 	}
 }

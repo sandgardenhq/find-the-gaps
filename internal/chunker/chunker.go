@@ -38,17 +38,17 @@ func EstimateTokens(s string) int {
 // one exceeds maxTokens on its own it is emitted as a single oversize chunk.
 // Callers receive the chunks in source order.
 func Chunk(content string, maxTokens int) []string {
-	if maxTokens <= 0 {
+	if maxTokens <= 0 || EstimateTokens(content) <= maxTokens {
 		return []string{content}
 	}
 	blocks := classifyLines(content)
 	groups := groupAtomic(blocks)
 
 	var (
-		chunks            []string
-		current           strings.Builder
-		curTok            int
-		curIsHeadingOnly  bool
+		chunks           []string
+		current          strings.Builder
+		curTok           int
+		curAwaitingBody  bool
 	)
 	flush := func() {
 		if current.Len() == 0 {
@@ -57,22 +57,26 @@ func Chunk(content string, maxTokens int) []string {
 		chunks = append(chunks, strings.TrimRight(current.String(), "\n"))
 		current.Reset()
 		curTok = 0
-		curIsHeadingOnly = false
+		curAwaitingBody = false
 	}
 	for _, g := range groups {
 		gText := renderGroup(g)
 		gTok := EstimateTokens(gText)
 		// Heading at preferred depth (1-3) is a strong boundary — flush first
 		// if we already have content so the heading starts a fresh chunk.
-		if isHeadingBoundary(g) && current.Len() > 0 {
+		// BUT skip the flush when the current chunk is still awaiting body —
+		// we don't want to orphan a parent heading from its following content
+		// (e.g. a `## API` followed by a `### Endpoints` subheading).
+		if isHeadingBoundary(g) && current.Len() > 0 && !curAwaitingBody {
 			flush()
 		}
 		// Budget check: flush if adding this group would exceed maxTokens.
-		// BUT skip the flush when the current chunk is heading-only — we keep
-		// a heading attached to its following content even if the combination
-		// overflows the budget (better to emit one oversize "heading + body"
-		// chunk than a bare heading followed by an orphaned body).
-		if curTok+gTok > maxTokens && current.Len() > 0 && !curIsHeadingOnly {
+		// BUT skip the flush when the current chunk is still awaiting body —
+		// we keep a heading attached to its following content even if the
+		// combination overflows the budget (better to emit one oversize
+		// "heading + body" chunk than a bare heading followed by an orphaned
+		// body).
+		if curTok+gTok > maxTokens && current.Len() > 0 && !curAwaitingBody {
 			flush()
 		}
 		if current.Len() > 0 {
@@ -80,14 +84,14 @@ func Chunk(content string, maxTokens int) []string {
 		}
 		current.WriteString(gText)
 		curTok += gTok
-		// Track whether the current chunk so far is just a heading (plus any
-		// blank-line separators). Once any non-heading, non-blank content
-		// lands, the chunk is no longer heading-only.
+		// Track whether the current chunk has body content yet. Headings and
+		// blank lines leave the chunk "awaiting body"; once any non-heading,
+		// non-blank content lands, the flag clears.
 		isBlank := len(g.blocks) > 0 && g.blocks[0].kind == blockBlank
 		if isHeadingBoundary(g) {
-			curIsHeadingOnly = true
+			curAwaitingBody = true
 		} else if !isBlank {
-			curIsHeadingOnly = false
+			curAwaitingBody = false
 		}
 	}
 	flush()
