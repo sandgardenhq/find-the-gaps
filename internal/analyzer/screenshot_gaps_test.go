@@ -616,24 +616,6 @@ func TestDetectionPass_AllChunksSkipped_RollupReportsSkipped(t *testing.T) {
 		"expected >=2 chunked LLM call attempts before rollup, got %d", len(client.prompts))
 }
 
-// TestFitContentToBudget_DeprecatedHelperStillTruncates is a regression test
-// for the legacy fitContentToBudget helper. The detection path now routes
-// around this function via screenshotContentBudget + chunker.Chunk; the
-// helper is kept (with a deprecation comment) until Phase 3 of the context-
-// overflow remediation deletes it. Asserting its surface here keeps it alive
-// for staticcheck and pins the truncation behavior in case a downstream
-// caller is added before deletion.
-func TestFitContentToBudget_DeprecatedHelperStillTruncates(t *testing.T) {
-	page := DocPage{
-		URL:     "https://example.com/big",
-		Role:    "reference",
-		Content: strings.Repeat("alpha beta gamma delta ", 50_000),
-	}
-	got, ok := fitContentToBudget(page, nil, nil, ScreenshotPromptBudget)
-	require.True(t, ok)
-	assert.Less(t, len(got), len(page.Content), "fitContentToBudget should truncate oversize content")
-}
-
 func TestSplitImageBatches(t *testing.T) {
 	ref := func(i int) imageRef { return imageRef{Src: fmt.Sprintf("img-%d.png", i)} }
 	for _, tc := range []struct {

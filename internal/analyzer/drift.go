@@ -943,7 +943,7 @@ func dedupeDriftIssues(issues []DriftIssue) []DriftIssue {
 
 // renderJudgePrompt builds the judge-stage prompt for one feature and a
 // specific observation set. Extracted from judgeOneShot so
-// chunkObservationsToFit can size candidate chunks against the same
+// chunkObservationsForJudge can size candidate chunks against the same
 // rendering used at send time.
 func renderJudgePrompt(feature CodeFeature, observations []driftObservation, roles RoleResolver) string {
 	var b strings.Builder
@@ -986,7 +986,7 @@ const clipQuoteMaxChars = 1500
 
 // clipObservationQuotes truncates DocQuote/CodeQuote on a single
 // observation to max characters with a "[…]" marker. Used by
-// chunkObservationsToFit before greedy packing so a single bloated
+// chunkObservationsForJudge before greedy packing so a single bloated
 // observation doesn't single-handedly overflow a chunk.
 func clipObservationQuotes(o driftObservation, max int) driftObservation {
 	if len(o.DocQuote) > max {

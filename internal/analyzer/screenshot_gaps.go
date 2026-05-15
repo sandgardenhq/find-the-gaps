@@ -914,44 +914,9 @@ page_role: %s
 When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, content, NormalizeRole(page.Role), priorityRubric)
 }
 
-// fitContentToBudget returns content sized so that the assembled
-// screenshot-gap prompt fits inside budget tokens (using the local cl100k_base
-// estimator). The returned bool is false when the prompt overhead alone — URL,
-// instructions, coverage map, role hint — already exceeds the budget; callers
-// should skip the page in that case. Takes the full DocPage (not just URL) so
-// the overhead measurement matches the actual prompt the detection pass will
-// emit — including the `page_role:` line that varies by role string length.
-//
-// DEPRECATED: kept as a defense-in-depth helper but no longer called by the
-// detection path. The detection path now uses screenshotContentBudget +
-// chunker.Chunk to preemptively split oversize pages instead of truncating
-// them. Scheduled for removal in the Phase 3 cleanup pass.
-func fitContentToBudget(page DocPage, coverage map[string][]imageRef, codeBlocks []codeBlockRef, budget int) (string, bool) {
-	// Margin absorbs (a) drift between cl100k_base and the provider's exact
-	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
-	// on repetitive content.
-	const margin = 1_000
-	overheadPage := DocPage{URL: page.URL, Role: page.Role}
-	overhead := countTokens(buildScreenshotPrompt(overheadPage, coverage, codeBlocks))
-	available := budget - overhead - margin
-	if available < 100 {
-		return "", false
-	}
-	content := page.Content
-	contentTokens := countTokens(content)
-	if contentTokens <= available {
-		return content, true
-	}
-	keepChars := min(int(float64(len(content))*float64(available)/float64(contentTokens)), len(content))
-	log.Warnf("screenshot-gaps: truncating %s (%d → ~%d tokens) to fit %d budget",
-		page.URL, contentTokens, available, budget)
-	return content[:keepChars], true
-}
-
 // screenshotContentMargin absorbs (a) drift between cl100k_base and the
 // provider's exact tokenizer and (b) the char-ratio overshoot that can fall
-// on a token boundary edge. Mirrors the constant inside fitContentToBudget so
-// the chunker-driven path and the legacy helper agree on the headroom budget.
+// on a token boundary edge.
 const screenshotContentMargin = 1_000
 
 // screenshotContentBudget computes the per-chunk content budget for the
@@ -959,7 +924,7 @@ const screenshotContentMargin = 1_000
 // the page-scoped sections — URL, instructions, coverage map, code-block
 // list, priority rubric, role hint — are accounted for. Returns ok=false
 // when the overhead alone exceeds the budget; callers MUST skip the page in
-// that case (same shape as the legacy fitContentToBudget skip).
+// that case.
 func screenshotContentBudget(page DocPage, refs []imageRef, verdicts []ImageVerdict, codeBlocks []codeBlockRef, budget int) (int, bool) {
 	overheadPage := DocPage{URL: page.URL, Role: page.Role}
 	overhead := countTokens(buildDetectionPromptWithVerdicts(overheadPage, refs, verdicts, codeBlocks))

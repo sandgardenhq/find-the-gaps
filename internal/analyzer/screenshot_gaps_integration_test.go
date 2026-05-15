@@ -147,17 +147,10 @@ func TestDetectScreenshotGaps_VisionBranchEmitsImageIssuesAndAuditStats(t *testi
 // proving the budget-skip path was taken rather than the model returning an
 // empty result.
 func TestDetectScreenshotGaps_BudgetSkippedPageMarkedSkipped(t *testing.T) {
-	// Build a page whose content is well over the budget. The estimator counts
-	// every character; ~4 chars/token in cl100k_base, so 4M chars ≈ 1M tokens,
-	// which dwarfs the 150K budget and forces fitContentToBudget to return
-	// ok=false (the overhead alone is fine; available > 100, but contentTokens
-	// vastly exceeds available — wait: let me re-read the budget logic).
-	//
-	// fitContentToBudget returns ok=true and truncates if available >= 100;
-	// it returns ok=false ONLY when overhead+margin already exceeds budget.
-	// To force overhead > budget, we must inflate the prompt overhead — which
-	// is driven by the coverage map and the URL. Easiest: a coverage map with
-	// thousands of entries so the listed-images section blows past 150K tokens.
+	// Build a page whose content is well over the budget. screenshotContentBudget
+	// returns ok=false only when prompt overhead alone exceeds the budget. To
+	// force that, inflate the prompt overhead via the coverage map: thousands of
+	// image entries push the listed-images section past 150K tokens.
 	var b strings.Builder
 	b.WriteString("# Page\n\n")
 	// Each image line in the coverage section is ~60 tokens; 5,000 images
