@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/sandgardenhq/find-the-gaps/internal/chunker"
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
@@ -407,56 +408,19 @@ func investigateFeatureDrift(
 	pageReader func(url string) (string, error),
 	repoRoot string,
 ) ([]driftObservation, error) {
-	var pageSummaries []string
-	for _, url := range pages {
-		pageSummaries = append(pageSummaries, fmt.Sprintf("- %s", url))
-	}
-
 	var observations []driftObservation
+	// Task 9 will register list_feature_symbols and list_feature_pages tools
+	// alongside these three so the investigator can fetch the full lists that
+	// the compressed system prompt now omits. For Task 8 the prompt
+	// aspirationally references those tool names; the investigator can't
+	// actually call them until Task 9 lands.
 	tools := []Tool{
 		readFileTool(repoRoot),
 		readPageTool(pageReader),
 		noteObservationTool(&observations),
 	}
 
-	// PROMPT: Investigates a feature for documentation drift by reading source files and doc pages, recording each piece of evidence via note_observation. The investigator gathers; it does not adjudicate.
-	systemPrompt := fmt.Sprintf(`You are investigating documentation accuracy for a software feature.
-
-Feature: %s
-Code description: %s
-Implemented in: %s
-Symbols: %s
-
-Documentation pages:
-%s
-
-You have tools available to read source files and documentation pages in full.
-Use them to investigate as needed.
-
-Your job is to surface candidate documentation drift. For each thing that
-*might* be wrong or missing in the docs, call note_observation with:
-- page: the doc URL (or empty string)
-- doc_quote: the exact passage from the docs that concerns you
-- code_quote: the exact excerpt from the source code that contradicts or
-  is missing from the docs
-- concern: one sentence describing what looks off
-
-Quote verbatim. Include enough context in code_quote that someone reading
-just the observation can understand the contradiction (e.g. include the full
-function signature line, not just an identifier).
-
-Do not decide whether something IS drift — just record what looks suspicious.
-A reviewer will adjudicate later.
-
-When you have nothing more to record, reply with plain text (e.g. "done").
-If you find nothing suspicious, reply with plain text immediately without
-calling note_observation at all.`,
-		entry.Feature.Name,
-		entry.Feature.Description,
-		strings.Join(entry.Files, ", "),
-		strings.Join(entry.Symbols, ", "),
-		strings.Join(pageSummaries, "\n"),
-	)
+	systemPrompt := buildInvestigatorSystemPrompt(entry, pages)
 
 	messages := []ChatMessage{{Role: "user", Content: systemPrompt, CacheBreakpoint: true}}
 
@@ -490,6 +454,100 @@ calling note_observation at all.`,
 		return nil, err
 	}
 	return observations, nil
+}
+
+// descriptionBudgetTokens caps the inline feature description embedded in the
+// investigator's system prompt. A pathological description (e.g. an entire
+// README pasted into the feature mapping) is trimmed with chunker.Fit so the
+// prompt stays bounded regardless of input shape.
+const descriptionBudgetTokens = 800
+
+// entryPointCap is the maximum number of symbol names embedded in the
+// investigator's system prompt as starting suggestions. The full symbol list
+// remains available through the list_feature_symbols tool (registered in Task
+// 9).
+const entryPointCap = 10
+
+// buildInvestigatorSystemPrompt returns the compressed system prompt used by
+// the drift investigator. The prompt embeds counts (symbols, files, pages) and
+// a short list of entry-point symbol names — it never inlines the full symbol
+// or page enumeration. Investigators consult the full lists through the
+// list_feature_symbols and list_feature_pages tools (registered in Task 9).
+//
+// PROMPT: Investigates a feature for documentation drift by reading source
+// files and doc pages, recording each piece of evidence via note_observation.
+// The investigator gathers; it does not adjudicate.
+func buildInvestigatorSystemPrompt(entry FeatureEntry, pages []string) string {
+	description := chunker.Fit(entry.Feature.Description, descriptionBudgetTokens)
+	entries := topEntryPoints(entry.Symbols, entryPointCap)
+	entriesText := strings.Join(entries, ", ")
+	if entriesText == "" {
+		entriesText = "(none recorded for this feature)"
+	}
+
+	return fmt.Sprintf(`You are investigating documentation accuracy for the software feature %q.
+
+Description: %s
+
+Scope: %d symbols across %d files in this codebase. %d pages of documentation reference this feature.
+
+Entry-point symbols you may want to start with: %s
+
+You have tools available:
+- read_file(path)               — read the full source of a repo-relative file.
+- read_page(url)                — read the full cached content of a doc page.
+- list_feature_symbols(offset, limit, filter)
+                                — paginate the full symbol list for this feature.
+- list_feature_pages(offset, limit, filter)
+                                — paginate the full doc-page list for this feature.
+- note_observation(...)         — record one piece of candidate drift evidence.
+
+Your job is to surface candidate documentation drift. For each thing that
+*might* be wrong or missing in the docs, call note_observation with:
+- page: the doc URL (or empty string)
+- doc_quote: the exact passage from the docs that concerns you
+- code_quote: the exact excerpt from the source code that contradicts or
+  is missing from the docs
+- concern: one sentence describing what looks off
+
+Quote verbatim. Include enough context in code_quote that someone reading
+just the observation can understand the contradiction (e.g. include the full
+function signature line, not just an identifier).
+
+Do not decide whether something IS drift — just record what looks suspicious.
+A reviewer will adjudicate later.
+
+When you have nothing more to record, reply with plain text (e.g. "done").
+If you find nothing suspicious, reply with plain text immediately without
+calling note_observation at all.`,
+		entry.Feature.Name,
+		description,
+		len(entry.Symbols), len(entry.Files), len(pages),
+		entriesText,
+	)
+}
+
+// topEntryPoints returns up to n symbol names from syms, preferring exported
+// (Go-style capitalized) identifiers first. Stable: relative order within the
+// exported and unexported groups is preserved. Returns an empty slice when
+// syms is empty or n <= 0.
+func topEntryPoints(syms []string, n int) []string {
+	if n <= 0 || len(syms) == 0 {
+		return nil
+	}
+	var exported, rest []string
+	for _, s := range syms {
+		if len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z' {
+			exported = append(exported, s)
+		} else {
+			rest = append(rest, s)
+		}
+	}
+	all := append(exported, rest...)
+	if len(all) > n {
+		all = all[:n]
+	}
+	return all
 }
 
 // judgeSchema is the structured-output contract for judgeFeatureDrift. The
