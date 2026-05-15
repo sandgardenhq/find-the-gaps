@@ -564,6 +564,58 @@ func TestDetectScreenshotGaps_ChunksOversizePage_SharesImageManifest(t *testing.
 		uniqueChunkFindings, res.MissingGaps)
 }
 
+// TestDetectionPass_AllChunksSkipped_RollupReportsSkipped pins the rollup
+// branch in detectionPass: when an oversize page chunks to >=2 pieces and
+// every chunk's LLM call returns ErrTokenBudgetExceeded (the per-model
+// budget gate firing), the page-level return must be skipped=true with
+// empty findings — not a clean "no findings" result.
+//
+// Coverage backfill: the rollup branch landed in commit 44e586a; this
+// test was added afterwards to guard it. To prove the assertion actually
+// guards the new behavior, the rollup branch can be temporarily disabled
+// (commenting out the `if allChunksSkipped && !anyChunkProduced` block);
+// this test then fails because detectionPass returns skipped=false. With
+// the branch restored, the test passes.
+func TestDetectionPass_AllChunksSkipped_RollupReportsSkipped(t *testing.T) {
+	// Build oversize, heading-rich content that the chunker splits along
+	// H2 boundaries into exactly a few chunks. Each section is ~56K
+	// content tokens; three sections totals ~168K which exceeds the
+	// post-overhead per-call content budget (~148K) and forces the
+	// chunker to emit one chunk per section.
+	bigSection := "## Section\n\n" + strings.Repeat("alpha beta gamma delta epsilon zeta ", 8000) + "\n\n"
+	big := strings.Repeat(bigSection, 3)
+	page := DocPage{URL: "https://example.com/all-skipped", Path: "/tmp/all-skipped.md", Content: big}
+
+	// Force every CompleteJSON call (one per chunk) to surface the per-
+	// model budget gate. runScreenshotDetectionOnce translates this into
+	// chunkSkipped=true with err=nil, which detectionPass must roll up
+	// into a page-level skipped=true at the end of the loop.
+	budgetErr := ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "screenshot-gaps",
+	}
+	errs := make([]error, 8) // covers the 3 expected chunks with headroom
+	for i := range errs {
+		errs[i] = budgetErr
+	}
+	client := &fakeLLMClient{errs: errs}
+
+	gaps, suppImg, suppCode, skipped, err := detectionPass(
+		context.Background(), client, page, nil, nil, nil,
+	)
+	require.NoError(t, err, "budget-skipped chunks must not propagate as error")
+	assert.True(t, skipped, "all-chunks-skipped rollup must report skipped=true")
+	assert.Empty(t, gaps, "no gaps should be produced when every chunk skipped")
+	assert.Empty(t, suppImg, "no suppressed-by-image items when every chunk skipped")
+	assert.Empty(t, suppCode, "no suppressed-by-code-block items when every chunk skipped")
+	// Prove the rollup decision was reached at the end of the chunk loop
+	// (>=2 chunks attempted), not via the pre-call budget fast-skip path
+	// in detectionPass (which would short-circuit after 0 LLM calls).
+	assert.GreaterOrEqual(t, len(client.prompts), 2,
+		"expected >=2 chunked LLM call attempts before rollup, got %d", len(client.prompts))
+}
+
 // TestFitContentToBudget_DeprecatedHelperStillTruncates is a regression test
 // for the legacy fitContentToBudget helper. The detection path now routes
 // around this function via screenshotContentBudget + chunker.Chunk; the

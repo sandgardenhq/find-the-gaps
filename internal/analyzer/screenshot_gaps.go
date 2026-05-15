@@ -1373,7 +1373,9 @@ type ScreenshotPageStats struct {
 // the audit log line can distinguish a budget skip from a clean
 // zero-findings result. Per-page parse failures are logged and the function
 // returns empty results with err=nil so one bad page doesn't poison the
-// whole run; context / network errors propagate.
+// whole run; context / network errors propagate. A non-budget error from
+// any chunk aborts the page; partial findings from earlier chunks are
+// dropped, consistent with pre-chunking behavior.
 func detectionPass(
 	ctx context.Context,
 	client LLMClient,
