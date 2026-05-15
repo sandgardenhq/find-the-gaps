@@ -67,7 +67,7 @@ var analyzePageSchema = JSONSchema{
 // For pages whose content exceeds the small-tier per-call budget, the
 // content is preemptively split via chunker.Chunk and each chunk is
 // analyzed independently; the resulting feature lists are merged by
-// lowercase name (longest description wins; see mergePageAnalysis).
+// lowercase name (first occurrence wins; see mergePageAnalysis).
 func AnalyzePage(ctx context.Context, tiering LLMTiering, pageURL, content string) (PageAnalysis, error) {
 	client := tiering.Small()
 	budget := budgetForPageAnalysis(TierSmall)
@@ -218,12 +218,13 @@ func mergePageAnalysis(a, b PageAnalysis) PageAnalysis {
 		out.Summary = b.Summary
 	}
 	out.IsDocs = a.IsDocs || b.IsDocs
-	if out.Role == "" || out.Role == "other" {
-		if b.Role != "" && b.Role != "other" {
-			out.Role = b.Role
-		} else if out.Role == "" {
-			out.Role = b.Role
-		}
+	// Role: prefer the first specific (non-empty, non-"other") role we encounter.
+	// If no chunk has a specific role, fall through with whatever was first set
+	// (including "other"), since that's the inclusive-by-default behavior.
+	if (out.Role == "" || out.Role == "other") && b.Role != "" && b.Role != "other" {
+		out.Role = b.Role
+	} else if out.Role == "" {
+		out.Role = b.Role
 	}
 	seen := make(map[string]struct{}, len(out.Features)+len(b.Features))
 	for _, f := range out.Features {
