@@ -63,18 +63,26 @@ func Chunk(content string, maxTokens int) []string {
 		gText := renderGroup(g)
 		gTok := EstimateTokens(gText)
 		// Oversize-group branch: a single group bigger than maxTokens on its
-		// own cannot be packed into a normal chunk. Flush whatever is pending,
-		// then split the group via splitOversizeGroup (fence-preserving for
-		// code blocks; sentence fallback for paragraphs) and emit each piece
-		// as its own chunk.
+		// own cannot be packed into a normal chunk. Split it via
+		// splitOversizeGroup (fence-preserving for code blocks; sentence
+		// fallback for paragraphs) and emit each piece as its own chunk.
 		//
-		// EXCEPTION: when the current chunk is still awaiting body content
-		// (i.e. it currently ends in a heading), don't split — the heading
-		// must stay attached to its body. We accept the overflow rather than
-		// orphan a heading. The same invariant guards the budget check below.
-		if gTok > maxTokens && !curAwaitingBody {
-			flush()
-			chunks = append(chunks, splitOversizeGroup(g, maxTokens)...)
+		// HEADING-ATTACH: when the current chunk is still awaiting body
+		// content (i.e. it currently ends in a heading), glue the heading
+		// onto the first split piece instead of flushing it standalone.
+		// The first piece may exceed maxTokens by the heading's token count
+		// — acceptable last resort to preserve hierarchy.
+		if gTok > maxTokens {
+			pieces := splitOversizeGroup(g, maxTokens)
+			if curAwaitingBody && current.Len() > 0 && len(pieces) > 0 {
+				pieces[0] = strings.TrimRight(current.String(), "\n") + "\n\n" + pieces[0]
+				current.Reset()
+				curTok = 0
+				curAwaitingBody = false
+			} else {
+				flush()
+			}
+			chunks = append(chunks, pieces...)
 			continue
 		}
 		// Heading at preferred depth (1-3) is a strong boundary — flush first
@@ -193,19 +201,19 @@ func splitCodeBlock(g group, maxTokens int) []string {
 		return []string{renderGroup(g)}
 	}
 	open := g.blocks[0].text
-	close := g.blocks[len(g.blocks)-1].text
+	closer := g.blocks[len(g.blocks)-1].text
 	inner := g.blocks[1 : len(g.blocks)-1]
 
 	var (
 		out      []string
 		cur      strings.Builder
 		curTok   int
-		overhead = EstimateTokens(open) + EstimateTokens(close) + 2
+		overhead = EstimateTokens(open) + EstimateTokens(closer) + 2
 	)
 	for _, b := range inner {
 		t := EstimateTokens(b.text) + 1
 		if curTok+t+overhead > maxTokens && cur.Len() > 0 {
-			out = append(out, open+"\n"+strings.TrimRight(cur.String(), "\n")+"\n"+close)
+			out = append(out, open+"\n"+strings.TrimRight(cur.String(), "\n")+"\n"+closer)
 			cur.Reset()
 			curTok = 0
 		}
@@ -214,15 +222,24 @@ func splitCodeBlock(g group, maxTokens int) []string {
 		curTok += t
 	}
 	if cur.Len() > 0 {
-		out = append(out, open+"\n"+strings.TrimRight(cur.String(), "\n")+"\n"+close)
+		out = append(out, open+"\n"+strings.TrimRight(cur.String(), "\n")+"\n"+closer)
 	}
 	return out
 }
 
 // splitParagraph splits a dense paragraph (no blank-line boundaries) into
-// pieces at sentence endings, greedy-packed under maxTokens.
+// pieces at sentence endings, greedy-packed under maxTokens. If a single
+// sentence is more than ~1.5x maxTokens (or the paragraph has no sentence
+// boundaries at all and is far over budget), falls back to word-level
+// splits so chunks stay near budget. Single sentences that only slightly
+// exceed budget are kept whole — splitting them would produce two chunks
+// barely smaller than the original.
 func splitParagraph(s string, maxTokens int) []string {
 	sentences := splitSentences(s)
+	hardLimit := maxTokens + maxTokens/2
+	if hardLimit <= maxTokens {
+		hardLimit = maxTokens + 1
+	}
 	var (
 		out    []string
 		cur    strings.Builder
@@ -230,12 +247,51 @@ func splitParagraph(s string, maxTokens int) []string {
 	)
 	for _, sent := range sentences {
 		t := EstimateTokens(sent)
+		if t > hardLimit {
+			if cur.Len() > 0 {
+				out = append(out, strings.TrimSpace(cur.String()))
+				cur.Reset()
+				curTok = 0
+			}
+			out = append(out, splitWords(sent, maxTokens)...)
+			continue
+		}
 		if curTok+t > maxTokens && cur.Len() > 0 {
 			out = append(out, strings.TrimSpace(cur.String()))
 			cur.Reset()
 			curTok = 0
 		}
 		cur.WriteString(sent)
+		cur.WriteString(" ")
+		curTok += t
+	}
+	if cur.Len() > 0 {
+		out = append(out, strings.TrimSpace(cur.String()))
+	}
+	return out
+}
+
+// splitWords is the last-resort splitter for an oversize sentence with no
+// punctuation boundaries. Greedy-packs whitespace-separated tokens under
+// maxTokens.
+func splitWords(s string, maxTokens int) []string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{s}
+	}
+	var (
+		out    []string
+		cur    strings.Builder
+		curTok int
+	)
+	for _, w := range words {
+		t := EstimateTokens(w + " ")
+		if curTok+t > maxTokens && cur.Len() > 0 {
+			out = append(out, strings.TrimSpace(cur.String()))
+			cur.Reset()
+			curTok = 0
+		}
+		cur.WriteString(w)
 		cur.WriteString(" ")
 		curTok += t
 	}

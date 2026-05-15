@@ -101,6 +101,30 @@ func TestChunk_SplitsOversizeCodeBlockOnInnerNewlines(t *testing.T) {
 	}
 }
 
+func TestChunk_SplitsOversizeBodyAndKeepsHeading(t *testing.T) {
+	in := "## A\n\n" + strings.Repeat("word ", 200)
+	chunks := Chunk(in, 60)
+	if len(chunks) < 2 {
+		t.Fatalf("expected oversize body to be split, got %d chunk(s)", len(chunks))
+	}
+	if !strings.HasPrefix(chunks[0], "## A") {
+		t.Fatalf("expected heading attached to first piece, got %q", chunks[0])
+	}
+	// First chunk may overflow by the heading's token count (~2 tokens).
+	// Allow up to budget + 5 tokens of slack on chunk 0; subsequent
+	// chunks must stay within budget.
+	budget := 60
+	for i, c := range chunks {
+		limit := budget
+		if i == 0 {
+			limit = budget + 5
+		}
+		if EstimateTokens(c) > limit {
+			t.Fatalf("chunk %d busts budget: %d tokens (limit %d)", i, EstimateTokens(c), limit)
+		}
+	}
+}
+
 func TestChunk_SentenceFallback_WhenNoParagraphBoundary(t *testing.T) {
 	// A single dense paragraph with no blank lines. Chunker must fall back to
 	// sentence-end splits.
