@@ -83,3 +83,30 @@ func TestFit_NoOpWhenUnderBudget(t *testing.T) {
 		t.Fatalf("Fit should be a no-op under budget; got %q", got)
 	}
 }
+
+func TestChunk_SplitsOversizeCodeBlockOnInnerNewlines(t *testing.T) {
+	// A 500-line code block with a 50-token budget. The chunker must emit
+	// multiple chunks, each carrying balanced fence markers.
+	body := strings.Repeat("var x = 1\n", 500)
+	in := "```go\n" + body + "```"
+	chunks := Chunk(in, 50)
+	if len(chunks) < 2 {
+		t.Fatalf("expected oversize code block to be split, got 1 chunk")
+	}
+	for i, c := range chunks {
+		opens := strings.Count(c, "```")
+		if opens%2 != 0 {
+			t.Fatalf("chunk %d unbalanced fences:\n%s", i, c)
+		}
+	}
+}
+
+func TestChunk_SentenceFallback_WhenNoParagraphBoundary(t *testing.T) {
+	// A single dense paragraph with no blank lines. Chunker must fall back to
+	// sentence-end splits.
+	in := strings.Repeat("This is sentence one. This is sentence two. ", 30)
+	chunks := Chunk(in, 30)
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks via sentence fallback, got %d", len(chunks))
+	}
+}

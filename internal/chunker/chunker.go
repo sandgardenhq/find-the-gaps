@@ -62,6 +62,21 @@ func Chunk(content string, maxTokens int) []string {
 	for _, g := range groups {
 		gText := renderGroup(g)
 		gTok := EstimateTokens(gText)
+		// Oversize-group branch: a single group bigger than maxTokens on its
+		// own cannot be packed into a normal chunk. Flush whatever is pending,
+		// then split the group via splitOversizeGroup (fence-preserving for
+		// code blocks; sentence fallback for paragraphs) and emit each piece
+		// as its own chunk.
+		//
+		// EXCEPTION: when the current chunk is still awaiting body content
+		// (i.e. it currently ends in a heading), don't split — the heading
+		// must stay attached to its body. We accept the overflow rather than
+		// orphan a heading. The same invariant guards the budget check below.
+		if gTok > maxTokens && !curAwaitingBody {
+			flush()
+			chunks = append(chunks, splitOversizeGroup(g, maxTokens)...)
+			continue
+		}
 		// Heading at preferred depth (1-3) is a strong boundary — flush first
 		// if we already have content so the heading starts a fresh chunk.
 		// BUT skip the flush when the current chunk is still awaiting body —
@@ -151,4 +166,99 @@ func Fit(content string, maxTokens int) string {
 		return ""
 	}
 	return chunks[0]
+}
+
+// splitOversizeGroup breaks an atomic group that exceeds maxTokens into
+// smaller pieces. For fenced code, it wraps each inner-line slice with the
+// surrounding fence markers. For everything else, it falls back to sentence
+// splits.
+func splitOversizeGroup(g group, maxTokens int) []string {
+	if len(g.blocks) == 0 {
+		return nil
+	}
+	first := g.blocks[0]
+	switch first.kind {
+	case blockCode:
+		return splitCodeBlock(g, maxTokens)
+	default:
+		return splitParagraph(renderGroup(g), maxTokens)
+	}
+}
+
+// splitCodeBlock splits a fenced code group into pieces each wrapped with the
+// original opening + closing fence markers, so every emitted chunk parses as
+// balanced markdown.
+func splitCodeBlock(g group, maxTokens int) []string {
+	if len(g.blocks) < 2 {
+		return []string{renderGroup(g)}
+	}
+	open := g.blocks[0].text
+	close := g.blocks[len(g.blocks)-1].text
+	inner := g.blocks[1 : len(g.blocks)-1]
+
+	var (
+		out      []string
+		cur      strings.Builder
+		curTok   int
+		overhead = EstimateTokens(open) + EstimateTokens(close) + 2
+	)
+	for _, b := range inner {
+		t := EstimateTokens(b.text) + 1
+		if curTok+t+overhead > maxTokens && cur.Len() > 0 {
+			out = append(out, open+"\n"+strings.TrimRight(cur.String(), "\n")+"\n"+close)
+			cur.Reset()
+			curTok = 0
+		}
+		cur.WriteString(b.text)
+		cur.WriteString("\n")
+		curTok += t
+	}
+	if cur.Len() > 0 {
+		out = append(out, open+"\n"+strings.TrimRight(cur.String(), "\n")+"\n"+close)
+	}
+	return out
+}
+
+// splitParagraph splits a dense paragraph (no blank-line boundaries) into
+// pieces at sentence endings, greedy-packed under maxTokens.
+func splitParagraph(s string, maxTokens int) []string {
+	sentences := splitSentences(s)
+	var (
+		out    []string
+		cur    strings.Builder
+		curTok int
+	)
+	for _, sent := range sentences {
+		t := EstimateTokens(sent)
+		if curTok+t > maxTokens && cur.Len() > 0 {
+			out = append(out, strings.TrimSpace(cur.String()))
+			cur.Reset()
+			curTok = 0
+		}
+		cur.WriteString(sent)
+		cur.WriteString(" ")
+		curTok += t
+	}
+	if cur.Len() > 0 {
+		out = append(out, strings.TrimSpace(cur.String()))
+	}
+	return out
+}
+
+// splitSentences splits on ". " keeping the period attached to the preceding
+// sentence. Naive but adequate as a last-resort fallback when no markdown
+// boundary is available.
+func splitSentences(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s)-1; i++ {
+		if s[i] == '.' && s[i+1] == ' ' {
+			out = append(out, s[start:i+1])
+			start = i + 2
+		}
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
 }
