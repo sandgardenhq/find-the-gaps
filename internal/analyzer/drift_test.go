@@ -1110,12 +1110,15 @@ func (s *chunkAwareJudgeStub) CompleteJSONMultimodal(_ context.Context, _ []anal
 }
 func (s *chunkAwareJudgeStub) Capabilities() analyzer.ModelCapabilities { return s.caps }
 
-// TestJudgeFeatureDrift_ChunksWhenOverBudget pins the compaction contract:
-// when the assembled judge prompt exceeds the budget, observations are
-// split into smaller chunks that each fit, the judge is called once per
-// chunk, and the per-chunk issue lists are concatenated. Every original
-// observation is seen by some chunk's prompt — the chunking is lossless
-// at the observation level.
+// TestJudgeFeatureDrift_ChunksWhenOverBudget pins the preemptive-sizing
+// contract: when the assembled judge prompt would exceed the model's
+// input budget, judgeFeatureDrift splits observations into smaller
+// chunks that each fit, calls the judge once per chunk, and
+// concatenates the per-chunk issue lists. Every original observation is
+// seen by some chunk's prompt — the chunking is lossless at the
+// observation level — and EVERY prompt sent to the LLM stays under
+// budget on the first try (no reactive ErrTokenBudgetExceeded round
+// trip).
 func TestJudgeFeatureDrift_ChunksWhenOverBudget(t *testing.T) {
 	// Build N=12 observations whose concatenated prompt clearly exceeds
 	// the stub's 1500-token budget but which each individually fit.
@@ -1146,7 +1149,7 @@ func TestJudgeFeatureDrift_ChunksWhenOverBudget(t *testing.T) {
 	for i := 1; i <= n; i++ {
 		marker := fmt.Sprintf("concern %d", i)
 		seen := false
-		for _, p := range stub.prompts[1:] { // [0] is the failed one-shot try
+		for _, p := range stub.prompts {
 			if strings.Contains(p, marker) {
 				seen = true
 				break
@@ -1155,6 +1158,76 @@ func TestJudgeFeatureDrift_ChunksWhenOverBudget(t *testing.T) {
 		if !seen {
 			t.Fatalf("observation %d (%q) did not appear in any chunked prompt", i, marker)
 		}
+	}
+	// Preemptive sizing contract: every prompt sent to the LLM must
+	// stay under budget on the first try. No reactive
+	// ErrTokenBudgetExceeded round trip is acceptable.
+	for i, p := range stub.prompts {
+		if got := analyzer.CountTokensForTest(p); got > stub.budgetTokens {
+			t.Fatalf("prompt %d/%d exceeded budget on first send: %d tokens > %d (preemptive sizing failed)",
+				i+1, len(stub.prompts), got, stub.budgetTokens)
+		}
+	}
+}
+
+// TestJudgeFeatureDrift_PreemptiveSizing_LargeObservationSet pins that
+// an oversize observation set drives ≥2 judge calls and EVERY call's
+// rendered prompt stays under the configured 60K-token budget on the
+// first send. The old reactive-compaction path made one over-budget
+// call first and recovered after the failure — this test catches a
+// regression to that pattern by asserting no call exceeded budget at
+// any point in the run.
+func TestJudgeFeatureDrift_PreemptiveSizing_LargeObservationSet(t *testing.T) {
+	const (
+		n            = 200
+		budgetTokens = 60_000
+	)
+	// Each observation contributes ~700 rendered tokens after the
+	// per-observation quote clip (clipObservationQuotes caps each
+	// quote at 1500 bytes). 200 observations → ~140K total prompt
+	// tokens, well over the 60K budget so preemptive chunking is
+	// forced.
+	obs := make([]analyzer.DriftObservation, n)
+	for i := 0; i < n; i++ {
+		obs[i] = analyzer.DriftObservation{
+			Page:      fmt.Sprintf("https://x/%d", i+1),
+			DocQuote:  strings.Repeat("docword ", 200),
+			CodeQuote: strings.Repeat("codeword ", 200),
+			Concern:   fmt.Sprintf("concern %d", i+1),
+		}
+	}
+
+	stub := &chunkAwareJudgeStub{
+		budgetTokens: budgetTokens,
+		caps: analyzer.ModelCapabilities{
+			Provider:       "p",
+			Model:          "m",
+			MaxInputTokens: budgetTokens,
+		},
+	}
+
+	feat := analyzer.CodeFeature{Name: "F", Description: "x"}
+	issues, err := analyzer.JudgeFeatureDrift(
+		context.Background(), stub, feat, obs, analyzer.NewRoleResolver(nil))
+
+	require.NoError(t, err)
+	require.NotEmpty(t, issues)
+	if stub.calls < 2 {
+		t.Fatalf("expected ≥2 judge calls (preemptive chunking), got %d", stub.calls)
+	}
+	for i, p := range stub.prompts {
+		if got := analyzer.CountTokensForTest(p); got > budgetTokens {
+			t.Fatalf("preemptive sizing violated: call %d/%d sent %d tokens > %d budget",
+				i+1, len(stub.prompts), got, budgetTokens)
+		}
+	}
+	// Merged result must include issues sourced from multiple chunks.
+	pages := map[string]bool{}
+	for _, iss := range issues {
+		pages[iss.Page] = true
+	}
+	if len(pages) < 2 {
+		t.Fatalf("expected merged issues from multiple chunks, got %d unique pages", len(pages))
 	}
 }
 

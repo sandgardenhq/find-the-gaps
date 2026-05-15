@@ -816,16 +816,22 @@ type judgeResponse struct {
 }
 
 // judgeFeatureDrift adjudicates the investigator's observations for one
-// feature. The fast path is one non-tool CompleteJSON call covering every
-// observation. When that prompt exceeds the model's input budget — the
-// pathological case where an investigator surfaced many observations on a
-// busy feature — the function falls back to a chunked-judging compaction
-// path that splits observations into smaller groups, judges each, and
-// concatenates the per-chunk issues. Lossless at the observation level:
-// every observation is still seen by the judge.
+// feature. The function estimates the assembled prompt's token cost via
+// chunker.EstimateTokens BEFORE the first LLM call. When the rendered
+// observation set fits within the model's input budget (the common
+// case), the judge is invoked exactly once. When it would not fit, the
+// observations are greedy-packed into the smallest number of groups
+// whose rendered prompts each fit, the judge is invoked once per group,
+// and per-chunk issue lists are concatenated. Lossless at the
+// observation level: every observation is still seen by the judge.
 //
 // With zero observations the function short-circuits and returns nil
 // without calling the LLM.
+//
+// The ErrTokenBudgetExceeded backstop in runJudgeOnce should be
+// unreachable once preemptive sizing is in place — it is retained as
+// defense-in-depth so estimator-vs-tokenizer drift surfaces as a loud
+// warning instead of a silent skip.
 func judgeFeatureDrift(
 	ctx context.Context,
 	client LLMClient,
@@ -837,36 +843,34 @@ func judgeFeatureDrift(
 		return nil, nil
 	}
 
-	issues, err := judgeOneShot(ctx, client, feature, observations, roles)
-	if err == nil {
-		return issues, nil
+	groups := chunkObservationsForJudge(client, feature, observations, roles)
+	if len(groups) <= 1 {
+		return runJudgeOnce(ctx, client, feature, observations, roles)
 	}
-	if !errors.Is(err, ErrTokenBudgetExceeded{}) {
-		return nil, err
-	}
-
-	// Compaction path: split observations into the smallest number of
-	// groups whose rendered prompts each fit within the budget, judge
-	// each, and merge.
-	chunks := chunkObservationsToFit(client, feature, observations, roles)
-	log.Warnf("judge prompt for %q exceeded token budget; compacting into %d chunks", feature.Name, len(chunks))
+	log.Debugf("judge prompt for %q split into %d chunks (preemptive sizing)", feature.Name, len(groups))
 
 	var all []DriftIssue
-	for i, chunk := range chunks {
-		chunkIssues, err := judgeOneShot(ctx, client, feature, chunk, roles)
+	for i, chunk := range groups {
+		chunkIssues, err := runJudgeOnce(ctx, client, feature, chunk, roles)
 		if err != nil {
-			return nil, fmt.Errorf("judgeFeatureDrift %q: chunk %d/%d: %w", feature.Name, i+1, len(chunks), err)
+			return nil, fmt.Errorf("judgeFeatureDrift %q: chunk %d/%d: %w", feature.Name, i+1, len(groups), err)
 		}
 		all = append(all, chunkIssues...)
 	}
-	return all, nil
+	return dedupeDriftIssues(all), nil
 }
 
-// judgeOneShot is the historical body of judgeFeatureDrift extracted as
-// a helper. It renders the prompt for a fixed observation set and runs
-// the existing retry loop. Returning ErrTokenBudgetExceeded triggers the
-// compaction path in judgeFeatureDrift.
-func judgeOneShot(
+// runJudgeOnce renders the judge prompt for a fixed observation set,
+// invokes the judge LLM with the existing retry loop, and validates the
+// returned issues. It is the single-call body shared by the fast path
+// (one observation set) and the preemptive-chunking path (one
+// observation group per chunk).
+//
+// An ErrTokenBudgetExceeded from the LLM client at this layer should be
+// unreachable once preemptive sizing in judgeFeatureDrift is in place.
+// It is surfaced as a loud warning so estimator-vs-tokenizer drift is
+// visible rather than silently retried.
+func runJudgeOnce(
 	ctx context.Context,
 	client LLMClient,
 	feature CodeFeature,
@@ -877,8 +881,8 @@ func judgeOneShot(
 
 	// Retry on transport error / malformed JSON / schema-validation
 	// failure. ErrTokenBudgetExceeded is NOT retried — it's deterministic
-	// for a given prompt and the caller (judgeFeatureDrift) handles it via
-	// chunked compaction.
+	// for a given prompt and indicates that preemptive sizing in
+	// judgeFeatureDrift mis-estimated the cost. Log loudly and surface.
 	var lastErr error
 	for attempt := 1; attempt <= driftJudgeMaxAttempts; attempt++ {
 		raw, err := client.CompleteJSON(ctx, prompt, judgeSchema)
@@ -887,6 +891,7 @@ func judgeOneShot(
 				return nil, ctxErr
 			}
 			if errors.Is(err, ErrTokenBudgetExceeded{}) {
+				log.Warnf("judge prompt for %q hit token budget despite preemptive sizing (should be unreachable): %v", feature.Name, err)
 				return nil, err
 			}
 			lastErr = err
@@ -907,6 +912,33 @@ func judgeOneShot(
 		return resp.Issues, nil
 	}
 	return nil, fmt.Errorf("judgeFeatureDrift %q: %w: %s", feature.Name, ErrLLMRetriesExhausted, lastErr)
+}
+
+// dedupeDriftIssues collapses duplicate issues that the LLM may emit
+// when the same docs problem appears in observations spread across
+// multiple chunks. The dedupe key is (page, issue) — pages are stable
+// URLs and the issue text is the actionable feedback that would render
+// in gaps.md, so two issues with the same key would render as one
+// finding for the reader anyway. Description paraphrasing is tolerated:
+// the first-seen issue text wins. Priority/PriorityReason are not part
+// of the key — if two chunks judge the same docs problem at different
+// priorities the first-seen priority wins (judges agree on priorities
+// in practice; this is belt-and-suspenders).
+func dedupeDriftIssues(issues []DriftIssue) []DriftIssue {
+	if len(issues) <= 1 {
+		return issues
+	}
+	seen := make(map[string]bool, len(issues))
+	out := issues[:0]
+	for _, iss := range issues {
+		key := iss.Page + "|" + iss.Issue
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, iss)
+	}
+	return out
 }
 
 // renderJudgePrompt builds the judge-stage prompt for one feature and a
@@ -966,13 +998,20 @@ func clipObservationQuotes(o driftObservation, max int) driftObservation {
 	return o
 }
 
-// chunkObservationsToFit greedily packs observations into the smallest
+// chunkObservationsForJudge greedy-packs observations into the smallest
 // number of groups whose rendered judge prompts each fit within
-// 0.9 × Capabilities().MaxInputTokens. Oversized quotes on individual
-// observations are clipped to clipQuoteMaxChars first. When the model
-// has no budget (MaxInputTokens == 0), returns one chunk containing all
-// observations.
-func chunkObservationsToFit(client LLMClient, feature CodeFeature, obs []driftObservation, roles RoleResolver) [][]driftObservation {
+// 0.9 × Capabilities().MaxInputTokens. The packing is preemptive: the
+// caller (judgeFeatureDrift) consults this BEFORE the first LLM call,
+// so the reactive "send and catch ErrTokenBudgetExceeded" path no
+// longer exists.
+//
+// Per-observation quotes are clipped to clipQuoteMaxChars first so a
+// single pathological observation cannot single-handedly overflow a
+// chunk. When the model exposes no budget (MaxInputTokens == 0,
+// self-hosted ollama/lmstudio), returns one chunk containing every
+// observation — without a budget we have nothing to pack against and
+// the upstream client will surface any real overflow.
+func chunkObservationsForJudge(client LLMClient, feature CodeFeature, obs []driftObservation, roles RoleResolver) [][]driftObservation {
 	caps := client.Capabilities()
 	if caps.MaxInputTokens <= 0 {
 		return [][]driftObservation{obs}
@@ -984,12 +1023,18 @@ func chunkObservationsToFit(client LLMClient, feature CodeFeature, obs []driftOb
 		clipped[i] = clipObservationQuotes(o, clipQuoteMaxChars)
 	}
 
+	// Single-call fast path: if the full rendered prompt fits, emit one
+	// chunk and let judgeFeatureDrift call the judge once.
+	if chunker.EstimateTokens(renderJudgePrompt(feature, clipped, roles)) <= budget {
+		return [][]driftObservation{clipped}
+	}
+
 	var chunks [][]driftObservation
 	var cur []driftObservation
 	for _, o := range clipped {
 		candidate := append([]driftObservation{}, cur...)
 		candidate = append(candidate, o)
-		if countTokens(renderJudgePrompt(feature, candidate, roles)) > budget && len(cur) > 0 {
+		if chunker.EstimateTokens(renderJudgePrompt(feature, candidate, roles)) > budget && len(cur) > 0 {
 			// `cur` was the last chunk that fit; flush it.
 			chunks = append(chunks, cur)
 			cur = []driftObservation{o}

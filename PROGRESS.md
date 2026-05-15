@@ -1729,3 +1729,19 @@ A new `--forge` flag covers self-hosted forges on custom domains
   - DocPage gains Role; CLI hoists rolesByURL build out of the drift block
   - screenshotsCacheKey includes role so reclassification on unchanged content invalidates
   - priorityRubric updated to reference the new 9-label enum
+
+## Context Overflow Remediation Task 10: drift judge preemptive sizing - COMPLETE
+- Started: 2026-05-15
+- Plan: `.plans/CONTEXT_OVERFLOW_REMEDIATION.md` Task 10
+- Tests: full analyzer suite passing, race-clean, count=1
+- Coverage (internal/analyzer): 93.0%
+- Build: Successful
+- Linting: Clean on touched files (2 pre-existing bifrost_client_test.go QF1008 hints unchanged)
+- Completed: 2026-05-15
+- Notes:
+  - Replaced reactive `chunkObservationsToFit` retry-on-`ErrTokenBudgetExceeded` with preemptive sizing via `chunker.EstimateTokens` in `judgeFeatureDrift`.
+  - `judgeOneShot` renamed to `runJudgeOnce`; ErrTokenBudgetExceeded handler now logs WARN with "should be unreachable" wording (defense-in-depth backstop, not a retry path).
+  - `chunkObservationsForJudge` replaces `chunkObservationsToFit` — same greedy-pack shape, but uses `chunker.EstimateTokens` and pre-checks single-call fit before iterating.
+  - Added `dedupeDriftIssues` by (page, issue) key to collapse cross-chunk duplicates.
+  - Existing `TestJudgeFeatureDrift_ChunksWhenOverBudget` updated: prompts[0] is now the first valid chunk (no failed one-shot), plus a new under-budget assertion against every prompt.
+  - New `TestJudgeFeatureDrift_PreemptiveSizing_LargeObservationSet` with 200 observations against a 60K budget pins the contract: ≥2 calls, every call under budget on first send.
