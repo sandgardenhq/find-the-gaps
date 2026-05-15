@@ -5,9 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/log"
+	"github.com/sandgardenhq/find-the-gaps/internal/chunker"
 )
+
+// budgetForPageAnalysis returns the per-call content budget for the
+// analyze-page prompt, by tier. Conservative numbers chosen so the
+// prompt template, JSON-schema overhead, and a generous response cap
+// all fit comfortably alongside the content blob. When the content
+// exceeds this budget, AnalyzePage splits it via chunker.Chunk and
+// merges the per-chunk results.
+func budgetForPageAnalysis(tier Tier) int {
+	switch tier {
+	case TierSmall:
+		return 30_000
+	case TierTypical:
+		return 60_000
+	default:
+		return 100_000
+	}
+}
 
 type analyzePageResponse struct {
 	Summary  string   `json:"summary"`
@@ -44,8 +63,47 @@ var analyzePageSchema = JSONSchema{
 // AnalyzePage sends doc page content to the LLM and returns a summary,
 // feature list, and a binary classification of whether the page is
 // product documentation.
+//
+// For pages whose content exceeds the small-tier per-call budget, the
+// content is preemptively split via chunker.Chunk and each chunk is
+// analyzed independently; the resulting feature lists are merged by
+// lowercase name (first occurrence wins; see mergePageAnalysis).
 func AnalyzePage(ctx context.Context, tiering LLMTiering, pageURL, content string) (PageAnalysis, error) {
 	client := tiering.Small()
+	budget := budgetForPageAnalysis(TierSmall)
+	if chunker.EstimateTokens(content) <= budget {
+		return runAnalyzePageOnce(ctx, client, pageURL, content)
+	}
+	chunks := chunker.Chunk(content, budget)
+	if len(chunks) <= 1 {
+		return runAnalyzePageOnce(ctx, client, pageURL, content)
+	}
+	var merged PageAnalysis
+	for i, c := range chunks {
+		part, err := runAnalyzePageOnce(ctx, client, pageURL, c)
+		if err != nil {
+			return PageAnalysis{}, fmt.Errorf("AnalyzePage %s: chunk %d/%d: %w",
+				pageURL, i+1, len(chunks), err)
+		}
+		// A per-chunk skip (zero-value PageAnalysis, nil error) from
+		// the ErrTokenBudgetExceeded backstop should not poison the
+		// merge — merge it as a no-op and continue.
+		merged = mergePageAnalysis(merged, part)
+	}
+	merged.URL = pageURL
+	log.Debugf("page chunked: url=%s chunks=%d features_after_merge=%d",
+		pageURL, len(chunks), len(merged.Features))
+	return merged, nil
+}
+
+// runAnalyzePageOnce runs the analyze-page prompt against a single
+// content payload. Callers that need preemptive chunking (oversize
+// pages) drive this function once per chunk and merge results via
+// mergePageAnalysis. The ErrTokenBudgetExceeded backstop here should
+// be unreachable in practice once chunking is in place; it is kept as
+// defense-in-depth so an estimator-vs-tokenizer drift surfaces as a
+// loud warning instead of a hard abort of the whole analyze run.
+func runAnalyzePageOnce(ctx context.Context, client LLMClient, pageURL, content string) (PageAnalysis, error) {
 	// PROMPT: Summarizes a single documentation page, extracts the product features described on it, and classifies whether the page is product documentation. Inclusive-by-default: when uncertain, classify as docs (false negatives are worse than false positives).
 	prompt := fmt.Sprintf(`You are analyzing a page on a software product's website.
 
@@ -135,4 +193,59 @@ Set is_docs=false when the page is one of the not-docs categories above. Default
 		IsDocs:   isDocs,
 		Role:     role,
 	}, nil
+}
+
+// mergePageAnalysis combines two PageAnalysis results from per-chunk
+// runs of the analyze-page prompt.
+//
+//   - URL:      first non-empty wins (the caller usually overwrites
+//     this with the page URL anyway).
+//   - Summary:  first non-empty wins. Trade-off: for oversize pages
+//     whose first chunk is intro/marketing prose and the meat
+//     lives in a later chunk (e.g. an API reference table at the
+//     bottom), the first chunk's summary is the one that survives.
+//     Acceptable because (a) most chunked pages are reference pages
+//     whose first chunk IS the meat, and (b) the per-chunk Feature
+//     lists (which DO union across chunks) carry the substantive
+//     content into mapping.md downstream.
+//   - IsDocs:   OR — any chunk classifying the page as docs makes
+//     the merged page docs. Inclusive-by-default: a false
+//     negative is worse than a false positive.
+//   - Role:     first non-empty/non-"other" wins; falls back to "other".
+//   - Features: deduped by lowercase name; first occurrence wins for
+//     the surface form (the feature list is []string, so there
+//     is no "longest description" to compare).
+func mergePageAnalysis(a, b PageAnalysis) PageAnalysis {
+	out := a
+	if out.URL == "" {
+		out.URL = b.URL
+	}
+	if out.Summary == "" {
+		out.Summary = b.Summary
+	}
+	out.IsDocs = a.IsDocs || b.IsDocs
+	// Role: prefer the first specific (non-empty, non-"other") role we encounter.
+	// If no chunk has a specific role, fall through with whatever was first set
+	// (including "other"), since that's the inclusive-by-default behavior.
+	if (out.Role == "" || out.Role == "other") && b.Role != "" && b.Role != "other" {
+		out.Role = b.Role
+	} else if out.Role == "" {
+		out.Role = b.Role
+	}
+	seen := make(map[string]struct{}, len(out.Features)+len(b.Features))
+	for _, f := range out.Features {
+		seen[strings.ToLower(f)] = struct{}{}
+	}
+	for _, f := range b.Features {
+		key := strings.ToLower(f)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out.Features = append(out.Features, f)
+	}
+	if out.Features == nil {
+		out.Features = []string{}
+	}
+	return out
 }

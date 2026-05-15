@@ -483,7 +483,7 @@ func TestScreenshotPromptBudget_LeavesRoomForTokenizerDriftAndToolOverhead(t *te
 }
 
 func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
-	// Build content well above ScreenshotPromptBudget so truncation must fire.
+	// Build content well above ScreenshotPromptBudget so chunking must fire.
 	// "lorem ipsum dolor sit amet " ≈ 6 tokens for cl100k_base; repeat enough
 	// to exceed the budget by a wide margin.
 	chunk := "lorem ipsum dolor sit amet consectetur adipiscing elit "
@@ -495,12 +495,134 @@ func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
 
 	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, client.prompts, 1, "page should still be sent, just truncated")
+	require.NotEmpty(t, client.prompts, "page should still be sent, possibly split into chunks")
 
-	sent := client.prompts[0]
-	got := countTokens(sent)
-	assert.Less(t, got, ScreenshotPromptBudget,
-		"prompt token count must fit inside ScreenshotPromptBudget after truncation")
+	for i, sent := range client.prompts {
+		got := countTokens(sent)
+		assert.Less(t, got, ScreenshotPromptBudget,
+			"prompt[%d] token count must fit inside ScreenshotPromptBudget", i)
+	}
+}
+
+// TestDetectScreenshotGaps_ChunksOversizePage_SharesImageManifest verifies
+// that a page exceeding the screenshot-detection content budget is split via
+// the chunker, that each chunk produces its own LLM call, and that the
+// page-scoped image manifest travels with every chunk so findings referencing
+// the image still have context. The fake returns a distinct missing-gap per
+// call so the test can prove that findings from more than one chunk land in
+// the merged result.
+func TestDetectScreenshotGaps_ChunksOversizePage_SharesImageManifest(t *testing.T) {
+	// Build heading-rich markdown past the per-call content budget. Each
+	// section is ~564 tokens; 300 sections puts us at ~170K tokens of
+	// content which exceeds the ~148K post-overhead budget on a typical
+	// page, while giving the chunker real H2 boundaries to split on. The
+	// page also carries an image reference; the manifest must reach every
+	// LLM call.
+	imageRefLine := "![diagram](https://example.com/a.png)\n\n"
+	section := "## Section\n\n" + strings.Repeat("alpha beta gamma delta epsilon zeta ", 80) + "\n\n"
+	big := imageRefLine + strings.Repeat(section, 300)
+
+	client := &fakeLLMClient{
+		responses: []string{
+			`{"gaps":[{"quoted_passage":"q1","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q2","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q3","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q4","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q5","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+		},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/oversize", Path: "/tmp/o.md", Content: big},
+	}
+
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	require.GreaterOrEqual(t, len(client.prompts), 2,
+		"expected >= 2 LLM calls for oversize page, got %d", len(client.prompts))
+
+	for i, p := range client.prompts {
+		assert.Contains(t, p, "https://example.com/a.png",
+			"prompt[%d] must include the page-scoped image manifest", i)
+		assert.Less(t, countTokens(p), ScreenshotPromptBudget,
+			"prompt[%d] must fit inside ScreenshotPromptBudget", i)
+	}
+
+	// Audit stat: Chunks must reflect that the detection pass split the
+	// page into >=2 pieces. Production cache loaders and the audit log
+	// rely on this to distinguish single-call pages from chunked ones.
+	require.Len(t, res.AuditStats, 1)
+	assert.GreaterOrEqual(t, res.AuditStats[0].Chunks, 2,
+		"oversize page must surface Chunks>=2 in AuditStats; got %d", res.AuditStats[0].Chunks)
+
+	// Findings from at least two chunks must reach the merged result.
+	seen := map[string]bool{}
+	for _, g := range res.MissingGaps {
+		seen[g.QuotedPassage] = true
+	}
+	uniqueChunkFindings := 0
+	for _, want := range []string{"q1", "q2", "q3", "q4", "q5"} {
+		if seen[want] {
+			uniqueChunkFindings++
+		}
+	}
+	assert.GreaterOrEqual(t, uniqueChunkFindings, 2,
+		"expected merged findings from at least 2 chunks, got %d in %v",
+		uniqueChunkFindings, res.MissingGaps)
+}
+
+// TestDetectionPass_AllChunksSkipped_RollupReportsSkipped pins the rollup
+// branch in detectionPass: when an oversize page chunks to >=2 pieces and
+// every chunk's LLM call returns ErrTokenBudgetExceeded (the per-model
+// budget gate firing), the page-level return must be skipped=true with
+// empty findings — not a clean "no findings" result.
+//
+// Coverage backfill: the rollup branch landed in commit 44e586a; this
+// test was added afterwards to guard it. To prove the assertion actually
+// guards the new behavior, the rollup branch can be temporarily disabled
+// (commenting out the `if allChunksSkipped && !anyChunkProduced` block);
+// this test then fails because detectionPass returns skipped=false. With
+// the branch restored, the test passes.
+func TestDetectionPass_AllChunksSkipped_RollupReportsSkipped(t *testing.T) {
+	// Build oversize, heading-rich content that the chunker splits along
+	// H2 boundaries into exactly a few chunks. Each section is ~56K
+	// content tokens; three sections totals ~168K which exceeds the
+	// post-overhead per-call content budget (~148K) and forces the
+	// chunker to emit one chunk per section.
+	bigSection := "## Section\n\n" + strings.Repeat("alpha beta gamma delta epsilon zeta ", 8000) + "\n\n"
+	big := strings.Repeat(bigSection, 3)
+	page := DocPage{URL: "https://example.com/all-skipped", Path: "/tmp/all-skipped.md", Content: big}
+
+	// Force every CompleteJSON call (one per chunk) to surface the per-
+	// model budget gate. runScreenshotDetectionOnce translates this into
+	// chunkSkipped=true with err=nil, which detectionPass must roll up
+	// into a page-level skipped=true at the end of the loop.
+	budgetErr := ErrTokenBudgetExceeded{
+		Provider: "p", Model: "m",
+		Counted: 999_999, Budget: 100_000,
+		Where: "screenshot-gaps",
+	}
+	errs := make([]error, 8) // covers the 3 expected chunks with headroom
+	for i := range errs {
+		errs[i] = budgetErr
+	}
+	client := &fakeLLMClient{errs: errs}
+
+	gaps, suppImg, suppCode, skipped, chunks, err := detectionPass(
+		context.Background(), client, page, nil, nil, nil,
+	)
+	require.NoError(t, err, "budget-skipped chunks must not propagate as error")
+	assert.True(t, skipped, "all-chunks-skipped rollup must report skipped=true")
+	assert.Empty(t, gaps, "no gaps should be produced when every chunk skipped")
+	assert.Empty(t, suppImg, "no suppressed-by-image items when every chunk skipped")
+	assert.Empty(t, suppCode, "no suppressed-by-code-block items when every chunk skipped")
+	assert.GreaterOrEqual(t, chunks, 2,
+		"chunks count must reflect the >=2 chunks attempted before rollup, got %d", chunks)
+	// Prove the rollup decision was reached at the end of the chunk loop
+	// (>=2 chunks attempted), not via the pre-call budget fast-skip path
+	// in detectionPass (which would short-circuit after 0 LLM calls).
+	assert.GreaterOrEqual(t, len(client.prompts), 2,
+		"expected >=2 chunked LLM call attempts before rollup, got %d", len(client.prompts))
 }
 
 func TestSplitImageBatches(t *testing.T) {
@@ -1136,7 +1258,7 @@ func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
 		}`},
 	}
 	page := DocPage{URL: "https://x.com/p", Path: "p.md", Content: "# Hello\n\nClick Save."}
-	gaps, suppressed, _, skipped, err := detectionPass(context.Background(), client, page, nil, nil, nil)
+	gaps, suppressed, _, skipped, _, err := detectionPass(context.Background(), client, page, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1308,4 +1430,21 @@ func TestDetectScreenshotGaps_CountsCodeBlocksSeenEvenWhenZeroSuppressions(t *te
 	require.Len(t, res.AuditStats, 1)
 	assert.Equal(t, 2, res.AuditStats[0].CodeBlocksSeen)
 	assert.Equal(t, 0, res.AuditStats[0].SuppressedByCodeBlock)
+}
+
+// TestDetectScreenshotGaps_RecordsChunksOnFastPath pins the audit-stat
+// contract for under-budget pages: a single-call detection pass must
+// record Chunks=1 (not 0). Chunks=0 is reserved for pages whose detection
+// pass never ran (overhead-skip path), so a regression that always set
+// Chunks=0 would conflate the two states in cache loaders and the audit
+// log.
+func TestDetectScreenshotGaps_RecordsChunksOnFastPath(t *testing.T) {
+	client := &fakeLLMClient{responses: []string{`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`}}
+	page := DocPage{URL: "https://x/p", Content: "# Small page that fits in one call."}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 1, res.AuditStats[0].Chunks,
+		"under-budget page must record Chunks=1 on the single-call fast path; got %d",
+		res.AuditStats[0].Chunks)
 }
