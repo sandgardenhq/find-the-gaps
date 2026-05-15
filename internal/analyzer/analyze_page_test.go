@@ -240,6 +240,60 @@ func TestAnalyzePage_MissingRole_DefaultsToOther(t *testing.T) {
 	}
 }
 
+// TestAnalyzePage_ChunksOversizePage verifies that a page exceeding the
+// small-tier per-page budget is split via the chunker and processed in
+// multiple LLM calls whose feature lists are merged. The fake client
+// returns a distinct feature per call so the test can prove that
+// results from more than one chunk land in the merged output.
+func TestAnalyzePage_ChunksOversizePage(t *testing.T) {
+	// Build a page with heading-rich structure that is guaranteed to
+	// exceed the small-tier budget (30K tokens). Each section is ~600
+	// tokens; 80 sections puts us well over budget while giving the
+	// chunker real heading boundaries to split on.
+	section := "## Section\n\n" + strings.Repeat("alpha beta gamma delta epsilon zeta ", 80) + "\n\n"
+	big := strings.Repeat(section, 80)
+
+	c := &fakeClient{
+		jsonResponseQueues: map[string][]json.RawMessage{
+			"analyze_page_response": {
+				json.RawMessage(`{"summary":"chunk1","features":["FeatureA"],"is_docs":true,"role":"reference"}`),
+				json.RawMessage(`{"summary":"chunk2","features":["FeatureB"],"is_docs":true,"role":"reference"}`),
+				json.RawMessage(`{"summary":"chunk3","features":["FeatureC"],"is_docs":true,"role":"reference"}`),
+				json.RawMessage(`{"summary":"chunk4","features":["FeatureD"],"is_docs":true,"role":"reference"}`),
+				json.RawMessage(`{"summary":"chunk5","features":["FeatureE"],"is_docs":true,"role":"reference"}`),
+			},
+		},
+	}
+
+	got, err := analyzer.AnalyzePage(context.Background(), &fakeTiering{small: c},
+		"https://docs.example.com/big", big)
+	if err != nil {
+		t.Fatalf("AnalyzePage: %v", err)
+	}
+	if c.callCount < 2 {
+		t.Fatalf("expected >= 2 LLM calls for oversize page, got %d", c.callCount)
+	}
+	if len(got.Features) < 2 {
+		t.Fatalf("expected merged features from multiple chunks, got %d: %v",
+			len(got.Features), got.Features)
+	}
+	// Confirm features from at least two different chunks are present.
+	seen := map[string]bool{}
+	for _, f := range got.Features {
+		seen[f] = true
+	}
+	uniqueChunkFeatures := 0
+	for _, name := range []string{"FeatureA", "FeatureB", "FeatureC", "FeatureD", "FeatureE"} {
+		if seen[name] {
+			uniqueChunkFeatures++
+		}
+	}
+	if uniqueChunkFeatures < 2 {
+		t.Fatalf("expected features from at least 2 chunks in merged output, got %d: %v",
+			uniqueChunkFeatures, got.Features)
+	}
+}
+
 func TestAnalyzePage_PromptIncludesRoleRubric(t *testing.T) {
 	c := &fakeClient{jsonResponses: map[string]json.RawMessage{
 		"analyze_page_response": json.RawMessage(
