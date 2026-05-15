@@ -140,3 +140,15 @@ func isHeadingBoundary(g group) bool {
 	b := g.blocks[0]
 	return b.kind == blockHeading && b.depth >= 1 && b.depth <= 3
 }
+
+// Fit returns content truncated to maxTokens at the nearest preferred
+// boundary (same precedence as Chunk). If content already fits, it is
+// returned unchanged. Use Fit when the caller wants exactly one payload
+// instead of a chunk list (e.g. trimming an oversize feature description).
+func Fit(content string, maxTokens int) string {
+	chunks := Chunk(content, maxTokens)
+	if len(chunks) == 0 {
+		return ""
+	}
+	return chunks[0]
+}

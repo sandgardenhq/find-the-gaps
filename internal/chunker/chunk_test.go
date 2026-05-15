@@ -60,3 +60,26 @@ func TestChunk_KeepsParentHeadingWithSubheading(t *testing.T) {
 		t.Fatalf("parent heading orphaned from subheading: %q", chunks[0])
 	}
 }
+
+func TestFit_KeepsHeadingPrefixWhenTruncating(t *testing.T) {
+	a := "## Keep\n\n" + strings.Repeat("foo bar baz ", 20)
+	b := "## Drop\n\n" + strings.Repeat("qux quux corge ", 50)
+	in := a + "\n\n" + b
+	fitted := Fit(in, 80)
+	if !strings.HasPrefix(fitted, "## Keep") {
+		t.Fatalf("expected fitted output to start at H2, got %q", fitted[:30])
+	}
+	if strings.Contains(fitted, "## Drop") {
+		t.Fatalf("expected dropped section to be excluded")
+	}
+	if EstimateTokens(fitted) > 80 {
+		t.Fatalf("fitted output exceeds budget: %d tokens", EstimateTokens(fitted))
+	}
+}
+
+func TestFit_NoOpWhenUnderBudget(t *testing.T) {
+	in := "Hello world."
+	if got := Fit(in, 1000); got != in {
+		t.Fatalf("Fit should be a no-op under budget; got %q", got)
+	}
+}
