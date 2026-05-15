@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -104,6 +105,146 @@ func TestTopEntryPoints_HandlesEmpty(t *testing.T) {
 	if got := topEntryPoints(nil, 10); len(got) != 0 {
 		t.Fatalf("expected empty result for nil input, got %v", got)
 	}
+}
+
+func TestDriftInvestigator_ListFeatureSymbolsTool_PaginatesAndFiltersByName(t *testing.T) {
+	// 75 synthetic symbols named "sym0" through "sym74" — lowercase so the
+	// case-insensitive substring filter has unambiguous semantics.
+	syms := make([]string, 0, 75)
+	for i := 0; i < 75; i++ {
+		syms = append(syms, fmt.Sprintf("sym%d", i))
+	}
+	entry := FeatureEntry{
+		Feature: CodeFeature{Name: "F", Description: "d"},
+		Symbols: syms,
+	}
+	tool := listFeatureSymbolsTool(entry)
+	if tool.Name != "list_feature_symbols" {
+		t.Fatalf("tool name = %q, want list_feature_symbols", tool.Name)
+	}
+
+	// limit=10, offset=20 → sym20..sym29.
+	out, err := tool.Execute(context.Background(), `{"offset": 20, "limit": 10}`)
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	got := extractSymNames(out)
+	want := []string{"sym20", "sym21", "sym22", "sym23", "sym24", "sym25", "sym26", "sym27", "sym28", "sym29"}
+	if !equalStringSlice(got, want) {
+		t.Fatalf("pagination wrong:\n got: %v\nwant: %v\nout: %s", got, want, out)
+	}
+
+	// filter "sym1" — case-insensitive substring match. Must include sym1
+	// and sym10..sym19 (all contain "sym1") but exclude sym20..sym29.
+	out2, err := tool.Execute(context.Background(), `{"filter": "sym1"}`)
+	if err != nil {
+		t.Fatalf("filter invoke: %v", err)
+	}
+	if !strings.Contains(out2, "sym10") {
+		t.Fatalf("filter should include sym10: %s", out2)
+	}
+	// Reject substring matches against sym20+ — these would only appear if
+	// the filter was accidentally implemented as equality or prefix-only.
+	// Match the symbol terminator (space, comma, newline, EOL) so "sym2" as
+	// a header substring like "of 11 symbols" doesn't false-positive.
+	for _, bad := range []string{"sym20", "sym21", "sym22", "sym23", "sym24"} {
+		if strings.Contains(out2, bad) {
+			t.Fatalf("filter %q should not include %s: %s", "sym1", bad, out2)
+		}
+	}
+}
+
+func TestDriftInvestigator_ListFeatureSymbolsTool_ClampsBounds(t *testing.T) {
+	entry := FeatureEntry{
+		Feature: CodeFeature{Name: "F"},
+		Symbols: []string{"sym0", "sym1", "sym2"},
+	}
+	tool := listFeatureSymbolsTool(entry)
+
+	// offset past end → empty slice, not panic.
+	out, err := tool.Execute(context.Background(), `{"offset": 99, "limit": 10}`)
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if names := extractSymNames(out); len(names) != 0 {
+		t.Fatalf("expected no symbols past end, got %v", names)
+	}
+
+	// limit > 200 → clamped to 200 (not exhibited at this size; just confirm
+	// the call succeeds and returns all 3 entries).
+	out2, err := tool.Execute(context.Background(), `{"limit": 9999}`)
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if names := extractSymNames(out2); len(names) != 3 {
+		t.Fatalf("expected 3 entries, got %v", names)
+	}
+}
+
+func TestDriftInvestigator_ListFeatureTools_InvalidJSON(t *testing.T) {
+	// Bad JSON must come back to the LLM as a tool-result string rather than
+	// crashing the agent loop — same shape as readFileTool's error handling.
+	symTool := listFeatureSymbolsTool(FeatureEntry{Symbols: []string{"a"}})
+	out, err := symTool.Execute(context.Background(), `{"offset":`)
+	if err != nil {
+		t.Fatalf("symbols tool returned error instead of string: %v", err)
+	}
+	if !strings.Contains(out, "error parsing arguments") {
+		t.Fatalf("expected parse-error message in symbols tool output, got: %s", out)
+	}
+
+	pageTool := listFeaturePagesTool([]string{"https://x"})
+	out2, err := pageTool.Execute(context.Background(), `not-json`)
+	if err != nil {
+		t.Fatalf("pages tool returned error instead of string: %v", err)
+	}
+	if !strings.Contains(out2, "error parsing arguments") {
+		t.Fatalf("expected parse-error message in pages tool output, got: %s", out2)
+	}
+}
+
+func TestDriftInvestigator_ListFeaturePagesTool_Paginates(t *testing.T) {
+	pages := []string{
+		"https://example.com/a",
+		"https://example.com/b",
+		"https://example.com/c",
+		"https://example.com/d",
+	}
+	tool := listFeaturePagesTool(pages)
+	if tool.Name != "list_feature_pages" {
+		t.Fatalf("tool name = %q, want list_feature_pages", tool.Name)
+	}
+
+	out, err := tool.Execute(context.Background(), `{"offset": 1, "limit": 2}`)
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if !strings.Contains(out, "https://example.com/b") || !strings.Contains(out, "https://example.com/c") {
+		t.Fatalf("expected pages b and c, got: %s", out)
+	}
+	if strings.Contains(out, "https://example.com/a") || strings.Contains(out, "https://example.com/d") {
+		t.Fatalf("expected only pages b and c, got: %s", out)
+	}
+}
+
+// extractSymNames returns every "sym<digits>" token in s, in source order. Used
+// to assert the pagination order of the list_feature_symbols tool output
+// without depending on the exact human-readable rendering.
+func extractSymNames(s string) []string {
+	var out []string
+	for i := 0; i < len(s); i++ {
+		if i+3 <= len(s) && s[i:i+3] == "sym" {
+			j := i + 3
+			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				j++
+			}
+			if j > i+3 {
+				out = append(out, s[i:j])
+				i = j - 1
+			}
+		}
+	}
+	return out
 }
 
 func TestBuildInvestigatorSystemPrompt_FitsLongDescription(t *testing.T) {

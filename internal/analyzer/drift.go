@@ -397,6 +397,149 @@ func noteObservationTool(out *[]driftObservation) Tool {
 	}
 }
 
+// listFeatureSymbolsDefaultLimit is the default page size when the investigator
+// calls list_feature_symbols / list_feature_pages without supplying a limit.
+// Picked to stay well under the agent-loop tool-result clip while still
+// covering most features in one call.
+const listFeatureSymbolsDefaultLimit = 50
+
+// listFeatureSymbolsMaxLimit caps the page size on either pagination tool. A
+// pathological limit (e.g. 10_000) would force the agent loop to clip the tool
+// result mid-message and waste the round.
+const listFeatureSymbolsMaxLimit = 200
+
+// listFeatureSymbolsTool returns a Tool that paginates entry.Symbols. Inputs
+// are offset (default 0), limit (default 50, max 200), and filter (case-
+// insensitive substring on the symbol name). The result is a plain-text list,
+// one symbol per line, headed by "<N> of <total> symbols[ matching '<filter>']:".
+func listFeatureSymbolsTool(entry FeatureEntry) Tool {
+	return Tool{
+		Name:        "list_feature_symbols",
+		Description: "List symbols belonging to this feature with offset/limit pagination and optional case-insensitive substring filter on the symbol name. Use when the compressed system prompt's entry-point list is not enough.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Number of symbols to skip from the start. Default 0."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": listFeatureSymbolsMaxLimit, "description": "Max symbols to return. Default 50, max 200."},
+				"filter": map[string]any{"type": "string", "description": "Optional case-insensitive substring match on the symbol name."},
+			},
+		},
+		Execute: func(_ context.Context, rawArgs string) (string, error) {
+			var args struct {
+				Offset int    `json:"offset"`
+				Limit  int    `json:"limit"`
+				Filter string `json:"filter"`
+			}
+			if rawArgs != "" {
+				if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+					return fmt.Sprintf("error parsing arguments: %v", err), nil
+				}
+			}
+			return renderSymbolPage(entry.Symbols, args.Offset, args.Limit, args.Filter), nil
+		},
+	}
+}
+
+// listFeaturePagesTool returns a Tool that paginates the doc page URLs scoped
+// to this feature. Same shape as listFeatureSymbolsTool minus the filter (page
+// URLs are noisy and filtering them rarely helps the investigator).
+func listFeaturePagesTool(pages []string) Tool {
+	return Tool{
+		Name:        "list_feature_pages",
+		Description: "List documentation page URLs scoped to this feature with offset/limit pagination. Use when the compressed system prompt indicates more pages exist than the investigator has seen.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Number of pages to skip from the start. Default 0."},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": listFeatureSymbolsMaxLimit, "description": "Max pages to return. Default 50, max 200."},
+			},
+		},
+		Execute: func(_ context.Context, rawArgs string) (string, error) {
+			var args struct {
+				Offset int `json:"offset"`
+				Limit  int `json:"limit"`
+			}
+			if rawArgs != "" {
+				if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+					return fmt.Sprintf("error parsing arguments: %v", err), nil
+				}
+			}
+			return renderPageList(pages, args.Offset, args.Limit), nil
+		},
+	}
+}
+
+// renderSymbolPage formats one page of the symbol list. Bounds are clamped:
+// offset past the end yields an empty slice (header still rendered); limit is
+// clamped to listFeatureSymbolsMaxLimit; negative values are treated as the
+// default. Filter is case-insensitive substring match on the symbol name.
+func renderSymbolPage(syms []string, offset, limit int, filter string) string {
+	filtered := syms
+	if filter != "" {
+		needle := strings.ToLower(filter)
+		filtered = filtered[:0:0]
+		for _, s := range syms {
+			if strings.Contains(strings.ToLower(s), needle) {
+				filtered = append(filtered, s)
+			}
+		}
+	}
+	total := len(filtered)
+	start, end := clampWindow(total, offset, limit)
+	window := filtered[start:end]
+
+	var b strings.Builder
+	if filter == "" {
+		fmt.Fprintf(&b, "%d of %d symbols:\n", len(window), total)
+	} else {
+		fmt.Fprintf(&b, "%d of %d symbols matching %q:\n", len(window), total, filter)
+	}
+	for _, s := range window {
+		fmt.Fprintf(&b, "- %s\n", s)
+	}
+	return b.String()
+}
+
+// renderPageList formats one page of the doc-page list. Bounds-clamping rules
+// mirror renderSymbolPage.
+func renderPageList(pages []string, offset, limit int) string {
+	total := len(pages)
+	start, end := clampWindow(total, offset, limit)
+	window := pages[start:end]
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d of %d pages:\n", len(window), total)
+	for _, p := range window {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	return b.String()
+}
+
+// clampWindow normalizes an (offset, limit) request against a slice of length
+// total. offset past the end returns [total, total) so callers can slice with
+// no panic. limit <= 0 is replaced with the default; limit above the max is
+// capped. Used by both list_feature_symbols and list_feature_pages so the two
+// tools share the same overflow semantics.
+func clampWindow(total, offset, limit int) (int, int) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	if limit <= 0 {
+		limit = listFeatureSymbolsDefaultLimit
+	}
+	if limit > listFeatureSymbolsMaxLimit {
+		limit = listFeatureSymbolsMaxLimit
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return offset, end
+}
+
 // investigateFeatureDrift runs the agent loop with read_file, read_page, and
 // note_observation tools, returning the raw observations the LLM surfaced. It
 // gathers evidence; the judge stage adjudicates separately.
@@ -409,14 +552,11 @@ func investigateFeatureDrift(
 	repoRoot string,
 ) ([]driftObservation, error) {
 	var observations []driftObservation
-	// Task 9 will register list_feature_symbols and list_feature_pages tools
-	// alongside these three so the investigator can fetch the full lists that
-	// the compressed system prompt now omits. For Task 8 the prompt
-	// aspirationally references those tool names; the investigator can't
-	// actually call them until Task 9 lands.
 	tools := []Tool{
 		readFileTool(repoRoot),
 		readPageTool(pageReader),
+		listFeatureSymbolsTool(entry),
+		listFeaturePagesTool(pages),
 		noteObservationTool(&observations),
 	}
 
@@ -464,15 +604,14 @@ const descriptionBudgetTokens = 800
 
 // entryPointCap is the maximum number of symbol names embedded in the
 // investigator's system prompt as starting suggestions. The full symbol list
-// remains available through the list_feature_symbols tool (registered in Task
-// 9).
+// remains available through the list_feature_symbols tool.
 const entryPointCap = 10
 
 // buildInvestigatorSystemPrompt returns the compressed system prompt used by
 // the drift investigator. The prompt embeds counts (symbols, files, pages) and
 // a short list of entry-point symbol names — it never inlines the full symbol
 // or page enumeration. Investigators consult the full lists through the
-// list_feature_symbols and list_feature_pages tools (registered in Task 9).
+// list_feature_symbols and list_feature_pages tools.
 //
 // PROMPT: Investigates a feature for documentation drift by reading source
 // files and doc pages, recording each piece of evidence via note_observation.
