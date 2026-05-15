@@ -483,7 +483,7 @@ func TestScreenshotPromptBudget_LeavesRoomForTokenizerDriftAndToolOverhead(t *te
 }
 
 func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
-	// Build content well above ScreenshotPromptBudget so truncation must fire.
+	// Build content well above ScreenshotPromptBudget so chunking must fire.
 	// "lorem ipsum dolor sit amet " ≈ 6 tokens for cl100k_base; repeat enough
 	// to exceed the budget by a wide margin.
 	chunk := "lorem ipsum dolor sit amet consectetur adipiscing elit "
@@ -495,12 +495,91 @@ func TestDetectScreenshotGaps_TruncatesOversizedPage(t *testing.T) {
 
 	_, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
 	require.NoError(t, err)
-	require.Len(t, client.prompts, 1, "page should still be sent, just truncated")
+	require.NotEmpty(t, client.prompts, "page should still be sent, possibly split into chunks")
 
-	sent := client.prompts[0]
-	got := countTokens(sent)
-	assert.Less(t, got, ScreenshotPromptBudget,
-		"prompt token count must fit inside ScreenshotPromptBudget after truncation")
+	for i, sent := range client.prompts {
+		got := countTokens(sent)
+		assert.Less(t, got, ScreenshotPromptBudget,
+			"prompt[%d] token count must fit inside ScreenshotPromptBudget", i)
+	}
+}
+
+// TestDetectScreenshotGaps_ChunksOversizePage_SharesImageManifest verifies
+// that a page exceeding the screenshot-detection content budget is split via
+// the chunker, that each chunk produces its own LLM call, and that the
+// page-scoped image manifest travels with every chunk so findings referencing
+// the image still have context. The fake returns a distinct missing-gap per
+// call so the test can prove that findings from more than one chunk land in
+// the merged result.
+func TestDetectScreenshotGaps_ChunksOversizePage_SharesImageManifest(t *testing.T) {
+	// Build heading-rich markdown past the per-call content budget. Each
+	// section is ~564 tokens; 300 sections puts us at ~170K tokens of
+	// content which exceeds the ~148K post-overhead budget on a typical
+	// page, while giving the chunker real H2 boundaries to split on. The
+	// page also carries an image reference; the manifest must reach every
+	// LLM call.
+	imageRefLine := "![diagram](https://example.com/a.png)\n\n"
+	section := "## Section\n\n" + strings.Repeat("alpha beta gamma delta epsilon zeta ", 80) + "\n\n"
+	big := imageRefLine + strings.Repeat(section, 300)
+
+	client := &fakeLLMClient{
+		responses: []string{
+			`{"gaps":[{"quoted_passage":"q1","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q2","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q3","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q4","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+			`{"gaps":[{"quoted_passage":"q5","should_show":"s","suggested_alt":"a","insertion_hint":"i","priority":"medium","priority_reason":"r"}]}`,
+		},
+	}
+	pages := []DocPage{
+		{URL: "https://example.com/oversize", Path: "/tmp/o.md", Content: big},
+	}
+
+	res, err := DetectScreenshotGaps(context.Background(), client, pages, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	require.GreaterOrEqual(t, len(client.prompts), 2,
+		"expected >= 2 LLM calls for oversize page, got %d", len(client.prompts))
+
+	for i, p := range client.prompts {
+		assert.Contains(t, p, "https://example.com/a.png",
+			"prompt[%d] must include the page-scoped image manifest", i)
+		assert.Less(t, countTokens(p), ScreenshotPromptBudget,
+			"prompt[%d] must fit inside ScreenshotPromptBudget", i)
+	}
+
+	// Findings from at least two chunks must reach the merged result.
+	seen := map[string]bool{}
+	for _, g := range res.MissingGaps {
+		seen[g.QuotedPassage] = true
+	}
+	uniqueChunkFindings := 0
+	for _, want := range []string{"q1", "q2", "q3", "q4", "q5"} {
+		if seen[want] {
+			uniqueChunkFindings++
+		}
+	}
+	assert.GreaterOrEqual(t, uniqueChunkFindings, 2,
+		"expected merged findings from at least 2 chunks, got %d in %v",
+		uniqueChunkFindings, res.MissingGaps)
+}
+
+// TestFitContentToBudget_DeprecatedHelperStillTruncates is a regression test
+// for the legacy fitContentToBudget helper. The detection path now routes
+// around this function via screenshotContentBudget + chunker.Chunk; the
+// helper is kept (with a deprecation comment) until Phase 3 of the context-
+// overflow remediation deletes it. Asserting its surface here keeps it alive
+// for staticcheck and pins the truncation behavior in case a downstream
+// caller is added before deletion.
+func TestFitContentToBudget_DeprecatedHelperStillTruncates(t *testing.T) {
+	page := DocPage{
+		URL:     "https://example.com/big",
+		Role:    "reference",
+		Content: strings.Repeat("alpha beta gamma delta ", 50_000),
+	}
+	got, ok := fitContentToBudget(page, nil, nil, ScreenshotPromptBudget)
+	require.True(t, ok)
+	assert.Less(t, len(got), len(page.Content), "fitContentToBudget should truncate oversize content")
 }
 
 func TestSplitImageBatches(t *testing.T) {

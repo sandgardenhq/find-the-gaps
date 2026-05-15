@@ -20,6 +20,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/sandgardenhq/find-the-gaps/internal/chunker"
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
@@ -920,6 +921,11 @@ When in doubt, do not flag.`, pageURL, coverageSummary, codeBlocksSummary, conte
 // should skip the page in that case. Takes the full DocPage (not just URL) so
 // the overhead measurement matches the actual prompt the detection pass will
 // emit — including the `page_role:` line that varies by role string length.
+//
+// DEPRECATED: kept as a defense-in-depth helper but no longer called by the
+// detection path. The detection path now uses screenshotContentBudget +
+// chunker.Chunk to preemptively split oversize pages instead of truncating
+// them. Scheduled for removal in the Phase 3 cleanup pass.
 func fitContentToBudget(page DocPage, coverage map[string][]imageRef, codeBlocks []codeBlockRef, budget int) (string, bool) {
 	// Margin absorbs (a) drift between cl100k_base and the provider's exact
 	// tokenizer and (b) the char-ratio truncation overshooting a token boundary
@@ -940,6 +946,59 @@ func fitContentToBudget(page DocPage, coverage map[string][]imageRef, codeBlocks
 	log.Warnf("screenshot-gaps: truncating %s (%d → ~%d tokens) to fit %d budget",
 		page.URL, contentTokens, available, budget)
 	return content[:keepChars], true
+}
+
+// screenshotContentMargin absorbs (a) drift between cl100k_base and the
+// provider's exact tokenizer and (b) the char-ratio overshoot that can fall
+// on a token boundary edge. Mirrors the constant inside fitContentToBudget so
+// the chunker-driven path and the legacy helper agree on the headroom budget.
+const screenshotContentMargin = 1_000
+
+// screenshotContentBudget computes the per-chunk content budget for the
+// detection prompt. Overhead is measured against an empty-content prompt so
+// the page-scoped sections — URL, instructions, coverage map, code-block
+// list, priority rubric, role hint — are accounted for. Returns ok=false
+// when the overhead alone exceeds the budget; callers MUST skip the page in
+// that case (same shape as the legacy fitContentToBudget skip).
+func screenshotContentBudget(page DocPage, refs []imageRef, verdicts []ImageVerdict, codeBlocks []codeBlockRef, budget int) (int, bool) {
+	overheadPage := DocPage{URL: page.URL, Role: page.Role}
+	overhead := countTokens(buildDetectionPromptWithVerdicts(overheadPage, refs, verdicts, codeBlocks))
+	available := budget - overhead - screenshotContentMargin
+	if available < 100 {
+		return 0, false
+	}
+	return available, true
+}
+
+// hashScreenshotPassage returns a stable key for deduping screenshot findings
+// across chunks. The passage is whitespace-trimmed before hashing so that
+// chunk-boundary artifacts (trailing newlines, leading indentation) don't
+// produce false unique entries when the same passage surfaces in two
+// adjacent chunks.
+func hashScreenshotPassage(passage string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(passage)))
+	return hex.EncodeToString(sum[:])
+}
+
+// dedupeScreenshotGaps returns gaps with duplicates removed by
+// (page_url, passage_hash). First occurrence wins. Used after merging
+// per-chunk results so a passage that appears at a chunk boundary in two
+// adjacent chunks doesn't double-report.
+func dedupeScreenshotGaps(gaps []ScreenshotGap) []ScreenshotGap {
+	if len(gaps) <= 1 {
+		return gaps
+	}
+	seen := make(map[string]struct{}, len(gaps))
+	out := make([]ScreenshotGap, 0, len(gaps))
+	for _, g := range gaps {
+		key := g.PageURL + "|" + hashScreenshotPassage(g.QuotedPassage)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, g)
+	}
+	return out
 }
 
 // screenshotResponseItem is one raw item in the LLM's response for a
@@ -1323,25 +1382,94 @@ func detectionPass(
 	verdicts []ImageVerdict,
 	codeBlocks []codeBlockRef,
 ) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, err error) {
-	coverage := buildCoverageMap(refs)
-	content, ok := fitContentToBudget(page, coverage, codeBlocks, ScreenshotPromptBudget)
+	available, ok := screenshotContentBudget(page, refs, verdicts, codeBlocks, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
 		return nil, nil, nil, true, nil
 	}
-	// The fit pass may have truncated content; build the prompt against the
-	// fitted body but preserve every other field (URL, Role) so the role
-	// hint stays correct after truncation.
-	fittedPage := page
-	fittedPage.Content = content
-	prompt := buildDetectionPromptWithVerdicts(fittedPage, refs, verdicts, codeBlocks)
+	contentTokens := chunker.EstimateTokens(page.Content)
+	if contentTokens <= available {
+		// Fast path: single LLM call against the whole page. Byte-for-byte
+		// identical to the legacy behavior on under-budget pages.
+		return runScreenshotDetectionOnce(ctx, client, page, page.Content, refs, verdicts, codeBlocks)
+	}
+	// Preemptive chunking: split page.Content along heading / paragraph
+	// boundaries so each chunk fits the per-call content budget. The
+	// page-scoped image manifest, code-block list, URL, and role hint
+	// travel with every chunk so findings referencing a page-level image
+	// still have context regardless of which content slice surfaced them.
+	chunks := chunker.Chunk(page.Content, available)
+	if len(chunks) <= 1 {
+		return runScreenshotDetectionOnce(ctx, client, page, page.Content, refs, verdicts, codeBlocks)
+	}
+	var (
+		mergedGaps        []ScreenshotGap
+		mergedSuppImg     []ScreenshotGap
+		mergedSuppCode    []ScreenshotGap
+		anyChunkProduced  bool
+		allChunksSkipped  = true
+	)
+	for i, c := range chunks {
+		gs, simg, scode, chunkSkipped, runErr := runScreenshotDetectionOnce(ctx, client, page, c, refs, verdicts, codeBlocks)
+		if runErr != nil {
+			return nil, nil, nil, false, fmt.Errorf("chunk %d/%d: %w", i+1, len(chunks), runErr)
+		}
+		if !chunkSkipped {
+			allChunksSkipped = false
+		}
+		if len(gs)+len(simg)+len(scode) > 0 {
+			anyChunkProduced = true
+		}
+		mergedGaps = append(mergedGaps, gs...)
+		mergedSuppImg = append(mergedSuppImg, simg...)
+		mergedSuppCode = append(mergedSuppCode, scode...)
+	}
+	// Dedupe by (page_url, hash(passage)) so a passage that appears at a
+	// chunk boundary in two adjacent chunks doesn't double-report. Order
+	// within each slice is preserved (first occurrence wins).
+	mergedGaps = dedupeScreenshotGaps(mergedGaps)
+	mergedSuppImg = dedupeScreenshotGaps(mergedSuppImg)
+	mergedSuppCode = dedupeScreenshotGaps(mergedSuppCode)
+	log.Debugf("screenshot chunked: url=%s chunks=%d findings=%d",
+		page.URL, len(chunks), len(mergedGaps))
+	// If every chunk's underlying LLM call hit the per-model budget gate
+	// (and none produced findings), surface that as a page-level skip so
+	// AuditStats.DetectionSkipped stays accurate. Without this branch a
+	// page whose every chunk skipped would look like a clean run with
+	// zero findings.
+	if allChunksSkipped && !anyChunkProduced {
+		return nil, nil, nil, true, nil
+	}
+	return mergedGaps, mergedSuppImg, mergedSuppCode, false, nil
+}
+
+// runScreenshotDetectionOnce issues a single screenshot-detection LLM call
+// for one page and one content payload. The image manifest, code-block list,
+// and role hint are page-scoped and travel verbatim regardless of which
+// content slice is passed. The returned `skipped` is true when the per-
+// model budget gate fired before any wire send (treated as a chunk-level
+// skip; the detectionPass caller decides whether that means the whole page
+// skipped or just one of N chunks).
+func runScreenshotDetectionOnce(
+	ctx context.Context,
+	client LLMClient,
+	page DocPage,
+	content string,
+	refs []imageRef,
+	verdicts []ImageVerdict,
+	codeBlocks []codeBlockRef,
+) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, err error) {
+	// Build the prompt against the provided content but preserve every
+	// other field (URL, Role, Path) so the role hint and provenance stay
+	// correct under chunking.
+	chunkPage := page
+	chunkPage.Content = content
+	prompt := buildDetectionPromptWithVerdicts(chunkPage, refs, verdicts, codeBlocks)
 	raw, err := client.CompleteJSON(ctx, prompt, screenshotGapsSchema)
 	if err != nil {
 		// Per-model budget gate fired before any wire send. Treat this
-		// as a per-page skip — same shape as the in-process budget
-		// skip above. The run continues; the page contributes no
-		// screenshot findings. A re-run with a larger model picks
-		// it up.
+		// as a chunk-level skip. The run continues; whether the page as
+		// a whole is reported skipped is decided by detectionPass.
 		if errors.Is(err, ErrTokenBudgetExceeded{}) {
 			log.Warnf("screenshot-gaps: skipping %s: %v", page.URL, err)
 			return nil, nil, nil, true, nil
