@@ -200,8 +200,14 @@ Set is_docs=false when the page is one of the not-docs categories above. Default
 //
 //   - URL:      first non-empty wins (the caller usually overwrites
 //     this with the page URL anyway).
-//   - Summary:  first non-empty wins (chunks share a page-level
-//     summary so we prefer the earliest non-empty one).
+//   - Summary:  first non-empty wins. Trade-off: for oversize pages
+//     whose first chunk is intro/marketing prose and the meat
+//     lives in a later chunk (e.g. an API reference table at the
+//     bottom), the first chunk's summary is the one that survives.
+//     Acceptable because (a) most chunked pages are reference pages
+//     whose first chunk IS the meat, and (b) the per-chunk Feature
+//     lists (which DO union across chunks) carry the substantive
+//     content into mapping.md downstream.
 //   - IsDocs:   OR — any chunk classifying the page as docs makes
 //     the merged page docs. Inclusive-by-default: a false
 //     negative is worse than a false positive.

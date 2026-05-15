@@ -637,7 +637,7 @@ You have tools available:
 - read_page(url)                — read the full cached content of a doc page.
 - list_feature_symbols(offset, limit, filter)
                                 — paginate the full symbol list for this feature.
-- list_feature_pages(offset, limit, filter)
+- list_feature_pages(offset, limit)
                                 — paginate the full doc-page list for this feature.
 - note_observation(...)         — record one piece of candidate drift evidence.
 
@@ -670,6 +670,14 @@ calling note_observation at all.`,
 // (Go-style capitalized) identifiers first. Stable: relative order within the
 // exported and unexported groups is preserved. Returns an empty slice when
 // syms is empty or n <= 0.
+//
+// Heuristic caveat: the "first char in [A-Z]" test is Go-centric. For Python
+// (snake_case), JavaScript (camelCase), Java (camelCase methods), etc. the
+// partition degenerates — Python features look entirely "unexported" and the
+// preference becomes a no-op. The investigator still receives n entry-point
+// names, just in source order. Acceptable as a best-effort hint; the
+// investigator can paginate the full symbol list via list_feature_symbols if
+// the prompt's entry points don't cover what it needs.
 func topEntryPoints(syms []string, n int) []string {
 	if n <= 0 || len(syms) == 0 {
 		return nil
@@ -942,7 +950,7 @@ func dedupeDriftIssues(issues []DriftIssue) []DriftIssue {
 }
 
 // renderJudgePrompt builds the judge-stage prompt for one feature and a
-// specific observation set. Extracted from judgeOneShot so
+// specific observation set. Extracted from runJudgeOnce so
 // chunkObservationsForJudge can size candidate chunks against the same
 // rendering used at send time.
 func renderJudgePrompt(feature CodeFeature, observations []driftObservation, roles RoleResolver) string {

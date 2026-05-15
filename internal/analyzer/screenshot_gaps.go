@@ -1322,6 +1322,12 @@ type ScreenshotPageStats struct {
 	PossiblyCovered       int
 	SuppressedByCodeBlock int
 	DetectionSkipped      bool
+	// Chunks records how many content slices the page was split into for
+	// the detection LLM call. 1 means the page fit in a single call (the
+	// common path). >=2 means the chunker fired because page.Content
+	// exceeded the per-call content budget. 0 is reserved for pages whose
+	// detection pass never ran (pre-LLM overhead skip).
+	Chunks int
 }
 
 // detectionPass runs the text-only screenshot-gap detection LLM call for one
@@ -1348,38 +1354,42 @@ func detectionPass(
 	refs []imageRef,
 	verdicts []ImageVerdict,
 	codeBlocks []codeBlockRef,
-) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, err error) {
+) (gaps []ScreenshotGap, suppressedByImage []ScreenshotGap, suppressedByCodeBlock []ScreenshotGap, skipped bool, chunks int, err error) {
 	available, ok := screenshotContentBudget(page, refs, verdicts, codeBlocks, ScreenshotPromptBudget)
 	if !ok {
 		log.Warnf("screenshot-gaps: skipping %s: prompt overhead exceeds budget", page.URL)
-		return nil, nil, nil, true, nil
+		// chunks=0: detection pass never issued an LLM call.
+		return nil, nil, nil, true, 0, nil
 	}
 	contentTokens := chunker.EstimateTokens(page.Content)
 	if contentTokens <= available {
 		// Fast path: single LLM call against the whole page. Byte-for-byte
-		// identical to the legacy behavior on under-budget pages.
-		return runScreenshotDetectionOnce(ctx, client, page, page.Content, refs, verdicts, codeBlocks)
+		// identical to the legacy behavior on under-budget pages. chunks=1
+		// to distinguish from the pre-LLM skip path above.
+		gs, simg, scode, sk, runErr := runScreenshotDetectionOnce(ctx, client, page, page.Content, refs, verdicts, codeBlocks)
+		return gs, simg, scode, sk, 1, runErr
 	}
 	// Preemptive chunking: split page.Content along heading / paragraph
 	// boundaries so each chunk fits the per-call content budget. The
 	// page-scoped image manifest, code-block list, URL, and role hint
 	// travel with every chunk so findings referencing a page-level image
 	// still have context regardless of which content slice surfaced them.
-	chunks := chunker.Chunk(page.Content, available)
-	if len(chunks) <= 1 {
-		return runScreenshotDetectionOnce(ctx, client, page, page.Content, refs, verdicts, codeBlocks)
+	contentChunks := chunker.Chunk(page.Content, available)
+	if len(contentChunks) <= 1 {
+		gs, simg, scode, sk, runErr := runScreenshotDetectionOnce(ctx, client, page, page.Content, refs, verdicts, codeBlocks)
+		return gs, simg, scode, sk, 1, runErr
 	}
 	var (
-		mergedGaps        []ScreenshotGap
-		mergedSuppImg     []ScreenshotGap
-		mergedSuppCode    []ScreenshotGap
-		anyChunkProduced  bool
-		allChunksSkipped  = true
+		mergedGaps       []ScreenshotGap
+		mergedSuppImg    []ScreenshotGap
+		mergedSuppCode   []ScreenshotGap
+		anyChunkProduced bool
+		allChunksSkipped = true
 	)
-	for i, c := range chunks {
+	for i, c := range contentChunks {
 		gs, simg, scode, chunkSkipped, runErr := runScreenshotDetectionOnce(ctx, client, page, c, refs, verdicts, codeBlocks)
 		if runErr != nil {
-			return nil, nil, nil, false, fmt.Errorf("chunk %d/%d: %w", i+1, len(chunks), runErr)
+			return nil, nil, nil, false, len(contentChunks), fmt.Errorf("chunk %d/%d: %w", i+1, len(contentChunks), runErr)
 		}
 		if !chunkSkipped {
 			allChunksSkipped = false
@@ -1398,16 +1408,16 @@ func detectionPass(
 	mergedSuppImg = dedupeScreenshotGaps(mergedSuppImg)
 	mergedSuppCode = dedupeScreenshotGaps(mergedSuppCode)
 	log.Debugf("screenshot chunked: url=%s chunks=%d findings=%d",
-		page.URL, len(chunks), len(mergedGaps))
+		page.URL, len(contentChunks), len(mergedGaps))
 	// If every chunk's underlying LLM call hit the per-model budget gate
 	// (and none produced findings), surface that as a page-level skip so
 	// AuditStats.DetectionSkipped stays accurate. Without this branch a
 	// page whose every chunk skipped would look like a clean run with
 	// zero findings.
 	if allChunksSkipped && !anyChunkProduced {
-		return nil, nil, nil, true, nil
+		return nil, nil, nil, true, len(contentChunks), nil
 	}
-	return mergedGaps, mergedSuppImg, mergedSuppCode, false, nil
+	return mergedGaps, mergedSuppImg, mergedSuppCode, false, len(contentChunks), nil
 }
 
 // runScreenshotDetectionOnce issues a single screenshot-detection LLM call
@@ -1667,7 +1677,7 @@ func DetectScreenshotGaps(
 			cancel()
 		}
 
-		gaps, suppressedByImage, suppressedByCodeBlock, skipped, detErr := detectionPass(ctx, client, page, refs, verdicts, codeBlocks)
+		gaps, suppressedByImage, suppressedByCodeBlock, skipped, chunks, detErr := detectionPass(ctx, client, page, refs, verdicts, codeBlocks)
 		if detErr != nil {
 			return detErr
 		}
@@ -1675,6 +1685,7 @@ func DetectScreenshotGaps(
 		stats.SuppressedByCodeBlock = len(suppressedByCodeBlock)
 		stats.PossiblyCovered = len(suppressedByImage) + len(suppressedByCodeBlock)
 		stats.DetectionSkipped = skipped
+		stats.Chunks = chunks
 
 		// Possibly-covered union: image-suppressed + code-block-suppressed
 		// findings flow into the same user-visible "Possibly Covered" channel,

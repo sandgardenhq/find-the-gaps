@@ -71,6 +71,28 @@ func TestDriftInvestigator_SystemPromptStaysUnderBudget_ForLargeFeature(t *testi
 	}
 }
 
+// TestBuildInvestigatorSystemPrompt_PageToolSignatureMatchesSchema pins the
+// prompt's advertised signature for list_feature_pages against the actual
+// tool schema. An earlier revision of the prompt advertised
+// `list_feature_pages(offset, limit, filter)` but the tool schema declared
+// only offset+limit, so the investigator could waste a turn passing a
+// filter that was silently ignored. The pages tool is filter-free by design
+// (see the doc comment on listFeaturePagesTool); the prompt must match.
+func TestBuildInvestigatorSystemPrompt_PageToolSignatureMatchesSchema(t *testing.T) {
+	entry := FeatureEntry{
+		Feature: CodeFeature{Name: "F", Description: "d"},
+		Files:   []string{"a.go"},
+		Symbols: []string{"A"},
+	}
+	prompt := buildInvestigatorSystemPrompt(entry, []string{"https://example.com/p"})
+	if strings.Contains(prompt, "list_feature_pages(offset, limit, filter)") {
+		t.Fatalf("prompt must NOT advertise a filter param on list_feature_pages — tool schema does not accept it")
+	}
+	if !strings.Contains(prompt, "list_feature_pages(offset, limit)") {
+		t.Fatalf("prompt must advertise list_feature_pages with its actual signature; got:\n%s", prompt)
+	}
+}
+
 func TestBuildInvestigatorSystemPrompt_MentionsListTools(t *testing.T) {
 	entry := FeatureEntry{
 		Feature: CodeFeature{Name: "F", Description: "d"},

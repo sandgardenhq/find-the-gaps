@@ -216,6 +216,15 @@ Populate the response with:
 // half independently, then reducing the two halves together. Recursion
 // depth is O(log N) in the number of partials; in practice N is small
 // (single-digit) for any realistic docs corpus.
+//
+// Base-case escape hatch: when len(partials)==2 and the rendered pair
+// still exceeds budget, we send the pair to runSynthesizeReduce anyway
+// (rather than recursing forever on the same arguments). The
+// ErrTokenBudgetExceeded backstop in runSynthesizeReduce surfaces a
+// loud warning so estimator-vs-tokenizer drift is visible. This case
+// is unreachable in practice with the production 80K budget against
+// LLM-summarized partials (each is a 2-3 sentence description plus a
+// short feature list).
 func reducePartials(ctx context.Context, client LLMClient, partials []ProductSummary, budget int) (ProductSummary, error) {
 	if len(partials) == 0 {
 		return ProductSummary{Features: []string{}}, nil
@@ -224,7 +233,7 @@ func reducePartials(ctx context.Context, client LLMClient, partials []ProductSum
 		return partials[0], nil
 	}
 	body := renderPartialMerge(partials)
-	if chunker.EstimateTokens(body) > budget {
+	if chunker.EstimateTokens(body) > budget && len(partials) > 2 {
 		half := len(partials) / 2
 		left, err := reducePartials(ctx, client, partials[:half], budget)
 		if err != nil {

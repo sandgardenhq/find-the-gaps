@@ -104,7 +104,7 @@ func TestSuppressedByImagePriorityRoundTrip(t *testing.T) {
 	}`
 	client := &fakeLLMClient{responses: []string{resp}}
 	page := DocPage{URL: "https://x/p", Path: "p.md", Content: "# H"}
-	_, suppressed, _, _, err := detectionPass(context.Background(), client, page, nil, nil, nil)
+	_, suppressed, _, _, _, err := detectionPass(context.Background(), client, page, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

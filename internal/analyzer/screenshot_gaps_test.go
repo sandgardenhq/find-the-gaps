@@ -548,6 +548,13 @@ func TestDetectScreenshotGaps_ChunksOversizePage_SharesImageManifest(t *testing.
 			"prompt[%d] must fit inside ScreenshotPromptBudget", i)
 	}
 
+	// Audit stat: Chunks must reflect that the detection pass split the
+	// page into >=2 pieces. Production cache loaders and the audit log
+	// rely on this to distinguish single-call pages from chunked ones.
+	require.Len(t, res.AuditStats, 1)
+	assert.GreaterOrEqual(t, res.AuditStats[0].Chunks, 2,
+		"oversize page must surface Chunks>=2 in AuditStats; got %d", res.AuditStats[0].Chunks)
+
 	// Findings from at least two chunks must reach the merged result.
 	seen := map[string]bool{}
 	for _, g := range res.MissingGaps {
@@ -601,7 +608,7 @@ func TestDetectionPass_AllChunksSkipped_RollupReportsSkipped(t *testing.T) {
 	}
 	client := &fakeLLMClient{errs: errs}
 
-	gaps, suppImg, suppCode, skipped, err := detectionPass(
+	gaps, suppImg, suppCode, skipped, chunks, err := detectionPass(
 		context.Background(), client, page, nil, nil, nil,
 	)
 	require.NoError(t, err, "budget-skipped chunks must not propagate as error")
@@ -609,6 +616,8 @@ func TestDetectionPass_AllChunksSkipped_RollupReportsSkipped(t *testing.T) {
 	assert.Empty(t, gaps, "no gaps should be produced when every chunk skipped")
 	assert.Empty(t, suppImg, "no suppressed-by-image items when every chunk skipped")
 	assert.Empty(t, suppCode, "no suppressed-by-code-block items when every chunk skipped")
+	assert.GreaterOrEqual(t, chunks, 2,
+		"chunks count must reflect the >=2 chunks attempted before rollup, got %d", chunks)
 	// Prove the rollup decision was reached at the end of the chunk loop
 	// (>=2 chunks attempted), not via the pre-call budget fast-skip path
 	// in detectionPass (which would short-circuit after 0 LLM calls).
@@ -1249,7 +1258,7 @@ func TestDetectionPassReturnsSuppressedItems(t *testing.T) {
 		}`},
 	}
 	page := DocPage{URL: "https://x.com/p", Path: "p.md", Content: "# Hello\n\nClick Save."}
-	gaps, suppressed, _, skipped, err := detectionPass(context.Background(), client, page, nil, nil, nil)
+	gaps, suppressed, _, skipped, _, err := detectionPass(context.Background(), client, page, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1421,4 +1430,21 @@ func TestDetectScreenshotGaps_CountsCodeBlocksSeenEvenWhenZeroSuppressions(t *te
 	require.Len(t, res.AuditStats, 1)
 	assert.Equal(t, 2, res.AuditStats[0].CodeBlocksSeen)
 	assert.Equal(t, 0, res.AuditStats[0].SuppressedByCodeBlock)
+}
+
+// TestDetectScreenshotGaps_RecordsChunksOnFastPath pins the audit-stat
+// contract for under-budget pages: a single-call detection pass must
+// record Chunks=1 (not 0). Chunks=0 is reserved for pages whose detection
+// pass never ran (overhead-skip path), so a regression that always set
+// Chunks=0 would conflate the two states in cache loaders and the audit
+// log.
+func TestDetectScreenshotGaps_RecordsChunksOnFastPath(t *testing.T) {
+	client := &fakeLLMClient{responses: []string{`{"gaps":[],"suppressed_by_image":[],"suppressed_by_code_block":[]}`}}
+	page := DocPage{URL: "https://x/p", Content: "# Small page that fits in one call."}
+	res, err := DetectScreenshotGaps(context.Background(), client, []DocPage{page}, 1, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, res.AuditStats, 1)
+	assert.Equal(t, 1, res.AuditStats[0].Chunks,
+		"under-budget page must record Chunks=1 on the single-call fast path; got %d",
+		res.AuditStats[0].Chunks)
 }
