@@ -32,6 +32,7 @@ func AllSchemasForTest() []JSONSchema {
 	return []JSONSchema{
 		analyzePageSchema,
 		synthesizeSchema,
+		synthesizeReduceSchema,
 		codeFeaturesSchema,
 		mapSchema,
 		mapPageSchema,
@@ -39,4 +40,19 @@ func AllSchemasForTest() []JSONSchema {
 		relevancePassSchema,
 		judgeSchema,
 	}
+}
+
+// SynthesizeProductForTest is a test-only export of synthesizeProductWithBudget
+// that lets a black-box test drive the single-pass vs map-reduce branch with a
+// custom budget. Without this export, exercising the map-reduce branch would
+// require generating ~80K tokens of body, which is slow to tokenize and
+// reason about. The budget parameter is the NET content budget (no further
+// overhead deduction inside the function).
+func SynthesizeProductForTest(
+	ctx context.Context,
+	tiering LLMTiering,
+	pages []PageAnalysis,
+	budget int,
+) (ProductSummary, error) {
+	return synthesizeProductWithBudget(ctx, tiering.Small(), pages, budget)
 }
