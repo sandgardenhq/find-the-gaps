@@ -24,7 +24,7 @@ func TestMaterializePageWeightsOrderSidebar(t *testing.T) {
 	srcDir := t.TempDir()
 	projectDir := t.TempDir()
 
-	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md", "links.md"} {
 		if err := os.WriteFile(filepath.Join(projectDir, name),
 			[]byte("# "+name+"\n\nbody\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -54,6 +54,7 @@ func TestMaterializePageWeightsOrderSidebar(t *testing.T) {
 		{"gaps.md", "weight = 10"},
 		{"screenshots.md", "weight = 20"},
 		{"mapping.md", "weight = 30"},
+		{"links.md", "weight = 40"},
 	} {
 		body, err := os.ReadFile(filepath.Join(srcDir, "content", c.file))
 		if err != nil {
@@ -61,7 +62,7 @@ func TestMaterializePageWeightsOrderSidebar(t *testing.T) {
 			continue
 		}
 		if !contains(string(body), c.weight) {
-			t.Errorf("%s must declare %q so the desktop sidebar orders Gaps -> Screenshots -> Mapping; got frontmatter:\n%s",
+			t.Errorf("%s must declare %q so the desktop sidebar orders Gaps -> Screenshots -> Mapping -> Links; got frontmatter:\n%s",
 				c.file, c.weight, string(body)[:min(len(body), 200)])
 		}
 	}
@@ -75,7 +76,7 @@ func TestMaterializeExpandedPageWeightsOrderSidebar(t *testing.T) {
 	srcDir := t.TempDir()
 	projectDir := t.TempDir()
 
-	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md"} {
+	for _, name := range []string{"mapping.md", "gaps.md", "screenshots.md", "links.md"} {
 		if err := os.WriteFile(filepath.Join(projectDir, name),
 			[]byte("# "+name+"\n\nbody\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -104,6 +105,7 @@ func TestMaterializeExpandedPageWeightsOrderSidebar(t *testing.T) {
 	}{
 		{"gaps.md", "weight = 10"},
 		{filepath.Join("screenshots", "_index.md"), "weight = 20"},
+		{"links.md", "weight = 40"},
 	} {
 		body, err := os.ReadFile(filepath.Join(srcDir, "content", c.file))
 		if err != nil {

@@ -257,6 +257,13 @@ func materializeExpanded(srcDir, contentDir string, in Inputs, opts BuildOptions
 			return err
 		}
 	}
+
+	// links.md — read raw, strip the leading H1, wrap. Present whenever the
+	// reporter emitted the file (i.e. --no-link-check was not set).
+	if err := materializeLinksMD(contentDir, opts.ProjectDir); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -334,7 +341,30 @@ func materializeMirror(srcDir, contentDir string, in Inputs, opts BuildOptions) 
 		}
 	}
 
+	if err := materializeLinksMD(contentDir, opts.ProjectDir); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// materializeLinksMD reads <projectDir>/links.md, strips its leading H1, and
+// writes it to <contentDir>/links.md with Hextra front-matter. No-op when
+// the source file does not exist (i.e. the analyze run set --no-link-check).
+func materializeLinksMD(contentDir, projectDir string) error {
+	src := filepath.Join(projectDir, "links.md")
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat links.md: %w", err)
+	}
+	body, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read links.md: %w", err)
+	}
+	fm := "+++\ntitle = \"Dead Links\"\ndescription = \"Broken, auth-walled, and redirected links discovered in the documentation site.\"\nweight = 40\n+++\n\n"
+	return os.WriteFile(filepath.Join(contentDir, "links.md"),
+		append([]byte(fm), stripLeadingH1(body)...), 0o644)
 }
 
 // buildMappingPageData converts analyzer Inputs into the view shape consumed
