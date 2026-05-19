@@ -5,7 +5,19 @@ import (
 	"strings"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
+
+// linksCounts formats the per-bucket count summary appended to the
+// `links.md` line in the stdout reports: block. Returns the empty
+// string when every bucket is empty.
+func linksCounts(r linkcheck.Report) string {
+	if len(r.Broken)+len(r.Auth)+len(r.Redirected) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d broken · %d auth · %d redirected",
+		len(r.Broken), len(r.Auth), len(r.Redirected))
+}
 
 // driftPriorityCounts returns the NL/NM/NS breakdown across every drift issue
 // in findings, formatted as "<total> issues: NL · NM · NS". Returns the empty

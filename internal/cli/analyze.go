@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +18,7 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/forge"
+	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 	"github.com/sandgardenhq/find-the-gaps/internal/pdf"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
@@ -110,6 +113,7 @@ func newAnalyzeCmd() *cobra.Command {
 		noServe                      bool
 		keepSiteSource               bool
 		noPDF                        bool
+		noLinkCheck                  bool
 	)
 
 	cmd := &cobra.Command{
@@ -720,6 +724,65 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
+			// --- dead-link check ---
+			// Probes every link (same-host + outbound) discovered in the
+			// crawled docs site, classifies into Broken / Auth / Redirected.
+			// Persistent cache at <projectDir>/links-cache.json has no TTL —
+			// --no-cache is the only way to force a re-probe.
+			var linkReport linkcheck.Report
+			linkCheckRan := !noLinkCheck
+			if linkCheckRan {
+				linkMap := map[string][]string{}
+				for pageURL, cachePath := range pages {
+					u, perr := url.Parse(pageURL)
+					if perr != nil {
+						continue
+					}
+					body, rerr := os.ReadFile(cachePath)
+					if rerr != nil {
+						continue
+					}
+					for _, link := range linkcheck.Extract(string(body), u) {
+						linkMap[link] = append(linkMap[link], pageURL)
+					}
+				}
+
+				httpClient := &http.Client{Timeout: 10 * time.Second}
+				ua := fmt.Sprintf("find-the-gaps/%s (+https://github.com/sandgardenhq/find-the-gaps)", currentVersion())
+				checker := linkcheck.NewHTTPChecker(httpClient, ua)
+
+				var lcCache *linkcheck.Cache
+				if !noCache {
+					lcCache = linkcheck.NewCache(filepath.Join(projectDir, "links-cache.json"))
+					if err := lcCache.Load(); err != nil {
+						log.Warn("links cache load failed; starting fresh", "err", err)
+					}
+				}
+
+				var lcErr error
+				linkReport, lcErr = linkcheck.Run(ctx, linkcheck.Options{
+					Links:          linkMap,
+					Checker:        checker,
+					Cache:          lcCache,
+					Workers:        workers,
+					PerHostWorkers: 4,
+				})
+				if lcErr != nil {
+					return fmt.Errorf("link check: %w", lcErr)
+				}
+				if lcCache != nil {
+					if err := lcCache.Flush(); err != nil {
+						log.Warn("links cache flush failed", "err", err)
+					}
+				}
+				if err := reporter.WriteLinksMD(projectDir, linkReport); err != nil {
+					return fmt.Errorf("write links.md: %w", err)
+				}
+				if err := reporter.WriteLinksJSON(projectDir, linkReport); err != nil {
+					return fmt.Errorf("write links.json: %w", err)
+				}
+			}
+
 			// Build the Hugo site unless --no-site.
 			if !noSite {
 				err := site.Build(ctx,
@@ -776,6 +839,12 @@ func newAnalyzeCmd() *cobra.Command {
 			} else if counts := screenshotsPriorityCounts(screenshotResult); counts != "" {
 				screenshotsLine += " (" + counts + ")"
 			}
+			linksLine := fmt.Sprintf("  %s/links.md", projectDir)
+			if !linkCheckRan {
+				linksLine += " (skipped)"
+			} else if c := linksCounts(linkReport); c != "" {
+				linksLine += " (" + c + ")"
+			}
 			siteLine := "  " + projectDir + "/site/"
 			if noSite {
 				siteLine += " (skipped)"
@@ -789,9 +858,9 @@ func newAnalyzeCmd() *cobra.Command {
 				extraLine = "\n  " + projectDir + "/site-src/"
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s\n%s%s\n",
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s\n%s\n%s%s\n",
 				len(scan.Files), len(pages), len(featureMap),
-				projectDir, gapsLine, screenshotsLine, siteLine, pdfLine, extraLine)
+				projectDir, gapsLine, screenshotsLine, linksLine, siteLine, pdfLine, extraLine)
 
 			decision := decideAutoServe(noSite, noServe, humanPresent(), os.Getenv)
 			if decision.Serve {
@@ -829,6 +898,8 @@ func newAnalyzeCmd() *cobra.Command {
 		"preserve generated Hugo source at <projectDir>/site-src/ (default true; pass --keep-site-source=false to discard)")
 	cmd.Flags().BoolVar(&noPDF, "no-pdf", false,
 		"skip the report.pdf artifact; markdown reports and site still emitted")
+	cmd.Flags().BoolVar(&noLinkCheck, "no-link-check", false,
+		"skip the dead-link check; links.md / links.json are not emitted")
 
 	return cmd
 }

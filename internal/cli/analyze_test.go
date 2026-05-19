@@ -710,6 +710,14 @@ func TestAnalyzeCmd_HasExperimentalCheckScreenshotsFlag(t *testing.T) {
 	assert.Nil(t, old)
 }
 
+func TestAnalyzeCmd_HasNoLinkCheckFlag(t *testing.T) {
+	cmd := newAnalyzeCmd()
+	f := cmd.Flags().Lookup("no-link-check")
+	require.NotNil(t, f)
+	assert.Equal(t, "false", f.DefValue)
+	assert.Contains(t, strings.ToLower(f.Usage), "link")
+}
+
 func TestFilterDocsAnalyses_ExcludesNotDocs(t *testing.T) {
 	analyses := []analyzer.PageAnalysis{
 		{URL: "https://x/api", Summary: "API", IsDocs: true},
