@@ -821,6 +821,7 @@ func newAnalyzeCmd() *cobra.Command {
 					Drift:          driftFindings,
 					Screenshots:    screenshotResult,
 					ScreenshotsRan: experimentalCheckScreenshots,
+					DeadLinks:      linkReport,
 				}); err != nil {
 					return fmt.Errorf("write pdf: %w", err)
 				}

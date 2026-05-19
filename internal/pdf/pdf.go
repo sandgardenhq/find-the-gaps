@@ -12,6 +12,7 @@ import (
 	"github.com/go-pdf/fpdf"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
 
 // Inputs bundles every piece of data required to render the report. Mirrors
@@ -28,6 +29,7 @@ type Inputs struct {
 	Drift          []analyzer.DriftFinding
 	Screenshots    analyzer.ScreenshotResult
 	ScreenshotsRan bool
+	DeadLinks      linkcheck.Report
 }
 
 // WriteReport renders the report PDF into dir as "report.pdf".
@@ -64,6 +66,12 @@ func renderSections(doc *fpdf.Fpdf, anchors *anchorTable, featAnchors map[string
 		doc.AddPage()
 		anchors.Mark("screenshots")
 		renderScreenshotsWithAnchors(doc, in, anchors, featAnchors)
+	}
+
+	if totalDeadLinks(in.DeadLinks) > 0 {
+		doc.AddPage()
+		anchors.Mark("deadlinks")
+		renderDeadLinksWithAnchors(doc, in.DeadLinks, anchors)
 	}
 
 	doc.AddPage()

@@ -61,6 +61,20 @@ func collectTOCEntries(in Inputs) []tocEntry {
 		entries = append(entries, screenshotSubEntries("Possibly Covered", "possibly-covered", in.Screenshots.PossiblyCovered)...)
 	}
 
+	// Dead Links
+	if totalDeadLinks(in.DeadLinks) > 0 {
+		entries = append(entries, tocEntry{Label: "Dead Links", Anchor: "deadlinks", Depth: 0})
+		if len(in.DeadLinks.Broken) > 0 {
+			entries = append(entries, tocEntry{Label: "Broken", Anchor: "deadlinks-broken", Depth: 1})
+		}
+		if len(in.DeadLinks.Auth) > 0 {
+			entries = append(entries, tocEntry{Label: "Auth Required", Anchor: "deadlinks-auth", Depth: 1})
+		}
+		if len(in.DeadLinks.Redirected) > 0 {
+			entries = append(entries, tocEntry{Label: "Redirected", Anchor: "deadlinks-redirected", Depth: 1})
+		}
+	}
+
 	// Features
 	entries = append(entries, tocEntry{Label: "Features", Anchor: "features", Depth: 0})
 	featAnchors := computeFeatureAnchors(in)
