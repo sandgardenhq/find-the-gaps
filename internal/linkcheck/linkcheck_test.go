@@ -183,3 +183,49 @@ func TestRun_UsesCacheToSkipProbes(t *testing.T) {
 		t.Fatalf("expected cached.example to be skipped; checker observed it")
 	}
 }
+
+// cancellingChecker cancels the supplied context the first time Check is
+// invoked, then returns the configured Result. Subsequent invocations also
+// see the canceled ctx but happily return the same Result — the harness
+// under test must not persist results obtained under a canceled ctx.
+type cancellingChecker struct {
+	cancel context.CancelFunc
+	result Result
+	once   sync.Once
+}
+
+func (c *cancellingChecker) Check(_ context.Context, target string) Result {
+	c.once.Do(func() { c.cancel() })
+	r := c.result
+	r.URL = target
+	return r
+}
+
+// TestRun_SkipsCachePutWhenCtxCanceledDuringCheck pins that results produced
+// after ctx cancellation are NOT persisted to the cache. Without the guard,
+// in-flight probes interrupted by SIGINT get classified as Broken/network
+// and poison the cache, so resume runs report those URLs as broken without
+// ever re-probing them.
+func TestRun_SkipsCachePutWhenCtxCanceledDuringCheck(t *testing.T) {
+	links := map[string][]string{"https://a.example/": {"p1"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	fc := &cancellingChecker{
+		cancel: cancel,
+		result: Result{Bucket: BucketBroken, ErrorType: "network", Detail: "ctx canceled"},
+	}
+	cache := NewCache(t.TempDir() + "/cache.json")
+
+	_, err := Run(ctx, Options{
+		Links:          links,
+		Checker:        fc,
+		Cache:          cache,
+		Workers:        1,
+		PerHostWorkers: 1,
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, ok := cache.Get("https://a.example/"); ok {
+		t.Fatalf("cache must not retain results obtained after ctx cancellation")
+	}
+}

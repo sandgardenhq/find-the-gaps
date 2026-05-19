@@ -91,7 +91,10 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 				acquire(u.Host)
 				r := opts.Checker.Check(ctx, j.url)
 				release(u.Host)
-				if opts.Cache != nil {
+				// Skip the cache when ctx was canceled (SIGINT, deadline).
+				// Otherwise interrupted probes get classified as Broken/network
+				// and silently become false-broken findings on the next run.
+				if opts.Cache != nil && ctx.Err() == nil {
 					opts.Cache.Put(r)
 				}
 				results <- r
