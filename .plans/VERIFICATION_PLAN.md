@@ -472,6 +472,42 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 ---
 
+### Scenario 19: Dead Link Check
+
+**Context**: Same fixture and docs site as Scenario 9. Verifies that every link on the docs site is probed once, that classification matches the spec (Broken / Auth Required / Redirected), that the persistent `<projectDir>/links-cache.json` is honored across re-runs with no TTL, and that `--no-link-check` cleanly opts out.
+
+**Prerequisites**: Seed three known-status outbound URLs into a fixture docs page (or pick three pages on the chosen real docs site whose links are known to behave this way):
+
+- A known-404 URL (e.g. `https://example.com/definitely-not-a-real-path-find-the-gaps-test`).
+- A known-401-or-403 URL (e.g. a private GitHub repo the test runner cannot access).
+- A known-301 URL (e.g. `http://github.com/` redirecting to `https://github.com/`).
+
+**Steps**:
+
+1. From a clean fixture state (`rm -rf <projectDir>`), run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs> -v` and capture stdout.
+2. Inspect `<projectDir>/links.md`, `<projectDir>/links.json`, `<projectDir>/site/links/index.html`, and the "Dead Links" section in `<projectDir>/report.pdf`.
+3. Re-run the same command. Confirm the run is meaningfully faster than step 1 (cache hits) and that no fresh HTTP traffic for already-probed URLs appears.
+4. Re-run with `--no-cache`. Confirm every URL is re-probed (the `links-cache.json` mtime moves and the wall-clock returns to step 1's range).
+5. Re-run with `--no-link-check`. Confirm stdout shows `links.md (skipped)` and that no `links.md` / `links.json` / `/links/` page / Dead Links PDF section are produced.
+6. SIGINT a fresh run mid-link-check (Ctrl-C while the link probes are in flight). Confirm `<projectDir>/links-cache.json` exists with a non-empty subset of probed URLs. Re-run without `--no-cache`; confirm the re-run only probes the URLs that were not yet cached.
+
+**Success Criteria**:
+
+- [ ] Step 2: `links.md` contains the seeded 404 under `## Broken`, the 401/403 under `## Auth Required`, and the 301 under `## Redirected`.
+- [ ] Step 2: `links.json` parses; every entry has `pages: [...]` populated; the seeded URLs appear in their respective buckets; `error_type` is `http_404` on the 404 entry and `final_url` is populated on the 301 entry.
+- [ ] Step 2: Within each bucket in both `links.md` and `links.json`, findings are sorted by `len(pages)` desc, tiebreak alphabetic by URL.
+- [ ] Step 2: `<projectDir>/site/links/index.html` renders the three sections through Hextra.
+- [ ] Step 2: `report.pdf` contains a "Dead Links" section after "Screenshots" with the three sub-sections present (empty ones omitted).
+- [ ] Step 2: stdout `reports:` block contains `links.md (N broken · M auth · K redirected)`.
+- [ ] Step 3: re-run finishes in noticeably less wall-clock time; no fresh HTTP probes for already-cached URLs.
+- [ ] Step 4: every URL is re-probed (wall-clock returns to cold-cache range; `links-cache.json` mtime advances).
+- [ ] Step 5: `links.md (skipped)` appears in stdout; the artifact files (`links.md`, `links.json`) are absent from `<projectDir>`; PDF has no Dead Links section; site has no `/links/` page.
+- [ ] Step 6: post-SIGINT `links-cache.json` is non-empty; the resume run probes strictly fewer URLs than the original cold run.
+
+**If Blocked**: If the 401/403 URL is reported under `Broken` instead of `Auth Required`, the classifier is not catching 401/403 — check `internal/linkcheck/checker.go:classify`. If the 301 URL is reported under `Broken`, the redirect chain capture is wrong — check that `client.CheckRedirect` in `internal/linkcheck/checker.go:do` is appending `r.Response.StatusCode` (NOT `via[len(via)-1].Response.StatusCode`, which is always nil — see the design doc for why). If the seeded 404 fails to land in `Broken`, confirm `linkcheck.Extract` is being called without a same-host filter (it must NOT carry the filter that `spider.ExtractLinks` does).
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.
