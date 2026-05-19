@@ -64,3 +64,60 @@ func TestWriteLinksJSON_PopulatedFields(t *testing.T) {
 		}
 	}
 }
+
+// TestReadLinksJSON_RoundTrip pins that ReadLinksJSON loads back the same
+// shape WriteLinksJSON wrote. Render relies on this to re-emit the Dead
+// Links section in report.pdf without rerunning the link probes.
+func TestReadLinksJSON_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	rep := linkcheck.Report{
+		Broken: []linkcheck.Finding{{
+			URL: "https://gone.example/", ErrorType: "http_404",
+			Detail: "HTTP 404", StatusChain: []int{404},
+			Pages: []string{"p1", "p2"},
+		}},
+		Auth: []linkcheck.Finding{{
+			URL: "https://locked.example/", Detail: "HTTP 401",
+			Pages: []string{"p1"},
+		}},
+		Redirected: []linkcheck.Finding{{
+			URL: "https://old/x", FinalURL: "https://new/x",
+			StatusChain: []int{301, 200}, Pages: []string{"p1"},
+		}},
+	}
+	if err := WriteLinksJSON(dir, rep); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, ok, err := ReadLinksJSON(dir)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected ok=true for a populated links.json")
+	}
+	if len(got.Broken) != 1 || got.Broken[0].URL != "https://gone.example/" {
+		t.Fatalf("broken mismatch: %+v", got.Broken)
+	}
+	if len(got.Auth) != 1 || got.Auth[0].URL != "https://locked.example/" {
+		t.Fatalf("auth mismatch: %+v", got.Auth)
+	}
+	if len(got.Redirected) != 1 || got.Redirected[0].FinalURL != "https://new/x" {
+		t.Fatalf("redirected mismatch: %+v", got.Redirected)
+	}
+}
+
+// TestReadLinksJSON_MissingFile returns ok=false (no error) when links.json
+// is absent — callers treat that as "the link check did not run for this
+// project" and render with an empty Dead Links report.
+func TestReadLinksJSON_MissingFile(t *testing.T) {
+	got, ok, err := ReadLinksJSON(t.TempDir())
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if ok {
+		t.Fatalf("expected ok=false for missing links.json")
+	}
+	if len(got.Broken)+len(got.Auth)+len(got.Redirected) != 0 {
+		t.Fatalf("expected zero-value report, got %+v", got)
+	}
+}

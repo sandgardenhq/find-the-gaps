@@ -119,6 +119,14 @@ func newRenderCmd() *cobra.Command {
 				return fmt.Errorf("load screenshots.json: %w", err)
 			}
 
+			// Dead-links cache is optional — a project that ran with
+			// --no-link-check has no links.json and renders without the
+			// Dead Links section.
+			linkReport, _, err := reporter.ReadLinksJSON(projectDir)
+			if err != nil {
+				return fmt.Errorf("load links.json: %w", err)
+			}
+
 			log.Infof("rendering reports for %s", projectName)
 			if err := reporter.WriteMapping(projectDir, productSummary, featureMap, docsFeatureMap); err != nil {
 				return fmt.Errorf("write mapping: %w", err)
@@ -168,6 +176,7 @@ func newRenderCmd() *cobra.Command {
 					Drift:          driftFindings,
 					Screenshots:    screenshotResult,
 					ScreenshotsRan: screenshotsRan,
+					DeadLinks:      linkReport,
 				}); err != nil {
 					return fmt.Errorf("write pdf: %w", err)
 				}

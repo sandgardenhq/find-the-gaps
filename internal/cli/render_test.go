@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	pdfreader "github.com/ledongthuc/pdf"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
@@ -280,6 +283,61 @@ func TestRenderCmd_EmitsPDFByDefault(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Error("report.pdf must be non-empty")
+	}
+}
+
+// TestRenderCmd_IncludesDeadLinksInPDFWhenLinksJSONPresent pins that render
+// loads links.json from the project cache and threads it through to
+// pdf.Inputs so the regenerated report.pdf carries the Dead Links section.
+// Without this wiring, ftg render silently drops the section that ftg
+// analyze produced.
+func TestRenderCmd_IncludesDeadLinksInPDFWhenLinksJSONPresent(t *testing.T) {
+	cleanup := installFakeHugo(t)
+	defer cleanup()
+
+	cacheDir := t.TempDir()
+	projectDir := renderProjectFixture(t, cacheDir, "demo")
+
+	const seededURL = "https://very-unique-broken-host.example/path"
+	linksJSON := `{
+  "broken": [{"url": "` + seededURL + `", "error_type": "http_404", "detail": "HTTP 404 Not Found", "pages": ["https://docs.example.com/x"]}],
+  "auth_required": [],
+  "redirected": []
+}`
+	if err := os.WriteFile(filepath.Join(projectDir, "links.json"), []byte(linksJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newRenderCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetContext(context.Background())
+	cmd.SetArgs([]string{"--cache-dir", cacheDir, "--project", "demo"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("render failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	pdfPath := filepath.Join(projectDir, "report.pdf")
+	f, r, err := pdfreader.Open(pdfPath)
+	if err != nil {
+		t.Fatalf("open pdf: %v", err)
+	}
+	defer f.Close()
+	rd, err := r.GetPlainText()
+	if err != nil {
+		t.Fatalf("plaintext: %v", err)
+	}
+	b, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatalf("read pdf text: %v", err)
+	}
+	text := string(b)
+	if !strings.Contains(text, "Dead Links") {
+		t.Errorf("expected 'Dead Links' heading in PDF text; got:\n%s", text)
+	}
+	if !strings.Contains(text, seededURL) {
+		t.Errorf("expected seeded URL %q in PDF text", seededURL)
 	}
 }
 
