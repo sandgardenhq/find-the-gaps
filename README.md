@@ -109,6 +109,7 @@ Reports land at `.find-the-gaps/<project>/`:
 
 - `gaps.md` — undocumented code, unmapped features, stale docs
 - `mapping.md` — full feature → file/symbol inventory
+- `links.md` — broken, auth-walled, and redirected links on the docs site
 - `site/` — browsable Hextra-themed report
 
 Open the rendered report locally:
@@ -158,6 +159,7 @@ Flags:
       --llm-small string                 small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
       --llm-typical string               typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
       --no-cache                         force full re-scan, ignoring any cached results
+      --no-link-check                    skip the dead-link check; links.md / links.json are not emitted
       --no-site                          skip the Hugo site build; markdown reports still emitted
       --no-symbols                       map features to files only, skipping symbol-level analysis
       --repo string                      path to the repository to analyze (default ".")
@@ -344,6 +346,12 @@ Global Flags:
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
 - **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot, plus a `## Image Issues` section listing existing images whose surrounding prose doesn't match what they show (populated when the small tier resolves to a vision-capable model). The detection pass is **experimental and off by default**; pass `--experimental-check-screenshots` to opt in. When the pass runs, this file is written even on zero findings (body is `_None found._`); when the pass is off, the file is not written.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
+- **`links.md`** — broken, auth-walled, and redirected links discovered while crawling the docs site (every link, same-host **and** outbound). Three buckets:
+  - *Broken* — 4xx, 5xx, timeout, DNS failure, TLS error, redirect loop. Each finding carries an `error_type` so tooling can sort by failure mode.
+  - *Auth Required* — 401 / 403 responses, called out separately because they need manual verification rather than a code/docs change.
+  - *Redirected* — 3xx that resolves to a different final URL. Useful signal that docs point at a moved page.
+
+  Within each bucket, findings are sorted by the number of pages that reference the URL (high-traffic dead links surface first). Results are cached at `links-cache.json` indefinitely — use `--no-cache` to force a fresh probe of every URL, or `--no-link-check` to skip the entire pass.
 
 ## Ignored files
 
