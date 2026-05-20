@@ -406,7 +406,7 @@ func TestRenderHomeIncludesDeadLinks(t *testing.T) {
 		`<span class="ftg-stat-label">Broken</span>`,
 		`ftg-stat-card--medium" href="/links/"`,
 		`<span class="ftg-stat-num">1</span>`,
-		`<span class="ftg-stat-label">Auth required</span>`,
+		`<span class="ftg-stat-label">Auth Required</span>`,
 		`ftg-stat-card--small" href="/links/"`,
 		`<span class="ftg-stat-num">4</span>`,
 		`<span class="ftg-stat-label">Redirected</span>`,
@@ -433,7 +433,7 @@ func TestRenderHomeDeadLinksZeroCountsAreGood(t *testing.T) {
 	for _, want := range []string{
 		"### Dead links",
 		`<span class="ftg-stat-label">Broken</span>`,
-		`<span class="ftg-stat-label">Auth required</span>`,
+		`<span class="ftg-stat-label">Auth Required</span>`,
 		`<span class="ftg-stat-label">Redirected</span>`,
 	} {
 		if !strings.Contains(got, want) {
