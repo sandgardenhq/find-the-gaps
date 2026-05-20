@@ -7,7 +7,63 @@ import (
 	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
+
+// TestBuildHomeData_DeadLinkCountsFromReport pins that buildHomeData reads
+// link-check findings off Inputs.DeadLinks and translates the per-bucket
+// lengths into the LinkBrokenCount / LinkAuthCount / LinkRedirectedCount
+// at-a-glance counts, and that LinksRan is propagated.
+func TestBuildHomeData_DeadLinkCountsFromReport(t *testing.T) {
+	in := Inputs{
+		Summary:  analyzer.ProductSummary{Description: "demo"},
+		LinksRan: true,
+		DeadLinks: linkcheck.Report{
+			Broken: []linkcheck.Finding{
+				{URL: "https://gone.example/a"},
+				{URL: "https://gone.example/b"},
+			},
+			Auth: []linkcheck.Finding{
+				{URL: "https://private.example/x"},
+			},
+			Redirected: []linkcheck.Finding{
+				{URL: "https://old.example/1"},
+				{URL: "https://old.example/2"},
+				{URL: "https://old.example/3"},
+			},
+		},
+	}
+	opts := BuildOptions{ProjectName: "demo", Mode: ModeMirror}
+	got := buildHomeData(in, opts)
+
+	if !got.LinksRan {
+		t.Errorf("LinksRan: want true, got false")
+	}
+	if got.LinkBrokenCount != 2 {
+		t.Errorf("LinkBrokenCount: want 2, got %d", got.LinkBrokenCount)
+	}
+	if got.LinkAuthCount != 1 {
+		t.Errorf("LinkAuthCount: want 1, got %d", got.LinkAuthCount)
+	}
+	if got.LinkRedirectedCount != 3 {
+		t.Errorf("LinkRedirectedCount: want 3, got %d", got.LinkRedirectedCount)
+	}
+}
+
+func TestBuildHomeData_LinksNotRan(t *testing.T) {
+	in := Inputs{
+		Summary:  analyzer.ProductSummary{Description: "demo"},
+		LinksRan: false,
+	}
+	opts := BuildOptions{ProjectName: "demo", Mode: ModeMirror}
+	got := buildHomeData(in, opts)
+	if got.LinksRan {
+		t.Errorf("LinksRan: want false, got true")
+	}
+	if got.LinkBrokenCount+got.LinkAuthCount+got.LinkRedirectedCount != 0 {
+		t.Errorf("link counts must be zero when LinksRan=false; got %+v", got)
+	}
+}
 
 // TestMaterializePageWeightsOrderSidebar pins the per-page `weight` values in
 // content frontmatter. The Hextra desktop sidebar gathers section pages from

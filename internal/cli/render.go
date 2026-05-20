@@ -122,7 +122,7 @@ func newRenderCmd() *cobra.Command {
 			// Dead-links cache is optional — a project that ran with
 			// --no-link-check has no links.json and renders without the
 			// Dead Links section.
-			linkReport, _, err := reporter.ReadLinksJSON(projectDir)
+			linkReport, linksRan, err := reporter.ReadLinksJSON(projectDir)
 			if err != nil {
 				return fmt.Errorf("load links.json: %w", err)
 			}
@@ -154,6 +154,8 @@ func newRenderCmd() *cobra.Command {
 					Screenshots:    screenshotResult.MissingGaps,
 					ImageIssues:    screenshotResult.ImageIssues,
 					ScreenshotsRan: screenshotsRan,
+					DeadLinks:      linkReport,
+					LinksRan:       linksRan,
 				},
 				site.BuildOptions{
 					ProjectDir:  projectDir,

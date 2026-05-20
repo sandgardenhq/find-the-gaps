@@ -795,6 +795,8 @@ func newAnalyzeCmd() *cobra.Command {
 						Screenshots:    screenshotResult.MissingGaps,
 						ImageIssues:    screenshotResult.ImageIssues,
 						ScreenshotsRan: experimentalCheckScreenshots,
+						DeadLinks:      linkReport,
+						LinksRan:       linkCheckRan,
 					},
 					site.BuildOptions{
 						ProjectDir:  projectDir,

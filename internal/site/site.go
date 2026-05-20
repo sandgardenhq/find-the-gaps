@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
 
 // Mode selects the site's content shape.
@@ -47,6 +48,12 @@ type Inputs struct {
 	// reaches the rendered Hugo site in either mode.
 	ImageIssues    []analyzer.ImageIssue
 	ScreenshotsRan bool
+	// DeadLinks carries the link-check report for the at-a-glance Dead
+	// Links card row on the home page. Mirror mode reads the rendered
+	// links.md from disk for the /links/ page itself; this field only
+	// drives the count cards on the home page.
+	DeadLinks linkcheck.Report
+	LinksRan  bool
 }
 
 // ErrUnknownMode is returned by Build when opts.Mode is not a recognized value.

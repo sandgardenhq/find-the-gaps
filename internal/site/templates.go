@@ -98,6 +98,10 @@ type homeData struct {
 	ScreenshotMediumCount int
 	ScreenshotSmallCount  int
 	ScreenshotsRan        bool
+	LinksRan              bool
+	LinkBrokenCount       int
+	LinkAuthCount         int
+	LinkRedirectedCount   int
 	Mode                  Mode
 }
 
@@ -118,6 +122,11 @@ type homeView struct {
 	ScreenshotMediumCount int
 	ScreenshotSmallCount  int
 	ScreenshotsRan        bool
+	LinksRan              bool
+	LinkBrokenCount       int
+	LinkAuthCount         int
+	LinkRedirectedCount   int
+	LinkTotalCount        int
 	Expanded              bool
 }
 
@@ -137,6 +146,11 @@ func renderHome(d homeData) (string, error) {
 		ScreenshotMediumCount: d.ScreenshotMediumCount,
 		ScreenshotSmallCount:  d.ScreenshotSmallCount,
 		ScreenshotsRan:        d.ScreenshotsRan,
+		LinksRan:              d.LinksRan,
+		LinkBrokenCount:       d.LinkBrokenCount,
+		LinkAuthCount:         d.LinkAuthCount,
+		LinkRedirectedCount:   d.LinkRedirectedCount,
+		LinkTotalCount:        d.LinkBrokenCount + d.LinkAuthCount + d.LinkRedirectedCount,
 		Expanded:              d.Mode == ModeExpanded,
 	}
 	var buf bytes.Buffer

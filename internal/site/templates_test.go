@@ -373,6 +373,104 @@ func TestRenderHomeExpandedLinksToFeatures(t *testing.T) {
 	}
 }
 
+// TestRenderHomeIncludesDeadLinks pins the at-a-glance Dead Links block.
+// Three priority-style cards (Broken / Auth Required / Redirected) sit
+// under the section heading, each linking to /links/. The severity palette
+// mirrors drift/screenshots:
+//
+//	Broken         -> ftg-stat-card--large   (red — failing links)
+//	Auth Required  -> ftg-stat-card--medium  (amber — manual review)
+//	Redirected     -> ftg-stat-card--small   (neutral — soft signal)
+//
+// Counts of 0 still render the bucket (with --good) so a clean run reads
+// as deliberately green rather than missing.
+func TestRenderHomeIncludesDeadLinks(t *testing.T) {
+	in := homeData{
+		ProjectName:         "demo",
+		GeneratedAt:         time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		FeatureCount:        3,
+		LinksRan:            true,
+		LinkBrokenCount:     2,
+		LinkAuthCount:       1,
+		LinkRedirectedCount: 4,
+		Mode:                ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"### Dead links",
+		`ftg-stat-card--large" href="/links/"`,
+		`<span class="ftg-stat-num">2</span>`,
+		`<span class="ftg-stat-label">Broken</span>`,
+		`ftg-stat-card--medium" href="/links/"`,
+		`<span class="ftg-stat-num">1</span>`,
+		`<span class="ftg-stat-label">Auth required</span>`,
+		`ftg-stat-card--small" href="/links/"`,
+		`<span class="ftg-stat-num">4</span>`,
+		`<span class="ftg-stat-label">Redirected</span>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderHomeDeadLinksZeroCountsAreGood(t *testing.T) {
+	in := homeData{
+		ProjectName:  "demo",
+		GeneratedAt:  time.Now(),
+		FeatureCount: 3,
+		LinksRan:     true,
+		Mode:         ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Three Dead Links buckets must be present and all --good when zero.
+	for _, want := range []string{
+		"### Dead links",
+		`<span class="ftg-stat-label">Broken</span>`,
+		`<span class="ftg-stat-label">Auth required</span>`,
+		`<span class="ftg-stat-label">Redirected</span>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{
+		`ftg-stat-card--large" href="/links/"`,
+		`ftg-stat-card--medium" href="/links/"`,
+		`ftg-stat-card--small" href="/links/"`,
+	} {
+		if strings.Contains(got, bad) {
+			t.Errorf("zero counts must not render %q; got:\n%s", bad, got)
+		}
+	}
+}
+
+func TestRenderHomeOmitsDeadLinksWhenNotRan(t *testing.T) {
+	in := homeData{
+		ProjectName:  "demo",
+		GeneratedAt:  time.Now(),
+		FeatureCount: 3,
+		LinksRan:     false,
+		Mode:         ModeMirror,
+	}
+	got, err := renderHome(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "### Dead links") {
+		t.Errorf("home should not contain Dead links section when LinksRan=false:\n%s", got)
+	}
+	if strings.Contains(got, `href="/links/"`) {
+		t.Errorf("home should not link to /links/ when LinksRan=false:\n%s", got)
+	}
+}
+
 // TestRenderHomeOmitsSectionsBlock pins the removal of the dedicated
 // `## Sections` list. The at-a-glance bullets carry the navigation links
 // now, so a separate Sections block is redundant.

@@ -451,6 +451,10 @@ func buildHomeData(in Inputs, opts BuildOptions) homeData {
 		ScreenshotMediumCount: ssMedium,
 		ScreenshotSmallCount:  ssSmall,
 		ScreenshotsRan:        in.ScreenshotsRan,
+		LinksRan:              in.LinksRan,
+		LinkBrokenCount:       len(in.DeadLinks.Broken),
+		LinkAuthCount:         len(in.DeadLinks.Auth),
+		LinkRedirectedCount:   len(in.DeadLinks.Redirected),
 		Mode:                  opts.Mode,
 	}
 }

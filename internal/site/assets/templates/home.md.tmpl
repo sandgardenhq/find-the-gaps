@@ -70,4 +70,24 @@ description = {{ metaDescription .Summary (printf "Find the Gaps documentation a
 </a>
 </div>
 {{ end }}
+{{ if .LinksRan -}}
+### Dead links ({{ .LinkTotalCount }})
+
+<div class="ftg-stats ftg-stats--priority">
+<a class="ftg-stat-card {{ if eq .LinkBrokenCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--large{{ end }}" href="/links/">
+<span class="ftg-stat-num">{{ .LinkBrokenCount }}</span>
+<span class="ftg-stat-label">Broken</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .LinkAuthCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--medium{{ end }}" href="/links/">
+<span class="ftg-stat-num">{{ .LinkAuthCount }}</span>
+<span class="ftg-stat-label">Auth required</span>
+</a>
+
+<a class="ftg-stat-card {{ if eq .LinkRedirectedCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--small{{ end }}" href="/links/">
+<span class="ftg-stat-num">{{ .LinkRedirectedCount }}</span>
+<span class="ftg-stat-label">Redirected</span>
+</a>
+</div>
+{{ end }}
 <p class="ftg-generated">Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}</p>
