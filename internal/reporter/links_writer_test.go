@@ -22,7 +22,7 @@ func TestWriteLinksMD_EmptyReportProducesEmptyButValidFile(t *testing.T) {
 	if !strings.HasPrefix(s, "# Dead Links\n") {
 		t.Fatalf("want leading H1, got %q", s)
 	}
-	for _, banned := range []string{"## Broken", "## Auth Required", "## Redirected"} {
+	for _, banned := range []string{"## Broken", "## Auth Required"} {
 		if strings.Contains(s, banned) {
 			t.Fatalf("empty report must not render %q section, got:\n%s", banned, s)
 		}
@@ -32,7 +32,7 @@ func TestWriteLinksMD_EmptyReportProducesEmptyButValidFile(t *testing.T) {
 	}
 }
 
-func TestWriteLinksMD_RendersAllThreeBucketsWhenNonEmpty(t *testing.T) {
+func TestWriteLinksMD_RendersBothBucketsWhenNonEmpty(t *testing.T) {
 	dir := t.TempDir()
 	rep := linkcheck.Report{
 		Broken: []linkcheck.Finding{{
@@ -46,12 +46,6 @@ func TestWriteLinksMD_RendersAllThreeBucketsWhenNonEmpty(t *testing.T) {
 			Detail: "HTTP 401 Unauthorized",
 			Pages:  []string{"https://docs/a"},
 		}},
-		Redirected: []linkcheck.Finding{{
-			URL:      "https://old.example/x",
-			FinalURL: "https://new.example/x",
-			Detail:   "redirected",
-			Pages:    []string{"https://docs/a"},
-		}},
 	}
 	if err := WriteLinksMD(dir, rep); err != nil {
 		t.Fatalf("write: %v", err)
@@ -62,8 +56,6 @@ func TestWriteLinksMD_RendersAllThreeBucketsWhenNonEmpty(t *testing.T) {
 		"### https://gone.example/",
 		"**Reason:** HTTP 404 Not Found",
 		"## Auth Required",
-		"## Redirected",
-		"**Redirects to:** https://new.example/x",
 		"- https://docs/a",
 		"- https://docs/b",
 	} {
@@ -71,11 +63,13 @@ func TestWriteLinksMD_RendersAllThreeBucketsWhenNonEmpty(t *testing.T) {
 			t.Fatalf("want %q in:\n%s", want, s)
 		}
 	}
+	if strings.Contains(s, "## Redirected") {
+		t.Fatalf("Redirected section should not render")
+	}
 	bi := strings.Index(s, "## Broken")
 	ai := strings.Index(s, "## Auth Required")
-	ri := strings.Index(s, "## Redirected")
-	if bi >= ai || ai >= ri {
-		t.Fatalf("bucket order wrong: broken=%d auth=%d redirected=%d", bi, ai, ri)
+	if bi >= ai {
+		t.Fatalf("bucket order wrong: broken=%d auth=%d", bi, ai)
 	}
 }
 

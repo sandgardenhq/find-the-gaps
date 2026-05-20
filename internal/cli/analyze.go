@@ -726,7 +726,7 @@ func newAnalyzeCmd() *cobra.Command {
 
 			// --- dead-link check ---
 			// Probes every link (same-host + outbound) discovered in the
-			// crawled docs site, classifies into Broken / Auth / Redirected.
+			// crawled docs site, classifies into Broken / Auth.
 			// Persistent cache at <projectDir>/links-cache.json has no TTL —
 			// --no-cache is the only way to force a re-probe.
 			var linkReport linkcheck.Report

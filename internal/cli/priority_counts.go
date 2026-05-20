@@ -12,11 +12,11 @@ import (
 // `links.md` line in the stdout reports: block. Returns the empty
 // string when every bucket is empty.
 func linksCounts(r linkcheck.Report) string {
-	if len(r.Broken)+len(r.Auth)+len(r.Redirected) == 0 {
+	if len(r.Broken)+len(r.Auth) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d broken · %d auth · %d redirected",
-		len(r.Broken), len(r.Auth), len(r.Redirected))
+	return fmt.Sprintf("%d broken · %d auth",
+		len(r.Broken), len(r.Auth))
 }
 
 // driftPriorityCounts returns the NL/NM/NS breakdown across every drift issue

@@ -10,7 +10,7 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
 
-func TestWriteLinksJSON_AlwaysWritesAllThreeKeys(t *testing.T) {
+func TestWriteLinksJSON_AlwaysWritesBothKeys(t *testing.T) {
 	dir := t.TempDir()
 	if err := WriteLinksJSON(dir, linkcheck.Report{}); err != nil {
 		t.Fatalf("write: %v", err)
@@ -23,10 +23,13 @@ func TestWriteLinksJSON_AlwaysWritesAllThreeKeys(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	for _, key := range []string{"broken", "auth_required", "redirected"} {
+	for _, key := range []string{"broken", "auth_required"} {
 		if _, ok := got[key]; !ok {
 			t.Fatalf("missing key %q in %s", key, string(b))
 		}
+	}
+	if _, ok := got["redirected"]; ok {
+		t.Fatalf("unexpected key 'redirected' in %s", string(b))
 	}
 }
 
@@ -40,13 +43,6 @@ func TestWriteLinksJSON_PopulatedFields(t *testing.T) {
 			StatusChain: []int{404},
 			Pages:       []string{"p1", "p2"},
 		}},
-		Redirected: []linkcheck.Finding{{
-			URL:         "https://old/x",
-			FinalURL:    "https://new/x",
-			StatusChain: []int{301, 200},
-			Detail:      "redirected",
-			Pages:       []string{"p1"},
-		}},
 	}
 	if err := WriteLinksJSON(dir, rep); err != nil {
 		t.Fatalf("write: %v", err)
@@ -57,7 +53,6 @@ func TestWriteLinksJSON_PopulatedFields(t *testing.T) {
 		`"url": "https://gone.example/"`,
 		`"error_type": "http_404"`,
 		`"status_chain":`,
-		`"final_url": "https://new/x"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("expected %q in:\n%s", want, s)
@@ -80,10 +75,6 @@ func TestReadLinksJSON_RoundTrip(t *testing.T) {
 			URL: "https://locked.example/", Detail: "HTTP 401",
 			Pages: []string{"p1"},
 		}},
-		Redirected: []linkcheck.Finding{{
-			URL: "https://old/x", FinalURL: "https://new/x",
-			StatusChain: []int{301, 200}, Pages: []string{"p1"},
-		}},
 	}
 	if err := WriteLinksJSON(dir, rep); err != nil {
 		t.Fatalf("write: %v", err)
@@ -101,9 +92,6 @@ func TestReadLinksJSON_RoundTrip(t *testing.T) {
 	if len(got.Auth) != 1 || got.Auth[0].URL != "https://locked.example/" {
 		t.Fatalf("auth mismatch: %+v", got.Auth)
 	}
-	if len(got.Redirected) != 1 || got.Redirected[0].FinalURL != "https://new/x" {
-		t.Fatalf("redirected mismatch: %+v", got.Redirected)
-	}
 }
 
 // TestReadLinksJSON_MissingFile returns ok=false (no error) when links.json
@@ -117,7 +105,7 @@ func TestReadLinksJSON_MissingFile(t *testing.T) {
 	if ok {
 		t.Fatalf("expected ok=false for missing links.json")
 	}
-	if len(got.Broken)+len(got.Auth)+len(got.Redirected) != 0 {
+	if len(got.Broken)+len(got.Auth) != 0 {
 		t.Fatalf("expected zero-value report, got %+v", got)
 	}
 }
