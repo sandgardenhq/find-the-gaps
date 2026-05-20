@@ -61,7 +61,7 @@ func TestChecker_401And403GoToAuthBucket(t *testing.T) {
 	}
 }
 
-func TestChecker_RedirectToFinalURLIsRedirectedBucket(t *testing.T) {
+func TestChecker_RedirectToFinal2xxIsOK(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))
@@ -72,14 +72,8 @@ func TestChecker_RedirectToFinalURLIsRedirectedBucket(t *testing.T) {
 	defer origin.Close()
 
 	got := NewHTTPChecker(newClient(), "test-ua").Check(context.Background(), origin.URL)
-	if got.Bucket != BucketRedirected {
-		t.Fatalf("bucket=%v, want Redirected; result=%+v", got.Bucket, got)
-	}
-	if got.FinalURL == "" || got.FinalURL == origin.URL {
-		t.Fatalf("FinalURL=%q, want it to differ from origin", got.FinalURL)
-	}
-	if len(got.StatusChain) < 2 {
-		t.Fatalf("StatusChain=%v, want at least [3xx, 200]", got.StatusChain)
+	if got.Bucket != BucketOK {
+		t.Fatalf("bucket=%v, want OK; result=%+v", got.Bucket, got)
 	}
 }
 

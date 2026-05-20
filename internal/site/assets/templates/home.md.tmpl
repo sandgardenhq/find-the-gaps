@@ -83,11 +83,6 @@ description = {{ metaDescription .Summary (printf "Find the Gaps documentation a
 <span class="ftg-stat-num">{{ .LinkAuthCount }}</span>
 <span class="ftg-stat-label">Auth Required</span>
 </a>
-
-<a class="ftg-stat-card {{ if eq .LinkRedirectedCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--small{{ end }}" href="/links/">
-<span class="ftg-stat-num">{{ .LinkRedirectedCount }}</span>
-<span class="ftg-stat-label">Redirected</span>
-</a>
 </div>
 {{ end }}
 <p class="ftg-generated">Generated {{ .GeneratedAt.UTC.Format "2006-01-02 15:04 UTC" }}</p>

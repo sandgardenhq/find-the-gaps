@@ -21,9 +21,8 @@ type Finding struct {
 // Report groups Findings by bucket. Each list is sorted by len(Pages) desc,
 // tiebreak alphabetic by URL.
 type Report struct {
-	Broken     []Finding `json:"broken"`
-	Auth       []Finding `json:"auth_required"`
-	Redirected []Finding `json:"redirected"`
+	Broken []Finding `json:"broken"`
+	Auth   []Finding `json:"auth_required"`
 }
 
 // Options configures Run.
@@ -135,14 +134,11 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 			rep.Broken = append(rep.Broken, f)
 		case BucketAuth:
 			rep.Auth = append(rep.Auth, f)
-		case BucketRedirected:
-			rep.Redirected = append(rep.Redirected, f)
 		}
 	}
 
 	sortFindings(rep.Broken)
 	sortFindings(rep.Auth)
-	sortFindings(rep.Redirected)
 	return rep, nil
 }
 

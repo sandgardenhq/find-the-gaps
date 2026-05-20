@@ -362,7 +362,7 @@ func materializeLinksMD(contentDir, projectDir string) error {
 	if err != nil {
 		return fmt.Errorf("read links.md: %w", err)
 	}
-	fm := "+++\ntitle = \"Dead Links\"\ndescription = \"Broken, auth-walled, and redirected links discovered in the documentation site.\"\nweight = 40\n+++\n\n"
+	fm := "+++\ntitle = \"Dead Links\"\ndescription = \"Broken and auth-walled links discovered in the documentation site.\"\nweight = 40\n+++\n\n"
 	return os.WriteFile(filepath.Join(contentDir, "links.md"),
 		append([]byte(fm), stripLeadingH1(body)...), 0o644)
 }
@@ -454,7 +454,6 @@ func buildHomeData(in Inputs, opts BuildOptions) homeData {
 		LinksRan:              in.LinksRan,
 		LinkBrokenCount:       len(in.DeadLinks.Broken),
 		LinkAuthCount:         len(in.DeadLinks.Auth),
-		LinkRedirectedCount:   len(in.DeadLinks.Redirected),
 		Mode:                  opts.Mode,
 	}
 }

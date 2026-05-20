@@ -301,8 +301,7 @@ func TestRenderCmd_IncludesDeadLinksInPDFWhenLinksJSONPresent(t *testing.T) {
 	const seededURL = "https://very-unique-broken-host.example/path"
 	linksJSON := `{
   "broken": [{"url": "` + seededURL + `", "error_type": "http_404", "detail": "HTTP 404 Not Found", "pages": ["https://docs.example.com/x"]}],
-  "auth_required": [],
-  "redirected": []
+  "auth_required": []
 }`
 	if err := os.WriteFile(filepath.Join(projectDir, "links.json"), []byte(linksJSON), 0o644); err != nil {
 		t.Fatal(err)

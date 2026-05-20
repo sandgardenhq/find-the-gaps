@@ -9,23 +9,19 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
 
-// WriteLinksJSON writes <dir>/links.json. All three top-level keys are always
+// WriteLinksJSON writes <dir>/links.json. Both top-level keys are always
 // present; empty buckets render as `[]`.
 func WriteLinksJSON(dir string, rep linkcheck.Report) error {
 	type out struct {
-		Broken     []linkcheck.Finding `json:"broken"`
-		Auth       []linkcheck.Finding `json:"auth_required"`
-		Redirected []linkcheck.Finding `json:"redirected"`
+		Broken []linkcheck.Finding `json:"broken"`
+		Auth   []linkcheck.Finding `json:"auth_required"`
 	}
-	o := out{Broken: rep.Broken, Auth: rep.Auth, Redirected: rep.Redirected}
+	o := out{Broken: rep.Broken, Auth: rep.Auth}
 	if o.Broken == nil {
 		o.Broken = []linkcheck.Finding{}
 	}
 	if o.Auth == nil {
 		o.Auth = []linkcheck.Finding{}
-	}
-	if o.Redirected == nil {
-		o.Redirected = []linkcheck.Finding{}
 	}
 	b, err := json.MarshalIndent(o, "", "  ")
 	if err != nil {
@@ -49,12 +45,11 @@ func ReadLinksJSON(dir string) (linkcheck.Report, bool, error) {
 		return linkcheck.Report{}, false, err
 	}
 	var in struct {
-		Broken     []linkcheck.Finding `json:"broken"`
-		Auth       []linkcheck.Finding `json:"auth_required"`
-		Redirected []linkcheck.Finding `json:"redirected"`
+		Broken []linkcheck.Finding `json:"broken"`
+		Auth   []linkcheck.Finding `json:"auth_required"`
 	}
 	if err := json.Unmarshal(data, &in); err != nil {
 		return linkcheck.Report{}, false, err
 	}
-	return linkcheck.Report{Broken: in.Broken, Auth: in.Auth, Redirected: in.Redirected}, true, nil
+	return linkcheck.Report{Broken: in.Broken, Auth: in.Auth}, true, nil
 }

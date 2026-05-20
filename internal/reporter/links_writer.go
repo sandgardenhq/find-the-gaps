@@ -17,7 +17,7 @@ func WriteLinksMD(dir string, rep linkcheck.Report) error {
 	var b strings.Builder
 	b.WriteString("# Dead Links\n\n")
 
-	total := len(rep.Broken) + len(rep.Auth) + len(rep.Redirected)
+	total := len(rep.Broken) + len(rep.Auth)
 	if total == 0 {
 		b.WriteString("_No dead links detected._\n")
 		return os.WriteFile(filepath.Join(dir, "links.md"), []byte(b.String()), 0o644)
@@ -26,32 +26,23 @@ func WriteLinksMD(dir string, rep linkcheck.Report) error {
 	if len(rep.Broken) > 0 {
 		b.WriteString("## Broken\n\n")
 		for _, f := range rep.Broken {
-			writeFinding(&b, f, "")
+			writeFinding(&b, f)
 		}
 	}
 	if len(rep.Auth) > 0 {
 		b.WriteString("## Auth Required\n\n")
 		for _, f := range rep.Auth {
-			writeFinding(&b, f, "")
-		}
-	}
-	if len(rep.Redirected) > 0 {
-		b.WriteString("## Redirected\n\n")
-		for _, f := range rep.Redirected {
-			writeFinding(&b, f, f.FinalURL)
+			writeFinding(&b, f)
 		}
 	}
 
 	return os.WriteFile(filepath.Join(dir, "links.md"), []byte(b.String()), 0o644)
 }
 
-func writeFinding(b *strings.Builder, f linkcheck.Finding, redirectsTo string) {
+func writeFinding(b *strings.Builder, f linkcheck.Finding) {
 	fmt.Fprintf(b, "### %s\n\n", f.URL)
 	if f.Detail != "" {
 		fmt.Fprintf(b, "**Reason:** %s\n\n", f.Detail)
-	}
-	if redirectsTo != "" {
-		fmt.Fprintf(b, "**Redirects to:** %s\n\n", redirectsTo)
 	}
 	b.WriteString("**Pages:**\n\n")
 	for _, p := range f.Pages {

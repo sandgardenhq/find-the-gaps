@@ -5,14 +5,16 @@
 ### Added
 - **Dead-link check.** `ftg analyze` now probes every link discovered while
   crawling the docs site — same-host **and** outbound — and reports the ones
-  that don't resolve cleanly. Findings are grouped into three buckets
-  (Broken, Auth Required, Redirected) and emitted as `links.md`,
-  `links.json`, a `/links/` page on the rendered Hugo site, and a "Dead
-  Links" section in `report.pdf`. The check follows redirects, retries
-  transient failures once, caps per-host concurrency at 4, and identifies
-  itself with a `find-the-gaps/<version>` User-Agent. Results persist at
-  `<projectDir>/links-cache.json` with no TTL — `--no-cache` forces a
-  re-probe; `--no-link-check` skips the pass entirely.
+  that don't resolve cleanly. Findings are grouped into two buckets
+  (Broken, Auth Required) and emitted as `links.md`, `links.json`, a
+  `/links/` page on the rendered Hugo site, and a "Dead Links" section in
+  `report.pdf`. Redirects that resolve to a healthy 2xx final URL are
+  treated as OK and not reported — only redirect loops surface (under
+  Broken). The check retries transient failures once, caps per-host
+  concurrency at 4, and identifies itself with a `find-the-gaps/<version>`
+  User-Agent. Results persist at `<projectDir>/links-cache.json` with no
+  TTL — `--no-cache` forces a re-probe; `--no-link-check` skips the pass
+  entirely.
 
 ### Breaking
 - **`--docs-url` renamed to `--docs` and made optional.** Omitting `--docs`

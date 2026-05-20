@@ -111,7 +111,7 @@ Reports land at `.find-the-gaps/<project>/`:
 
 - `gaps.md` — undocumented code, unmapped features, stale docs
 - `mapping.md` — full feature → file/symbol inventory
-- `links.md` — broken, auth-walled, and redirected links on the docs site
+- `links.md` — broken and auth-walled links on the docs site
 - `report.pdf` — single-file PDF export of features, gaps, screenshots, and dead links
 - `site/` — browsable Hextra-themed report
 
@@ -380,12 +380,11 @@ Pass the `--llm-*` flags (or set their env-var equivalents) to see what model ea
   - *Stale Documentation* — specific inaccuracies in pages that do cover a feature
 - **`screenshots.md`** — passages describing user-facing moments with no nearby screenshot, plus a `## Image Issues` section listing existing images whose surrounding prose doesn't match what they show (populated when the small tier resolves to a vision-capable model). The detection pass is **experimental and off by default**; pass `--experimental-check-screenshots` to opt in. When the pass runs, this file is written even on zero findings (body is `_None found._`); when the pass is off, the file is not written.
 - **`mapping.md`** — full feature inventory with documentation status, implementing files, and symbols
-- **`links.md`** — broken, auth-walled, and redirected links discovered while crawling the docs site (every link, same-host **and** outbound). Three buckets:
+- **`links.md`** — broken and auth-walled links discovered while crawling the docs site (every link, same-host **and** outbound). Two buckets:
   - *Broken* — 4xx, 5xx, timeout, DNS failure, TLS error, redirect loop. Each finding carries an `error_type` so tooling can sort by failure mode.
   - *Auth Required* — 401 / 403 responses, called out separately because they need manual verification rather than a code/docs change.
-  - *Redirected* — 3xx that resolves to a different final URL. Useful signal that docs point at a moved page.
 
-  Within each bucket, findings are sorted by the number of pages that reference the URL (high-traffic dead links surface first). Results are cached at `links-cache.json` indefinitely — use `--no-cache` to force a fresh probe of every URL, or `--no-link-check` to skip the entire pass.
+  Redirects that resolve to a healthy 2xx final URL are treated as OK and not reported — only redirect loops surface (under *Broken*). Within each bucket, findings are sorted by the number of pages that reference the URL (high-traffic dead links surface first). Results are cached at `links-cache.json` indefinitely — use `--no-cache` to force a fresh probe of every URL, or `--no-link-check` to skip the entire pass.
 - **`report.pdf`** — single-file PDF export of the same content as the Hextra site (features, gaps, screenshots, dead links). Emitted by default; pass `--no-pdf` to skip.
 
 ## Ignored files

@@ -24,12 +24,6 @@ func TestDeadLinks_RenderedWhenNonEmpty(t *testing.T) {
 				Detail: "HTTP 401 Unauthorized",
 				Pages:  []string{"https://docs.example/a"},
 			}},
-			Redirected: []linkcheck.Finding{{
-				URL:      "https://old.example/x",
-				FinalURL: "https://new.example/x",
-				Detail:   "redirected",
-				Pages:    []string{"https://docs.example/a"},
-			}},
 		},
 	}
 	if err := WriteReport(dir, in); err != nil {
@@ -39,7 +33,7 @@ func TestDeadLinks_RenderedWhenNonEmpty(t *testing.T) {
 	// rather than the rendered byte stream — fpdf compresses content streams,
 	// so substring searches on the binary file are unreliable.
 	entries := collectTOCEntries(in)
-	var sawTop, sawBroken, sawAuth, sawRedirected bool
+	var sawTop, sawBroken, sawAuth bool
 	for _, e := range entries {
 		switch e.Label {
 		case "Dead Links":
@@ -54,15 +48,11 @@ func TestDeadLinks_RenderedWhenNonEmpty(t *testing.T) {
 			if e.Depth == 1 && e.Anchor == "deadlinks-auth" {
 				sawAuth = true
 			}
-		case "Redirected":
-			if e.Depth == 1 && e.Anchor == "deadlinks-redirected" {
-				sawRedirected = true
-			}
 		}
 	}
-	if !sawTop || !sawBroken || !sawAuth || !sawRedirected {
-		t.Fatalf("TOC entries missing: top=%v broken=%v auth=%v redirected=%v",
-			sawTop, sawBroken, sawAuth, sawRedirected)
+	if !sawTop || !sawBroken || !sawAuth {
+		t.Fatalf("TOC entries missing: top=%v broken=%v auth=%v",
+			sawTop, sawBroken, sawAuth)
 	}
 	if _, err := filepath.Abs(out); err != nil {
 		t.Fatalf("abs: %v", err)
@@ -92,7 +82,7 @@ func TestDeadLinks_OmitsEmptyBucketEntriesInTOC(t *testing.T) {
 	}
 	entries := collectTOCEntries(in)
 	for _, e := range entries {
-		if e.Anchor == "deadlinks-broken" || e.Anchor == "deadlinks-redirected" {
+		if e.Anchor == "deadlinks-broken" {
 			t.Fatalf("empty bucket anchored in TOC: %+v", e)
 		}
 	}

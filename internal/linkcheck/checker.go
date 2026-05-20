@@ -19,7 +19,6 @@ const (
 	BucketOK Bucket = iota
 	BucketBroken
 	BucketAuth
-	BucketRedirected
 )
 
 // Result is the outcome of probing a single URL.
@@ -197,12 +196,7 @@ func classify(res *Result, err error) {
 		res.Bucket = BucketAuth
 		res.Detail = fmt.Sprintf("HTTP %d %s", last, http.StatusText(last))
 	case last >= 200 && last < 300:
-		if len(res.StatusChain) > 1 && res.FinalURL != "" && res.FinalURL != res.URL {
-			res.Bucket = BucketRedirected
-			res.Detail = fmt.Sprintf("redirected to %s", res.FinalURL)
-		} else {
-			res.Bucket = BucketOK
-		}
+		res.Bucket = BucketOK
 	case last >= 500 && last <= 599:
 		res.Bucket = BucketBroken
 		res.ErrorType = "http_5xx"

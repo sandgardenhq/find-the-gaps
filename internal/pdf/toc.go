@@ -70,9 +70,6 @@ func collectTOCEntries(in Inputs) []tocEntry {
 		if len(in.DeadLinks.Auth) > 0 {
 			entries = append(entries, tocEntry{Label: "Auth Required", Anchor: "deadlinks-auth", Depth: 1})
 		}
-		if len(in.DeadLinks.Redirected) > 0 {
-			entries = append(entries, tocEntry{Label: "Redirected", Anchor: "deadlinks-redirected", Depth: 1})
-		}
 	}
 
 	// Features

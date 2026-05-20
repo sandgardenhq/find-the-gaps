@@ -96,14 +96,12 @@ func TestRun_BucketsAndSortsCorrectly(t *testing.T) {
 		"https://broken1.example/": {"p1"},
 		"https://broken2.example/": {"p1", "p2"},
 		"https://auth.example/":    {"p1", "p2", "p3"},
-		"https://redir.example/":   {"p1"},
 		"https://ok.example/":      {"p1"},
 	}
 	fc := newFakeChecker()
 	fc.seed("https://broken1.example/", Result{Bucket: BucketBroken, ErrorType: "http_404", Detail: "404"})
 	fc.seed("https://broken2.example/", Result{Bucket: BucketBroken, ErrorType: "http_5xx", Detail: "500"})
 	fc.seed("https://auth.example/", Result{Bucket: BucketAuth, Detail: "401"})
-	fc.seed("https://redir.example/", Result{Bucket: BucketRedirected, FinalURL: "https://elsewhere/x", StatusChain: []int{301, 200}})
 	fc.seed("https://ok.example/", Result{Bucket: BucketOK})
 
 	rep, err := Run(context.Background(), Options{Links: links, Checker: fc, Workers: 4, PerHostWorkers: 4})
@@ -115,9 +113,6 @@ func TestRun_BucketsAndSortsCorrectly(t *testing.T) {
 	}
 	if len(rep.Auth) != 1 {
 		t.Fatalf("auth=%d, want 1", len(rep.Auth))
-	}
-	if len(rep.Redirected) != 1 {
-		t.Fatalf("redirected=%d, want 1", len(rep.Redirected))
 	}
 	if rep.Broken[0].URL != "https://broken2.example/" {
 		t.Fatalf("broken[0]=%s, want broken2", rep.Broken[0].URL)

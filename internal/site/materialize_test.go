@@ -12,8 +12,8 @@ import (
 
 // TestBuildHomeData_DeadLinkCountsFromReport pins that buildHomeData reads
 // link-check findings off Inputs.DeadLinks and translates the per-bucket
-// lengths into the LinkBrokenCount / LinkAuthCount / LinkRedirectedCount
-// at-a-glance counts, and that LinksRan is propagated.
+// lengths into the LinkBrokenCount / LinkAuthCount at-a-glance counts, and
+// that LinksRan is propagated.
 func TestBuildHomeData_DeadLinkCountsFromReport(t *testing.T) {
 	in := Inputs{
 		Summary:  analyzer.ProductSummary{Description: "demo"},
@@ -25,11 +25,6 @@ func TestBuildHomeData_DeadLinkCountsFromReport(t *testing.T) {
 			},
 			Auth: []linkcheck.Finding{
 				{URL: "https://private.example/x"},
-			},
-			Redirected: []linkcheck.Finding{
-				{URL: "https://old.example/1"},
-				{URL: "https://old.example/2"},
-				{URL: "https://old.example/3"},
 			},
 		},
 	}
@@ -45,9 +40,6 @@ func TestBuildHomeData_DeadLinkCountsFromReport(t *testing.T) {
 	if got.LinkAuthCount != 1 {
 		t.Errorf("LinkAuthCount: want 1, got %d", got.LinkAuthCount)
 	}
-	if got.LinkRedirectedCount != 3 {
-		t.Errorf("LinkRedirectedCount: want 3, got %d", got.LinkRedirectedCount)
-	}
 }
 
 func TestBuildHomeData_LinksNotRan(t *testing.T) {
@@ -60,7 +52,7 @@ func TestBuildHomeData_LinksNotRan(t *testing.T) {
 	if got.LinksRan {
 		t.Errorf("LinksRan: want false, got true")
 	}
-	if got.LinkBrokenCount+got.LinkAuthCount+got.LinkRedirectedCount != 0 {
+	if got.LinkBrokenCount+got.LinkAuthCount != 0 {
 		t.Errorf("link counts must be zero when LinksRan=false; got %+v", got)
 	}
 }

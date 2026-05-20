@@ -8,11 +8,11 @@ import (
 	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
 )
 
-// renderDeadLinksWithAnchors emits the Dead Links section: three flat
-// sub-sections (Broken / Auth Required / Redirected). The caller gates
-// rendering on totalDeadLinks > 0; this function assumes the section
-// should render. Sub-section anchors are marked so the TOC sub-entries
-// resolve. No priority bucketing — dead-link findings render flat.
+// renderDeadLinksWithAnchors emits the Dead Links section: two flat
+// sub-sections (Broken / Auth Required). The caller gates rendering on
+// totalDeadLinks > 0; this function assumes the section should render.
+// Sub-section anchors are marked so the TOC sub-entries resolve. No
+// priority bucketing — dead-link findings render flat.
 func renderDeadLinksWithAnchors(doc *fpdf.Fpdf, rep linkcheck.Report, anchors *anchorTable) {
 	sectionHeading(doc, "Dead Links")
 
@@ -20,29 +20,22 @@ func renderDeadLinksWithAnchors(doc *fpdf.Fpdf, rep linkcheck.Report, anchors *a
 		anchors.Mark("deadlinks-broken")
 		subSectionHeading(doc, "Broken")
 		for _, f := range rep.Broken {
-			renderDeadLinkBlock(doc, f, "")
+			renderDeadLinkBlock(doc, f)
 		}
 	}
 	if len(rep.Auth) > 0 {
 		anchors.Mark("deadlinks-auth")
 		subSectionHeading(doc, "Auth Required")
 		for _, f := range rep.Auth {
-			renderDeadLinkBlock(doc, f, "")
-		}
-	}
-	if len(rep.Redirected) > 0 {
-		anchors.Mark("deadlinks-redirected")
-		subSectionHeading(doc, "Redirected")
-		for _, f := range rep.Redirected {
-			renderDeadLinkBlock(doc, f, f.FinalURL)
+			renderDeadLinkBlock(doc, f)
 		}
 	}
 }
 
 // renderDeadLinkBlock emits one Finding as a plain text block: bold URL
-// header, optional reason and redirects-to lines, and a wrapped list of
-// referencing pages. Mirrors the markdown layout in links.md.
-func renderDeadLinkBlock(doc *fpdf.Fpdf, f linkcheck.Finding, redirectsTo string) {
+// header, optional reason line, and a wrapped list of referencing pages.
+// Mirrors the markdown layout in links.md.
+func renderDeadLinkBlock(doc *fpdf.Fpdf, f linkcheck.Finding) {
 	innerW := pageWidth(doc)
 
 	doc.Ln(0.08)
@@ -55,9 +48,6 @@ func renderDeadLinkBlock(doc *fpdf.Fpdf, f linkcheck.Finding, redirectsTo string
 	if f.Detail != "" {
 		doc.MultiCell(innerW, 0.20, "Reason: "+sanitize(f.Detail), "", "L", false)
 	}
-	if redirectsTo != "" {
-		doc.MultiCell(innerW, 0.20, "Redirects to: "+sanitize(redirectsTo), "", "L", false)
-	}
 	if len(f.Pages) > 0 {
 		doc.MultiCell(innerW, 0.20, fmt.Sprintf("Referenced on %d page(s):", len(f.Pages)), "", "L", false)
 		for _, p := range f.Pages {
@@ -68,8 +58,8 @@ func renderDeadLinkBlock(doc *fpdf.Fpdf, f linkcheck.Finding, redirectsTo string
 	doc.Ln(0.04)
 }
 
-// totalDeadLinks returns the combined count of findings across all three
+// totalDeadLinks returns the combined count of findings across both
 // buckets. Zero means the Dead Links section is omitted entirely.
 func totalDeadLinks(rep linkcheck.Report) int {
-	return len(rep.Broken) + len(rep.Auth) + len(rep.Redirected)
+	return len(rep.Broken) + len(rep.Auth)
 }
