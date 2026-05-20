@@ -105,14 +105,17 @@ ftg analyze --repo ./cobra --docs https://cobra.dev
 
 When `--docs` is omitted (or is a local path), `ftg` reads markdown directly from disk. When `--docs` is an `http(s)` URL, `ftg` ingests the live site with `mdfetch`. Either way, it scans the repo for features and symbols, then uses the LLM tiers to map docs↔code and flag drift. The first run takes a few minutes; later runs reuse the cache under `.find-the-gaps/<project>/` (pass `--no-cache` to force a full re-scan).
 
+When an interactive terminal is detected, `ftg analyze` boots a local preview server and opens the rendered report in your default browser as soon as the run finishes. Pass `--no-serve` to skip that, or run in CI / under `FIND_THE_GAPS_QUIET=1` (both also skip).
+
 Reports land at `.find-the-gaps/<project>/`:
 
 - `gaps.md` — undocumented code, unmapped features, stale docs
 - `mapping.md` — full feature → file/symbol inventory
 - `links.md` — broken, auth-walled, and redirected links on the docs site
+- `report.pdf` — single-file PDF export of features, gaps, screenshots, and dead links
 - `site/` — browsable Hextra-themed report
 
-Open the rendered report locally:
+Re-open the rendered report any time:
 
 ```sh
 ftg serve --repo ./cobra --open
@@ -129,8 +132,9 @@ Usage:
 Available Commands:
   analyze     Analyze a codebase against its documentation site for gaps.
   completion  Generate the autocompletion script for the specified shell
-  doctor      Check that the required external tools (mdfetch, hugo) are installed.
+  doctor      Check that the required external tools (mdfetch, hugo) are installed and report resolved LLM tier capabilities.
   help        Help about any command
+  render      Re-render the report site from cached findings (no LLM, no network).
   serve       Serve the find-the-gaps report site over HTTP.
 
 Flags:
@@ -160,6 +164,8 @@ Flags:
       --llm-typical string               typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
       --no-cache                         force full re-scan, ignoring any cached results
       --no-link-check                    skip the dead-link check; links.md / links.json are not emitted
+      --no-pdf                           skip the report.pdf artifact; markdown reports and site still emitted
+      --no-serve                         skip starting the local preview server after analyze completes (default: false; --no-site, CI=*, FIND_THE_GAPS_QUIET=1, and a non-interactive stdin also skip)
       --no-site                          skip the Hugo site build; markdown reports still emitted
       --no-symbols                       map features to files only, skipping symbol-level analysis
       --repo string                      path to the repository to analyze (default ".")
@@ -321,20 +327,48 @@ Global Flags:
 
 Pass `--open` to launch the report in your default browser. Pass `--addr 127.0.0.1:0` to grab a random free port (a bare `:0` would bind to every interface); `serve` always prints the URL it bound to. `serve` exits with a clear message and non-zero status when no rendered site exists yet — run `ftg analyze` first.
 
+### render
+
+Re-render the report site (and `report.pdf`) from cached findings already on disk. No LLM calls, no network. Useful after editing the reporter templates or site CSS — pick up the new look without re-running analysis.
+
+```
+Re-emit mapping.md / gaps.md / screenshots.md and rebuild the Hugo site from artifacts already on disk. Use after changing the reporter templates or site CSS to pick up the new look without re-running analysis.
+
+Usage:
+  ftg render [flags]
+
+Flags:
+      --cache-dir string   base directory containing analyze output (default ".find-the-gaps")
+  -h, --help               help for render
+      --keep-site-source   preserve generated Hugo source at <projectDir>/site-src/ (pass --keep-site-source=false to discard) (default true)
+      --no-pdf             skip the report.pdf artifact; markdown reports and site still emitted
+      --project string     name of an analyzed project under <cache-dir>/; bypasses the picker
+      --repo string        path to the repository whose project should be rendered (default ".")
+      --site-mode string   site content shape: "mirror" or "expanded" (default "mirror")
+
+Global Flags:
+  -v, --verbose   show debug logs
+```
+
 ### doctor
 
 ```
-Check that the required external tools (mdfetch, hugo) are installed.
+Check that the required external tools (mdfetch, hugo) are installed and report resolved LLM tier capabilities.
 
 Usage:
   ftg doctor [flags]
 
 Flags:
-  -h, --help   help for doctor
+  -h, --help                 help for doctor
+      --llm-large string     large-tier model as "provider/model" (default: anthropic/claude-opus-4-7)
+      --llm-small string     small-tier model as "provider/model" (default: anthropic/claude-haiku-4-5)
+      --llm-typical string   typical-tier model as "provider/model" (default: anthropic/claude-sonnet-4-6)
 
 Global Flags:
   -v, --verbose   show debug logs
 ```
+
+Pass the `--llm-*` flags (or set their env-var equivalents) to see what model each tier resolves to and whether that model supports `tool_use` and `vision`.
 
 ## Output
 
@@ -352,6 +386,7 @@ Global Flags:
   - *Redirected* — 3xx that resolves to a different final URL. Useful signal that docs point at a moved page.
 
   Within each bucket, findings are sorted by the number of pages that reference the URL (high-traffic dead links surface first). Results are cached at `links-cache.json` indefinitely — use `--no-cache` to force a fresh probe of every URL, or `--no-link-check` to skip the entire pass.
+- **`report.pdf`** — single-file PDF export of the same content as the Hextra site (features, gaps, screenshots, dead links). Emitted by default; pass `--no-pdf` to skip.
 
 ## Ignored files
 
