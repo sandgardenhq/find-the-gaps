@@ -485,10 +485,6 @@ func newAnalyzeCmd() *cobra.Command {
 
 			driftSkipped := false
 			var driftFindings []analyzer.DriftFinding
-			// Hoisted so the doc-holiday prompt phase below can read the
-			// "why document this" blurbs even when drift was cached-complete
-			// (the !driftSkipped block populates this same map).
-			whyRationales := map[string]string{}
 
 			if !noCache && codeMapCached && docsMapCached {
 				if file, ok := loadDriftCacheFile(driftCachePath); ok && file.Complete != nil && file.Complete.Hash == wantHash {
@@ -501,27 +497,36 @@ func newAnalyzeCmd() *cobra.Command {
 				}
 			}
 
-			if !driftSkipped {
-				// Per-feature rationales for the Undocumented Features section
-				// of gaps.md. We cache rationales by hash(name+description+layer)
-				// so unchanged features skip the LLM call on rerun. Only newly
-				// undocumented or content-changed features hit the small tier.
-				// A failure degrades gracefully — the reporter falls back to
-				// a generic blurb when a key is missing.
-				whyCachePath := filepath.Join(projectDir, "why-document.json")
-				whyCache := loadWhyDocumentCache(whyCachePath)
-				undocFeatures := reporter.UndocumentedFeatures(featureMap, docCoveredFeatures)
-				var toFetch []analyzer.CodeFeature
-				freshCache := make(map[string]whyDocumentCacheEntry, len(undocFeatures))
-				for _, e := range undocFeatures {
-					hash := whyDocumentInputHash(e.Feature)
-					if cached, ok := whyCache[e.Feature.Name]; ok && cached.Hash == hash && cached.Rationale != "" {
-						whyRationales[e.Feature.Name] = cached.Rationale
-						freshCache[e.Feature.Name] = cached
-						continue
-					}
-					toFetch = append(toFetch, e.Feature)
+			// Per-feature rationales for the Undocumented Features section of
+			// gaps.md AND for the doc-holiday prompt phase below. We cache
+			// rationales by hash(name+description+layer) so unchanged features
+			// skip the LLM call on rerun. The cache LOAD + hit population is
+			// disk-only (no LLM) and runs UNCONDITIONALLY — independent of the
+			// drift sentinel — so a warm, drift-cached run repopulates
+			// whyRationales from the why-document.json a prior cold run wrote.
+			// That keeps the prompt phase's per-unit cache keys stable
+			// cold↔warm (empty rationales would silently change the keys and
+			// force a fresh LLM call per undocumented feature on every warm run).
+			// The LLM fetch for cache MISSES and the cache SAVE stay inside the
+			// !driftSkipped block. A failure degrades gracefully — the reporter
+			// falls back to a generic blurb when a key is missing.
+			whyRationales := map[string]string{}
+			whyCachePath := filepath.Join(projectDir, "why-document.json")
+			whyCache := loadWhyDocumentCache(whyCachePath)
+			undocFeatures := reporter.UndocumentedFeatures(featureMap, docCoveredFeatures)
+			var toFetch []analyzer.CodeFeature
+			freshCache := make(map[string]whyDocumentCacheEntry, len(undocFeatures))
+			for _, e := range undocFeatures {
+				hash := whyDocumentInputHash(e.Feature)
+				if cached, ok := whyCache[e.Feature.Name]; ok && cached.Hash == hash && cached.Rationale != "" {
+					whyRationales[e.Feature.Name] = cached.Rationale
+					freshCache[e.Feature.Name] = cached
+					continue
 				}
+				toFetch = append(toFetch, e.Feature)
+			}
+
+			if !driftSkipped {
 				if len(toFetch) > 0 {
 					fresh, whyErr := analyzer.WhyDocument(ctx, tiering, toFetch)
 					if whyErr != nil {
@@ -606,13 +611,13 @@ func newAnalyzeCmd() *cobra.Command {
 
 			// Doc Holiday prompt generation: author ready-to-paste prompts for
 			// the stale-docs and missing-docs gaps. Default-on; reuses the
-			// typical tier and a per-unit prompts-cache.json. UndocumentedFeatures
-			// is pure over featureMap + docCoveredFeatures, so it is safe to
-			// recompute here even when drift was cached-complete.
-			promptUndoc := reporter.UndocumentedFeatures(featureMap, docCoveredFeatures)
+			// typical tier and a per-unit prompts-cache.json. undocFeatures and
+			// whyRationales were resolved above (unconditionally, from the disk
+			// cache), so the prompt phase sees identical inputs — and identical
+			// per-unit cache keys — whether or not drift was cached-complete.
 			prompts, err := docholiday.GeneratePrompts(ctx, tiering.Typical(), docholiday.Input{
 				Drift:        driftFindings,
-				Undocumented: promptUndoc,
+				Undocumented: undocFeatures,
 				Rationales:   whyRationales,
 			}, docholiday.Options{
 				ProjectDir: projectDir,
