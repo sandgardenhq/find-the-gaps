@@ -65,6 +65,18 @@ var knownModels = []ModelCapabilities{
 	// max_completion_tokens is less than the context_window for this model").
 	// The model's 131k context window leaves room for a 120k input budget.
 	{Provider: "groq", Model: "meta-llama/llama-4-scout-17b-16e-instruct", ToolUse: true, Vision: true, MaxCompletionTokens: 8192, MaxInputTokens: 120000},
+	// Google Gemini's 2026 lineup. The flash-lite / 3.5-flash / pro-preview
+	// ladder mirrors the haiku/sonnet/opus split: cheap-fast small, tool-use
+	// typical (the typical tier runs the drift investigator), flagship large.
+	// All current Gemini models carry a 1M+ input window, so MaxInputTokens
+	// sits at 900000 (~10% under the published cap, matching Sonnet/GPT-5.5).
+	// No MaxCompletionTokens override: Gemini's 65,536 output max clears our
+	// 32k default send (unlike Groq's 8,192 cap). gemini-3.1-pro-preview is
+	// the current flagship Pro ID (gemini-3-pro-preview now aliases to it);
+	// the stable Pro tier is still preview-only as of June 2026.
+	{Provider: "gemini", Model: "gemini-3.1-flash-lite", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-3.5-flash", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-3.1-pro-preview", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 	// Self-hosted providers leave MaxInputTokens at 0 — the user picks the
 	// model and the harness has no reliable way to know its limit.
 	{Provider: "ollama", Model: "*"},

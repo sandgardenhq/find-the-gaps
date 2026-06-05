@@ -18,6 +18,15 @@ const (
 	defaultSmallTierOpenAI   = "openai/gpt-5.4-nano"
 	defaultTypicalTierOpenAI = "openai/gpt-5.4-mini"
 	defaultLargeTierOpenAI   = "openai/gpt-5.5"
+
+	// Gemini's flash-lite / 3.5-flash / pro-preview ladder. typical must be
+	// tool-use-capable (drift investigator) — 3.5 Flash is and has the
+	// strongest agentic performance in the lineup. large is pinned to the
+	// preview Pro ID because the stable Pro tier is still preview-only as of
+	// June 2026; that's the user-approved trade for the newest flagship.
+	defaultSmallTierGemini   = "gemini/gemini-3.1-flash-lite"
+	defaultTypicalTierGemini = "gemini/gemini-3.5-flash"
+	defaultLargeTierGemini   = "gemini/gemini-3.1-pro-preview"
 )
 
 // knownProviders returns the deduplicated provider list for "valid: ..."
@@ -37,14 +46,22 @@ func knownProviders() []string {
 }
 
 // tierFallbacks picks the default (small, typical, large) tier strings based
-// on which provider keys are present in the environment. If only
-// OPENAI_API_KEY is set (and ANTHROPIC_API_KEY is empty), defaults flip to
-// OpenAI models so OpenAI-only users don't need to spell out three --llm-*
-// flags. In every other case (both keys, only Anthropic, or neither), the
-// Anthropic defaults stand.
+// on which provider keys are present in the environment. The precedence is a
+// first-key-present cascade: Anthropic → OpenAI → Gemini. Anthropic wins
+// whenever ANTHROPIC_API_KEY is set; OpenAI defaults engage only when it is the
+// sole hosted key among {Anthropic, OpenAI}; Gemini defaults engage only when
+// GEMINI_API_KEY is the sole key set. With no key set at all, the Anthropic
+// defaults stand (and surface the missing-key setup hint downstream). This
+// preserves the prior Anthropic/OpenAI behavior byte-for-byte.
 func tierFallbacks() (small, typical, large string) {
-	if os.Getenv("OPENAI_API_KEY") != "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return defaultSmallTier, defaultTypicalTier, defaultLargeTier
+	}
+	if os.Getenv("OPENAI_API_KEY") != "" {
 		return defaultSmallTierOpenAI, defaultTypicalTierOpenAI, defaultLargeTierOpenAI
+	}
+	if os.Getenv("GEMINI_API_KEY") != "" {
+		return defaultSmallTierGemini, defaultTypicalTierGemini, defaultLargeTierGemini
 	}
 	return defaultSmallTier, defaultTypicalTier, defaultLargeTier
 }

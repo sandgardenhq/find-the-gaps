@@ -131,6 +131,22 @@ func TestNewBifrostClientWithProvider_Ollama_ReturnsClient(t *testing.T) {
 	}
 }
 
+func TestNewBifrostClientWithProvider_Gemini_ReturnsClient(t *testing.T) {
+	// Gemini is a hosted provider that needs no baseURL (like anthropic/openai)
+	// and maps to schemas.Gemini. Bifrost's Gemini provider reads the key as the
+	// x-goog-api-key header, so the existing bifrostAccount key path is unchanged.
+	client, err := NewBifrostClientWithProvider("gemini", "fake-key", "gemini-3.5-flash", "", ModelCapabilities{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.provider != schemas.Gemini {
+		t.Fatalf("expected provider schemas.Gemini, got %q", client.provider)
+	}
+}
+
 func TestNewBifrostClientWithProvider_OpenAI_WithBaseURL_ReturnsClient(t *testing.T) {
 	// "lmstudio" collapses to schemas.OpenAI at the CLI layer, so the analyzer
 	// must accept a non-empty base URL paired with provider "openai".
@@ -873,6 +889,31 @@ func TestBifrostClient_CompleteJSON_Ollama_UsesOpenAIJSONSchemaPath(t *testing.T
 	require.NotNil(t, req, "expected request to be captured")
 	require.NotNil(t, req.Params, "expected Params to be set")
 	require.NotNil(t, req.Params.ResponseFormat, "expected response_format to be set for ollama (OpenAI-compat path)")
+}
+
+func TestBifrostClient_CompleteJSON_Gemini_UsesOpenAIJSONSchemaPath(t *testing.T) {
+	// Bifrost's Gemini provider (providers/gemini/utils.go:1063) reads
+	// params.ResponseFormat, matches "json_schema", and converts the schema to
+	// Gemini's responseJsonSchema. That is exactly the map completeJSONOpenAIMessages
+	// builds, so CompleteJSON must route Gemini through the same structured-outputs
+	// path as OpenAI: set ResponseFormat, parse msg.Content.ContentStr, validate.
+	content := `{"summary":"ok","features":["a"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &content}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Gemini, "gemini-3.5-flash")
+	got, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+	assert.JSONEq(t, content, string(got))
+
+	req := fake.lastRequest
+	require.NotNil(t, req, "expected request to be captured")
+	require.NotNil(t, req.Params, "expected Params to be set")
+	require.NotNil(t, req.Params.ResponseFormat, "expected response_format to be set for gemini (OpenAI-compat structured-output path)")
 }
 
 func TestBifrostClient_CompleteJSON_OpenAI_BifrostError(t *testing.T) {
