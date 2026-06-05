@@ -509,6 +509,40 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 ---
 
+### Scenario 20: Doc Holiday Prompt Generation
+
+**Context**: Same fixture and docs site as Scenario 9 (a small, real open-source Go project pinned to a known commit, with a real public docs site). Verifies that `ftg analyze` turns the stale-documentation and undocumented-feature gaps it already found into ready-to-paste [Doc Holiday](https://doc.holiday) prompts in a default-on `prompts.md`; that each prompt names a real page/feature; that the per-unit cache at `<projectDir>/prompts-cache.json` is honored across re-runs, SIGINT-resumable, and skill-version-keyed; that cold and warm (drift-cached) re-runs are byte-identical; and that `ftg render` re-emits `prompts.md` from cache with no LLM calls. The prompt phase runs after drift detection and before reporting, under the same bounded worker pool as the other LLM-heavy phases.
+
+NOTE: The per-unit prompt cache lives at `<projectDir>/prompts-cache.json`. It is distinct from the user-visible `prompts.md` — they cannot share a filename without clobbering each other's shape. The two embedded agent-skill files at `internal/docholiday/skills/fix-stale-docs/SKILL.md` and `internal/docholiday/skills/document-new-feature/SKILL.md` are the single source of truth for the meta-prompts; a short hash of both bodies (`skillVersion`) is folded into every cache key, so editing a skill invalidates cached prompts.
+
+**Steps**:
+
+1. From a clean fixture state (`rm -rf <projectDir>`), run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs> -v` and capture stdout.
+2. Inspect `<projectDir>/prompts.md`, `<projectDir>/prompts-cache.json`, `<projectDir>/gaps.md`, and `<projectDir>/mapping.md`.
+3. Re-run the same command. Confirm the screenshot/drift caches log hits and that zero fresh prompt LLM calls fire in the prompt phase (`-v` audit log shows the prompt phase resolving entirely from cache).
+4. Re-run with `--no-cache`. Confirm every prompt is regenerated (`prompts-cache.json` mtime advances; fresh prompt LLM calls appear).
+5. Start a fresh run on a clean fixture; once the prompt phase begins emitting cache-miss log lines, send SIGINT (`Ctrl-C` / `kill -INT`). Confirm `<projectDir>/prompts-cache.json` exists with a non-empty subset of units. Re-run without `--no-cache` and confirm only the missing units regenerate.
+6. From a clean fixture, run a cold analyze, then re-run on the warm caches (drift cached). Sort each `prompts.md` within priority buckets and byte-compare cold vs warm. Repeat with `--workers=8` vs `--workers=1` and byte-compare after sorting.
+7. Edit `internal/docholiday/skills/fix-stale-docs/SKILL.md` (e.g. add a sentence), rebuild `ftg`, and re-run on the existing warm cache. Confirm the stale-doc prompts regenerate (cache miss) while behavior is otherwise unchanged.
+8. Run `ftg render --project <name> --cache-dir <cacheDir>` against the project. Confirm `prompts.md` is re-emitted with a newer timestamp and that no prompt LLM calls fire.
+
+**Success Criteria**:
+
+- [ ] Step 1: `<projectDir>/prompts.md` exists; stdout `reports:` block contains a `prompts.md (N stale · M new)` line (no `(skipped)` annotation). The default run does NOT require any extra flag to produce it.
+- [ ] Step 2: `prompts.md` opens with `# Doc Holiday Prompts`, a preamble naming Doc Holiday (https://doc.holiday), and both category headers `## Fix Stale Documentation` and `## Document New Features`. Within each category, non-empty priority buckets appear under `### Large → ### Medium → ### Small` in that order; empty buckets are omitted; a category with no prompts renders `_None found._`.
+- [ ] Step 2: every prompt under *Fix Stale Documentation* names a real documentation page that appears in `gaps.md`'s Stale Documentation section; every `New page:` prompt names a real undocumented user-facing feature from `gaps.md`'s Undocumented Code section. No prompt references a page or feature absent from `gaps.md` / `mapping.md`.
+- [ ] Step 2: `prompts-cache.json` exists at `<projectDir>/prompts-cache.json`, parses as JSON with an `entries` array, and is distinct from `prompts.md`.
+- [ ] Step 3: the second run makes zero fresh prompt LLM calls (every unit is a cache hit); `prompts.md` is unchanged.
+- [ ] Step 4: `--no-cache` regenerates every prompt; `prompts-cache.json` mtime advances and fresh prompt LLM calls appear in the verbose log.
+- [ ] Step 5: SIGINT leaves a non-empty `prompts-cache.json` (partial-progress proof); the resume run regenerates strictly fewer units than the original cold run and reuses the rest.
+- [ ] Step 6: after sorting within priority buckets, cold and warm `prompts.md` are byte-identical, and `--workers=8` and `--workers=1` `prompts.md` are byte-identical. (The missing-feature rationale is restored from `why-document.json` on the warm path, so missing-feature cache keys stay stable across cold/warm.)
+- [ ] Step 7: editing a `SKILL.md` changes `skillVersion`, which changes the affected unit keys; the corresponding prompts regenerate on the next run while untouched units stay cached.
+- [ ] Step 8: `ftg render` re-emits `prompts.md` (timestamp newer than step 1) from `prompts-cache.json` with zero prompt LLM calls; the file stays under `<projectDir>/`, not under `<projectDir>/site/`.
+
+**If Blocked**: If `prompts.md` is missing on a default run, the analyze wiring is not invoking the prompt phase — confirm the phase runs after drift detection in `internal/cli/analyze.go` and is not gated behind an experimental flag. If a prompt names a page or feature absent from `gaps.md`, the unit-assembly inputs drifted from the drift/undocumented sources — capture the offending prompt and the matching `gaps.md` section and ask before retuning. If the warm re-run differs from the cold run after sorting, a cache key is unstable across cold/warm; the most likely culprit is a missing-feature rationale that is recomputed (not restored from `why-document.json`) on the warm path — capture the unified diff of the two `prompts.md` files and the two `prompts-cache.json` files and ask. If editing a `SKILL.md` does NOT invalidate the cache, `skillVersion` is not folded into the unit key — check `internal/docholiday/cachekey.go`. Do NOT mark this scenario complete on partial success.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.

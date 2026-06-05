@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **Doc Holiday prompts (`prompts.md`).** `ftg analyze` now turns the
+  stale-documentation and undocumented-feature gaps it already found into
+  ready-to-paste prompts for [Doc Holiday](https://doc.holiday), an AI
+  documentation agent. Each gap becomes one focused, LLM-authored prompt
+  under a *Fix Stale Documentation* or *Document New Features* section,
+  bucketed Large → Medium → Small. The two meta-prompts that author the
+  prompts are embedded agent-skill files
+  (`internal/docholiday/skills/*/SKILL.md`) and double as the single source
+  of truth — editing one invalidates the prompt cache. Each prompt is
+  cached per-unit at `<projectDir>/prompts-cache.json` (SIGINT-resumable,
+  atomic temp+rename, distinct from the user-visible `prompts.md`);
+  `--no-cache` regenerates and `ftg render` re-emits `prompts.md` from the
+  cache with zero LLM calls. Emitted by default.
 - **Dead-link check.** `ftg analyze` now probes every link discovered while
   crawling the docs site — same-host **and** outbound — and reports the ones
   that don't resolve cleanly. Findings are grouped into two buckets

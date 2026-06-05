@@ -1745,3 +1745,19 @@ A new `--forge` flag covers self-hosted forges on custom domains
   - Added `dedupeDriftIssues` by (page, issue) key to collapse cross-chunk duplicates.
   - Existing `TestJudgeFeatureDrift_ChunksWhenOverBudget` updated: prompts[0] is now the first valid chunk (no failed one-shot), plus a new under-budget assertion against every prompt.
   - New `TestJudgeFeatureDrift_PreemptiveSizing_LargeObservationSet` with 200 observations against a 60K budget pins the contract: ≥2 calls, every call under budget on first send.
+
+## Feature: Doc Holiday Prompt Generation (prompts.md) — COMPLETE
+- Started: 2026-06-04
+- Completed: 2026-06-05
+- Plan: `.plans/DOC_HOLIDAY_PROMPT_GEN_PLAN.md`
+- Summary: New default-on `prompts.md` artifact. `ftg analyze` turns the already-computed stale-documentation (`[]analyzer.DriftFinding`) and undocumented-feature (`[]analyzer.FeatureEntry`) gaps into ready-to-paste prompts for Doc Holiday (https://doc.holiday). A self-contained `internal/docholiday` package assembles work-units (pure functions: page-grouped+chunked stale units, one-per-feature missing units), authors one prompt per unit via a single typical-tier LLM call whose instruction text is an embedded agent-skill markdown file, caches each result in `prompts-cache.json` (SIGINT-resumable, atomic temp+rename), and dispatches units through the existing bounded `parallel.Run` pool. `internal/reporter/prompts_writer.go` renders the results to `prompts.md` (two categories, Large→Medium→Small buckets, `_None found._` on empty). `ftg analyze` runs the phase after drift detection; `ftg render` re-emits `prompts.md` from the cache with zero LLM calls.
+- Tests: full suite green (`go test ./... -count=1` all packages ok); `internal/docholiday` race-clean.
+- Coverage: `internal/docholiday` 93.7%, `internal/reporter` 96.0% (both ≥90% gate).
+- Build: Successful (`go build ./...`).
+- Formatting: `gofmt -l internal/docholiday internal/reporter internal/cli cmd/ftg` lists no files.
+- Linting: `golangci-lint run` reports only pre-existing/plan-prescribed hints — two staticcheck QF1001 (De Morgan) in `internal/docholiday/types_test.go` and one SA4000 in `cachekey_test.go` (the plan's intentional `unitKey(u) != unitKey(u)` stability assertion), plus the pre-existing `internal/pdf`, `internal/site`, and `internal/analyzer/bifrost_client_test.go` hints already noted at baseline. No new production-code lint issues introduced by this feature.
+- Notes:
+  - Two embedded agent-skill files (`internal/docholiday/skills/*/SKILL.md`) are the single source of truth for the meta-prompts; a `skillVersion` hash of both bodies is folded into every cache key, so editing a skill invalidates cached prompts.
+  - Cold-vs-warm determinism: the missing-feature rationale is restored from `why-document.json` on the warm (drift-cached) path so missing-feature cache keys stay stable — a reviewer-flagged drift risk now locked in by the `prompts.txtar` idempotent-render byte-compare.
+  - Task 12: e2e testscript `cmd/ftg/testdata/script/prompts.txtar` drives `prompts.md` through the offline `ftg render` path against a seeded project cache (spider index, featuremap, docsfeaturemap, prompts-cache.json) — the analyze LLM pipeline can't run in the testscript harness without real keys. Renders twice and `cmp`s the two `prompts.md` for idempotency.
+  - Task 13: added Scenario 20 to `.plans/VERIFICATION_PLAN.md`; documented `prompts.md` in README (outputs list + detailed section) and CHANGELOG (Unreleased → Added).

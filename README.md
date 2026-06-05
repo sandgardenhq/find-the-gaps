@@ -112,6 +112,7 @@ Reports land at `.find-the-gaps/<project>/`:
 - `gaps.md` — undocumented code, unmapped features, stale docs
 - `mapping.md` — full feature → file/symbol inventory
 - `links.md` — broken and auth-walled links on the docs site
+- `prompts.md` — ready-to-paste [Doc Holiday](https://doc.holiday) prompts to fix the stale and missing docs above
 - `report.pdf` — single-file PDF export of features, gaps, screenshots, and dead links
 - `site/` — browsable Hextra-themed report
 
@@ -385,6 +386,7 @@ Pass the `--llm-*` flags (or set their env-var equivalents) to see what model ea
   - *Auth Required* — 401 / 403 responses, called out separately because they need manual verification rather than a code/docs change.
 
   Redirects that resolve to a healthy 2xx final URL are treated as OK and not reported — only redirect loops surface (under *Broken*). Within each bucket, findings are sorted by the number of pages that reference the URL (high-traffic dead links surface first). Results are cached at `links-cache.json` indefinitely — use `--no-cache` to force a fresh probe of every URL, or `--no-link-check` to skip the entire pass.
+- **`prompts.md`** — ready-to-paste prompts for [Doc Holiday](https://doc.holiday), an AI documentation agent. Each stale-doc and undocumented-feature gap above is turned into one focused, LLM-authored prompt you can drop straight into Doc Holiday to fix it. Two sections — *Fix Stale Documentation* and *Document New Features* — each bucketed Large → Medium → Small; empty buckets are omitted, and an empty section reads `_None found._`. Emitted by default; the per-prompt cache lives at `prompts-cache.json` (distinct from this user-visible file) and is re-emitted by `ftg render` with no LLM calls.
 - **`report.pdf`** — single-file PDF export of the same content as the Hextra site (features, gaps, screenshots, dead links). Emitted by default; pass `--no-pdf` to skip.
 
 ## Ignored files
