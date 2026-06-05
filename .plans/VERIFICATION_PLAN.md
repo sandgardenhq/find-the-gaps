@@ -509,6 +509,28 @@ NOTE: The screenshot-pass cache lives at `<projectDir>/screenshots-cache.json`. 
 
 ---
 
+### Scenario 20: Gemini Provider End-to-End
+
+**Context**: Verifies that Gemini is a working default-eligible provider. Same fixture and docs site as Scenario 9. Gemini is a hosted provider authed by `GEMINI_API_KEY` (no Vertex/service-account path); the default ladder is small `gemini-3.1-flash-lite` · typical `gemini-3.5-flash` · large `gemini-3.1-pro-preview`. Two halves: (a) explicit per-tier selection; (b) zero-flag default resolution when Gemini is the sole key.
+
+**Prerequisites**: A valid `GEMINI_API_KEY` exported. Network reachable to `generativelanguage.googleapis.com`.
+
+**Steps**:
+1. **Sub-case (a) — explicit tiers.** Run `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs> --llm-small=gemini/gemini-3.1-flash-lite --llm-typical=gemini/gemini-3.5-flash --llm-large=gemini/gemini-3.1-pro-preview --experimental-check-screenshots -v`.
+2. Inspect `<projectDir>/mapping.md`, `gaps.md`, `drift.json`, `screenshots.md`, and the per-page audit log.
+3. **Sub-case (b) — default resolution.** With only `GEMINI_API_KEY` set (unset `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` for this run), run `find-the-gaps doctor`, then `find-the-gaps analyze --repo ./testdata/fixtures/known-good --docs https://<docs>` with no `--llm-*` flags.
+4. **Sub-case (c) — precedence.** With `ANTHROPIC_API_KEY` AND `GEMINI_API_KEY` both set, run `find-the-gaps doctor`.
+
+**Success Criteria**:
+- [ ] **(a)** Analyze exits `0`; no Bifrost/Gemini errors in stderr; structured-output calls round-trip (mapping/drift/screenshot JSON artifacts parse). Findings are actionable and reference real symbols/pages.
+- [ ] **(a)** The screenshot pass auto-engages the vision branch (audit log shows `vision=on`), because all three Gemini defaults are vision-capable.
+- [ ] **(b)** `doctor` reports `small: gemini/gemini-3.1-flash-lite`, `typical: gemini/gemini-3.5-flash`, `large: gemini/gemini-3.1-pro-preview`, each with `(tool_use=true vision=true)`; the no-flag analyze run completes on the Gemini ladder.
+- [ ] **(c)** `doctor` reports the Anthropic defaults (Anthropic outranks Gemini in the precedence cascade).
+
+**If Blocked**: If sub-case (a) errors with "not implemented for provider" on a structured-output call, the `completeJSONMessages` dispatch did not add `schemas.Gemini` to the OpenAI branch. If the typical tier is rejected at startup with a tool-use error, the `gemini-3.5-flash` capability row lost `ToolUse: true`. If sub-case (c) shows Gemini defaults while Anthropic's key is set, `tierFallbacks`'s precedence order regressed.
+
+---
+
 ## Verification Rules
 
 - **Never use mocks or fakes.** All binaries, all network calls, all LLM calls are real.

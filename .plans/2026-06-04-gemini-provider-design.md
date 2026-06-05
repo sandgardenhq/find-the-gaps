@@ -39,16 +39,18 @@ Mirrors the haiku/sonnet/opus and nano/mini/5.5 ladders, all GA models:
 |---|---|
 | small | `gemini-3.1-flash-lite` |
 | typical | `gemini-3.5-flash` |
-| large | `gemini-3.1-pro` |
+| large | `gemini-3.1-pro-preview` |
 
 `gemini-3.5-flash` for the typical tier matters: the typical tier runs the drift
 investigator's tool-use loop, so it must be tool-use-capable — 3.5 Flash is and
 has the strongest agentic performance in the lineup.
 
-> Confirm the exact stable Pro model ID (`gemini-3.1-pro` vs
-> `gemini-3.1-pro-preview`) and its context window (1M vs 2M) against the
-> official models page during implementation. If 2M is confirmed, Pro's
-> `MaxInputTokens` may rise above the 900k baseline.
+> **Resolved at implementation time (2026-06-05).** There is no stable
+> `gemini-3.1-pro`; the flagship Pro tier is still preview-only, exposed as
+> `gemini-3.1-pro-preview` (the older `gemini-3-pro-preview` ID now aliases to
+> it). The user approved shipping the preview ID as the default large tier
+> (option 2 in the brainstorm) over falling back to the stable `gemini-2.5-pro`.
+> `MaxInputTokens` stays at the 900k baseline for all three rows.
 
 ### Auth
 
@@ -65,9 +67,9 @@ is the sole key set.
 ### Capabilities (`knownModels` rows)
 
 ```go
-{Provider: "gemini", Model: "gemini-3.1-flash-lite", ToolUse: true, Vision: true, MaxInputTokens: 900000},
-{Provider: "gemini", Model: "gemini-3.5-flash",      ToolUse: true, Vision: true, MaxInputTokens: 900000},
-{Provider: "gemini", Model: "gemini-3.1-pro",        ToolUse: true, Vision: true, MaxInputTokens: 900000},
+{Provider: "gemini", Model: "gemini-3.1-flash-lite",  ToolUse: true, Vision: true, MaxInputTokens: 900000},
+{Provider: "gemini", Model: "gemini-3.5-flash",       ToolUse: true, Vision: true, MaxInputTokens: 900000},
+{Provider: "gemini", Model: "gemini-3.1-pro-preview", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 ```
 
 - `MaxInputTokens: 900000` mirrors the ~10%-under-published-cap convention for

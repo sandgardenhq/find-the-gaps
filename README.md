@@ -189,15 +189,20 @@ calls land on cheaper models while the hardest calls use a frontier model:
 
 Each tier accepts a combined `provider/model` string. Bare model names default
 to the `anthropic` provider. The `typical` tier must name a provider that
-supports tool use (currently `anthropic`, `openai`, or `groq`) because it runs the drift
-investigator's tool-use loop — the CLI refuses to start otherwise. The `large`
-tier may use any supported provider; it only makes single non-tool calls.
+supports tool use (currently `anthropic`, `openai`, `gemini`, or `groq`) because
+it runs the drift investigator's tool-use loop — the CLI refuses to start
+otherwise. The `large` tier may use any supported provider; it only makes single
+non-tool calls.
 
-If `OPENAI_API_KEY` is set and `ANTHROPIC_API_KEY` is not, the tier defaults
-flip to OpenAI (`openai/gpt-5.4-nano`, `openai/gpt-5.4-mini`, `openai/gpt-5.5`)
-so OpenAI-only users can run `ftg analyze` without spelling out three
-`--llm-*` flags. Any explicit tier flag still wins. With both keys set,
-Anthropic defaults stand.
+The tier defaults adapt to whichever provider key is set, in precedence order
+**Anthropic → OpenAI → Gemini** (the first key present wins):
+
+- only `OPENAI_API_KEY` → `openai/gpt-5.4-nano`, `openai/gpt-5.4-mini`, `openai/gpt-5.5`
+- only `GEMINI_API_KEY` → `gemini/gemini-3.1-flash-lite`, `gemini/gemini-3.5-flash`, `gemini/gemini-3.1-pro-preview`
+
+So a user with just one of those keys can run `ftg analyze` without spelling out
+three `--llm-*` flags. Any explicit tier flag still wins, and whenever
+`ANTHROPIC_API_KEY` is set the Anthropic defaults stand.
 
 Configure tiers via flag or environment variable:
 
@@ -206,6 +211,7 @@ Configure tiers via flag or environment variable:
 - `FIND_THE_GAPS_LLM_LARGE`
 - `ANTHROPIC_API_KEY` — required when any tier points at an Anthropic model
 - `OPENAI_API_KEY` — required when any tier points at an OpenAI model
+- `GEMINI_API_KEY` — required when any tier points at a Gemini model ([get a key](https://aistudio.google.com/apikey))
 - `GROQ_API_KEY` — required when any tier points at a Groq model
 - `GROQ_BASE_URL` — overrides the default Groq endpoint (`https://api.groq.com/openai`); optional
 - `OLLAMA_BASE_URL` — overrides the default Ollama endpoint (`http://localhost:11434`)
@@ -278,6 +284,7 @@ Vision-capable small-tier models today:
 |---|---|
 | `anthropic` | `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7` |
 | `openai` | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5`, `gpt-5-mini`, `gpt-4o`, `gpt-4o-mini` |
+| `gemini` | `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro-preview` |
 | `groq` | `meta-llama/llama-4-scout-17b-16e-instruct` |
 
 Run `ftg doctor` to see what your current configuration resolves to — it
