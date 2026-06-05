@@ -52,6 +52,35 @@ func TestStaleHeadingShowsPartWhenSplit(t *testing.T) {
 	}
 }
 
+func TestStaleNoteSingularAndPlural(t *testing.T) {
+	one := unit{category: CategoryStale, staleItems: make([]staleItem, 1)}
+	if got := unitNote(one); !strings.Contains(got, "1 stale-doc issue") || strings.Contains(got, "issues") {
+		t.Fatalf("single stale item should read singular: %q", got)
+	}
+	two := unit{category: CategoryStale, staleItems: make([]staleItem, 2)}
+	if got := unitNote(two); !strings.Contains(got, "2 stale-doc issues") {
+		t.Fatalf("two stale items should read plural: %q", got)
+	}
+}
+
+func TestRenderStaleFindingsCrossCutting(t *testing.T) {
+	u := unit{
+		category:   CategoryStale,
+		page:       crossPageKey,
+		staleItems: []staleItem{{feature: "Auth", issue: "drifted"}},
+	}
+	if got := renderUnitFindings(u); !strings.Contains(got, "cross-cutting") {
+		t.Fatalf("empty-page stale unit should render cross-cutting line: %q", got)
+	}
+}
+
+func TestStaleHeadingCrossCutting(t *testing.T) {
+	u := unit{category: CategoryStale, page: crossPageKey, staleItems: make([]staleItem, 1), part: 1, parts: 1}
+	if got := unitHeading(u); got != "Cross-cutting documentation" {
+		t.Fatalf("empty-page heading should read cross-cutting: %q", got)
+	}
+}
+
 func TestMissingHeadingAndNote(t *testing.T) {
 	u := unit{category: CategoryMissing, feature: analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "Frobnicate"}}}
 	if got := unitHeading(u); got != "New page: Frobnicate" {

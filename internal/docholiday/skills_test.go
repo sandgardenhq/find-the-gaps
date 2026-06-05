@@ -33,3 +33,10 @@ func TestSkillBodyWithoutFrontmatterIsUnchanged(t *testing.T) {
 		t.Fatalf("skillBody altered a frontmatter-free string: %q", got)
 	}
 }
+
+func TestSkillBodyMalformedFrontmatterIsUnchanged(t *testing.T) {
+	in := "---\nname: x\nno closing fence\n"
+	if got := skillBody(in); got != in {
+		t.Fatalf("skillBody altered a string with no closing fence: %q", got)
+	}
+}

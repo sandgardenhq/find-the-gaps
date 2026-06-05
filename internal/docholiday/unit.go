@@ -36,12 +36,12 @@ type unit struct {
 	rationale string
 }
 
-// staleUnits flattens drift findings into per-page chunks of at most cap
+// staleUnits flattens drift findings into per-page chunks of at most limit
 // issues. Output is sorted by page for determinism; each chunk's priority is
 // the most severe priority among its issues.
-func staleUnits(drift []analyzer.DriftFinding, cap int) []unit {
-	if cap <= 0 {
-		cap = maxIssuesPerPrompt
+func staleUnits(drift []analyzer.DriftFinding, limit int) []unit {
+	if limit <= 0 {
+		limit = maxIssuesPerPrompt
 	}
 	byPage := map[string][]staleItem{}
 	prioByPage := map[string][]analyzer.Priority{}
@@ -60,13 +60,13 @@ func staleUnits(drift []analyzer.DriftFinding, cap int) []unit {
 	var out []unit
 	for _, page := range pageOrder {
 		items := byPage[page]
-		chunks := chunkStaleItems(items, cap)
+		chunks := chunkStaleItems(items, limit)
 		for i, chunk := range chunks {
 			// priority of the chunk = max over the chunk's own issues
 			var ps []analyzer.Priority
 			for j := range chunk {
 				// map chunk item back to its priority via position in items
-				ps = append(ps, prioByPage[page][i*cap+j])
+				ps = append(ps, prioByPage[page][i*limit+j])
 			}
 			out = append(out, unit{
 				category:   CategoryStale,
@@ -81,10 +81,10 @@ func staleUnits(drift []analyzer.DriftFinding, cap int) []unit {
 	return out
 }
 
-func chunkStaleItems(items []staleItem, cap int) [][]staleItem {
+func chunkStaleItems(items []staleItem, limit int) [][]staleItem {
 	var chunks [][]staleItem
-	for i := 0; i < len(items); i += cap {
-		end := i + cap
+	for i := 0; i < len(items); i += limit {
+		end := i + limit
 		if end > len(items) {
 			end = len(items)
 		}

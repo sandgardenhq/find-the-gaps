@@ -13,6 +13,12 @@ func TestPriorityRankOrders(t *testing.T) {
 	}
 }
 
+func TestPriorityRankUnknownIsLeastSevere(t *testing.T) {
+	if !(priorityRank(analyzer.Priority("bogus")) > priorityRank(analyzer.PrioritySmall)) {
+		t.Fatal("an unknown priority must rank below (greater than) small")
+	}
+}
+
 func TestMaxPriorityPicksMostSevere(t *testing.T) {
 	got := maxPriority([]analyzer.Priority{analyzer.PrioritySmall, analyzer.PriorityLarge, analyzer.PriorityMedium})
 	if got != analyzer.PriorityLarge {

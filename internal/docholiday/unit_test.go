@@ -65,6 +65,18 @@ func TestStaleUnitsChunkWhenOverCap(t *testing.T) {
 	}
 }
 
+func TestStaleUnitsZeroCapFallsBackToDefault(t *testing.T) {
+	var issues []analyzer.DriftIssue
+	for i := 0; i < 6; i++ {
+		issues = append(issues, driftIssue("docs/big.md", "issue", analyzer.PrioritySmall))
+	}
+	drift := []analyzer.DriftFinding{{Feature: "F", Issues: issues}}
+	units := staleUnits(drift, 0)
+	if len(units) != 2 { // default cap 5 -> 5 + 1
+		t.Fatalf("6 issues at cap 0 should default to cap %d producing 2 chunks, got %d", maxIssuesPerPrompt, len(units))
+	}
+}
+
 func TestStaleUnitsAreDeterministic(t *testing.T) {
 	drift := []analyzer.DriftFinding{
 		{Feature: "B", Issues: []analyzer.DriftIssue{driftIssue("docs/z.md", "1", analyzer.PrioritySmall)}},

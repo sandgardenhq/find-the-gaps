@@ -40,6 +40,8 @@ func unitKeyWithSkill(u unit, skill string) string {
 		f := u.feature
 		b.WriteString(f.Feature.Name)
 		b.WriteByte('|')
+		b.WriteString(f.Feature.Description)
+		b.WriteByte('|')
 		files := append([]string(nil), f.Files...)
 		sort.Strings(files)
 		b.WriteString(strings.Join(files, ","))

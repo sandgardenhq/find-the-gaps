@@ -37,3 +37,11 @@ func TestUnitKeyMissingFeatureUsesFilesAndSymbols(t *testing.T) {
 		t.Fatal("changing implementing files must change a missing-feature key")
 	}
 }
+
+func TestUnitKeyMissingFeatureUsesDescription(t *testing.T) {
+	a := unit{category: CategoryMissing, feature: analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "X", Description: "does one thing"}}}
+	b := unit{category: CategoryMissing, feature: analyzer.FeatureEntry{Feature: analyzer.CodeFeature{Name: "X", Description: "does another thing"}}}
+	if unitKey(a) == unitKey(b) {
+		t.Fatal("changing the feature description must change a missing-feature key")
+	}
+}
