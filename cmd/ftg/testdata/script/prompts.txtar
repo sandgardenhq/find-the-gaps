@@ -1,0 +1,90 @@
+# `ftg render` re-emits prompts.md from a seeded prompts-cache.json with no
+# LLM calls and no network. The full analyze LLM pipeline can't run in this
+# harness (no real keys), so we drive the prompts artifact through the render
+# path against a pre-seeded project cache — the same path `ftg render` uses to
+# rebuild reports from artifacts already on disk. hugo is reachable via
+# testscript's registered-command PATH, so render's hugo precheck passes.
+#
+# This also locks in cold-vs-warm determinism: rendering twice against the same
+# cache must produce a byte-identical prompts.md (idempotent re-emit). A
+# reviewer flagged cold/warm drift as a risk; the second render guards it.
+
+mkdir repo
+
+# Seed the minimum render.go needs: spider index (ProductInfo), featuremap,
+# docsfeaturemap, and the prompts cache the prompts phase would have written.
+exec ftg render --project repo --cache-dir $WORK/cache
+stdout 'rendered'
+
+# prompts.md is produced.
+exists $WORK/cache/repo/prompts.md
+
+# Header + Doc Holiday preamble.
+grep '# Doc Holiday Prompts' $WORK/cache/repo/prompts.md
+grep 'doc.holiday' $WORK/cache/repo/prompts.md
+
+# Both category headers.
+grep '## Fix Stale Documentation' $WORK/cache/repo/prompts.md
+grep '## Document New Features' $WORK/cache/repo/prompts.md
+
+# Seeded prompt bodies survive the round-trip.
+grep 'Update docs/api.md' $WORK/cache/repo/prompts.md
+grep 'Write a new page for Frobnicate' $WORK/cache/repo/prompts.md
+
+# Capture the first render for an idempotency byte-compare.
+cp $WORK/cache/repo/prompts.md $WORK/first-prompts.md
+
+# Render again from the same cache: no LLM, no network. Output must be
+# byte-identical to the first render.
+exec ftg render --project repo --cache-dir $WORK/cache
+stdout 'rendered'
+cmp $WORK/cache/repo/prompts.md $WORK/first-prompts.md
+
+-- cache/repo/docs/index.json --
+{
+  "pages": {},
+  "product_summary": "A CLI tool that finds documentation gaps.",
+  "all_features": ["gap analysis", "doctor"]
+}
+
+-- cache/repo/featuremap.json --
+{
+  "features": [
+    {"name": "Auth", "description": "auth flow", "layer": "core", "user_facing": true},
+    {"name": "Frobnicate", "description": "frobs things", "layer": "core", "user_facing": true}
+  ],
+  "entries": [
+    {"feature": {"name": "Auth", "description": "auth flow", "layer": "core", "user_facing": true}, "files": ["auth.go"], "symbols": ["Connect"]},
+    {"feature": {"name": "Frobnicate", "description": "frobs things", "layer": "core", "user_facing": true}, "files": ["frob.go"], "symbols": ["Frobnicate"]}
+  ]
+}
+
+-- cache/repo/docsfeaturemap.json --
+{
+  "features": ["Auth"],
+  "entries": [
+    {"feature": "Auth", "pages": ["docs/api.md"]}
+  ]
+}
+
+-- cache/repo/prompts-cache.json --
+{
+  "entries": [
+    {
+      "key": "k-stale",
+      "category": "stale",
+      "heading": "docs/api.md",
+      "note": "Addresses 1 stale-doc issue on this page.",
+      "priority": "large",
+      "body": "Update docs/api.md so the Connect() signature matches the code."
+    },
+    {
+      "key": "k-missing",
+      "category": "missing",
+      "heading": "New page: Frobnicate",
+      "note": "No docs page covers this user-facing feature.",
+      "priority": "large",
+      "body": "Write a new page for Frobnicate based on frob.go."
+    }
+  ]
+}
