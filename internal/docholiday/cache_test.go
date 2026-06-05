@@ -61,6 +61,22 @@ func TestLoadCachedPromptsSortsDeterministically(t *testing.T) {
 	}
 }
 
+func TestSortPromptsTotalOrderTiebreaksOnBody(t *testing.T) {
+	// Two prompts identical in category+priority+heading, differing only in
+	// Body. SortPrompts must order them deterministically by Body so parallel
+	// and serial dispatch yield byte-identical output.
+	a := Prompt{Category: CategoryStale, Heading: "docs/a.md", Priority: analyzer.PriorityLarge, Body: "aaa"}
+	b := Prompt{Category: CategoryStale, Heading: "docs/a.md", Priority: analyzer.PriorityLarge, Body: "bbb"}
+
+	for _, start := range [][]Prompt{{a, b}, {b, a}} {
+		ps := append([]Prompt(nil), start...)
+		SortPrompts(ps)
+		if ps[0].Body != "aaa" || ps[1].Body != "bbb" {
+			t.Fatalf("want Body-ordered (aaa,bbb); got (%q,%q)", ps[0].Body, ps[1].Body)
+		}
+	}
+}
+
 func TestCacheFileWrittenAtExpectedPath(t *testing.T) {
 	dir := t.TempDir()
 	if err := newCache(map[string]Prompt{"k": samplePrompt()}).save(dir); err != nil {

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
@@ -54,6 +56,13 @@ type Options struct {
 // reusing cached prompts when their unit content + skill version are unchanged.
 // Results are returned sorted (SortPrompts order). The cache is flushed after
 // every fresh unit so a SIGINT leaves a valid partial prompts-cache.json.
+//
+// A unit whose Completer call fails is logged and skipped; it is not cached, so
+// a later run retries it. Only a cache-persistence failure aborts the run.
+//
+// Orphaned cache entries (units that disappeared upstream between runs) are
+// tolerated by design — they linger in prompts-cache.json and are pruned only
+// by a NoCache run, which rebuilds the cache from scratch.
 func GeneratePrompts(ctx context.Context, gen Completer, in Input, opts Options) ([]Prompt, error) {
 	units := append(staleUnits(in.Drift, maxIssuesPerPrompt), missingUnits(in.Undocumented, in.Rationales)...)
 
@@ -79,9 +88,17 @@ func GeneratePrompts(ctx context.Context, gen Completer, in Input, opts Options)
 			mu.Unlock()
 			return nil
 		}
+		// The LLM Complete call is intentionally OUTSIDE the cache lock (do not
+		// move generation into c.put/flushLocked): a slow completion must not
+		// serialize the other workers, and only the just-generated prompt is
+		// written under the lock.
 		p, err := generateOne(ctx, gen, u)
 		if err != nil {
-			return err
+			// Skip-and-continue: one flaky LLM call must not discard the whole
+			// prompts phase (matches the page-analysis phase). The unit is not
+			// cached, so a later run retries it.
+			log.Warnf("skipping doc-holiday prompt for %q: %v", unitHeading(u), err)
+			return nil
 		}
 		if err := c.put(opts.ProjectDir, key, p); err != nil {
 			return fmt.Errorf("persist prompts cache: %w", err)

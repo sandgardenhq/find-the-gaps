@@ -104,7 +104,11 @@ func (c *cache) flushLocked(dir string) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	return os.Rename(tmpName, filepath.Join(dir, cacheFileName))
+	if err := os.Rename(tmpName, filepath.Join(dir, cacheFileName)); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // loadCache reads prompts-cache.json from dir. ok=false when the file is
@@ -157,6 +161,12 @@ func SortPrompts(ps []Prompt) {
 		if r := priorityRank(ps[i].Priority) - priorityRank(ps[j].Priority); r != 0 {
 			return r < 0
 		}
-		return ps[i].Heading < ps[j].Heading
+		if ps[i].Heading != ps[j].Heading {
+			return ps[i].Heading < ps[j].Heading
+		}
+		// Final tiebreaker so equal category+priority+heading prompts have a
+		// total order; otherwise nondeterministic parallel completion order
+		// could reorder them between --workers=8 and --workers=1 runs.
+		return ps[i].Body < ps[j].Body
 	})
 }
