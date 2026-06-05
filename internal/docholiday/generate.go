@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+
+	"github.com/sandgardenhq/find-the-gaps/internal/parallel"
 )
 
 // Completer is the minimal LLM surface this package needs: one flat-string
@@ -38,4 +41,59 @@ func generateOne(ctx context.Context, gen Completer, u unit) (Prompt, error) {
 		Priority: u.priority,
 		Body:     strings.TrimSpace(body),
 	}, nil
+}
+
+// Options configures a GeneratePrompts run.
+type Options struct {
+	ProjectDir string // where prompts-cache.json lives
+	Workers    int    // bounded worker pool size (<=0 → serial)
+	NoCache    bool   // ignore and overwrite any existing cache
+}
+
+// GeneratePrompts authors one Doc Holiday prompt per work-unit derived from in,
+// reusing cached prompts when their unit content + skill version are unchanged.
+// Results are returned sorted (SortPrompts order). The cache is flushed after
+// every fresh unit so a SIGINT leaves a valid partial prompts-cache.json.
+func GeneratePrompts(ctx context.Context, gen Completer, in Input, opts Options) ([]Prompt, error) {
+	units := append(staleUnits(in.Drift, maxIssuesPerPrompt), missingUnits(in.Undocumented, in.Rationales)...)
+
+	var c *cache
+	if !opts.NoCache {
+		if loaded, ok := loadCache(opts.ProjectDir); ok {
+			c = loaded
+		}
+	}
+	if c == nil {
+		c = newCache(nil)
+	}
+
+	var (
+		mu  sync.Mutex
+		out = make([]Prompt, 0, len(units))
+	)
+	err := parallel.Run(ctx, units, opts.Workers, func(ctx context.Context, u unit) error {
+		key := unitKey(u)
+		if p, ok := c.get(key); ok {
+			mu.Lock()
+			out = append(out, p)
+			mu.Unlock()
+			return nil
+		}
+		p, err := generateOne(ctx, gen, u)
+		if err != nil {
+			return err
+		}
+		if err := c.put(opts.ProjectDir, key, p); err != nil {
+			return fmt.Errorf("persist prompts cache: %w", err)
+		}
+		mu.Lock()
+		out = append(out, p)
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	SortPrompts(out)
+	return out, nil
 }

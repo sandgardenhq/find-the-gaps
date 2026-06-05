@@ -51,13 +51,23 @@ func (c *cache) get(key string) (Prompt, bool) {
 // file so a SIGINT mid-run leaves a valid partial cache.
 func (c *cache) put(dir, key string, p Prompt) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.entries[key] = p
-	c.mu.Unlock()
-	return c.save(dir)
+	return c.flushLocked(dir)
 }
 
+// save atomically writes the current cache to dir. Safe for concurrent callers.
 func (c *cache) save(dir string) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.flushLocked(dir)
+}
+
+// flushLocked snapshots the map and atomically writes it via temp+rename. The
+// caller MUST hold c.mu for the full duration: the snapshot and the rename have
+// to be serialized together, otherwise an older snapshot's rename can land
+// after (and clobber) a newer snapshot's rename, dropping just-cached entries.
+func (c *cache) flushLocked(dir string) error {
 	keys := make([]string, 0, len(c.entries))
 	for k := range c.entries {
 		keys = append(keys, k)
@@ -71,7 +81,6 @@ func (c *cache) save(dir string) error {
 			Note: p.Note, Priority: p.Priority, Body: p.Body,
 		})
 	}
-	c.mu.Unlock()
 
 	data, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
