@@ -16,6 +16,7 @@ import (
 
 	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/docholiday"
 	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/forge"
 	"github.com/sandgardenhq/find-the-gaps/internal/linkcheck"
@@ -484,6 +485,10 @@ func newAnalyzeCmd() *cobra.Command {
 
 			driftSkipped := false
 			var driftFindings []analyzer.DriftFinding
+			// Hoisted so the doc-holiday prompt phase below can read the
+			// "why document this" blurbs even when drift was cached-complete
+			// (the !driftSkipped block populates this same map).
+			whyRationales := map[string]string{}
 
 			if !noCache && codeMapCached && docsMapCached {
 				if file, ok := loadDriftCacheFile(driftCachePath); ok && file.Complete != nil && file.Complete.Hash == wantHash {
@@ -506,7 +511,6 @@ func newAnalyzeCmd() *cobra.Command {
 				whyCachePath := filepath.Join(projectDir, "why-document.json")
 				whyCache := loadWhyDocumentCache(whyCachePath)
 				undocFeatures := reporter.UndocumentedFeatures(featureMap, docCoveredFeatures)
-				whyRationales := make(map[string]string, len(undocFeatures))
 				var toFetch []analyzer.CodeFeature
 				freshCache := make(map[string]whyDocumentCacheEntry, len(undocFeatures))
 				for _, e := range undocFeatures {
@@ -598,6 +602,28 @@ func newAnalyzeCmd() *cobra.Command {
 				}); err != nil {
 					return fmt.Errorf("save drift completion: %w", err)
 				}
+			}
+
+			// Doc Holiday prompt generation: author ready-to-paste prompts for
+			// the stale-docs and missing-docs gaps. Default-on; reuses the
+			// typical tier and a per-unit prompts-cache.json. UndocumentedFeatures
+			// is pure over featureMap + docCoveredFeatures, so it is safe to
+			// recompute here even when drift was cached-complete.
+			promptUndoc := reporter.UndocumentedFeatures(featureMap, docCoveredFeatures)
+			prompts, err := docholiday.GeneratePrompts(ctx, tiering.Typical(), docholiday.Input{
+				Drift:        driftFindings,
+				Undocumented: promptUndoc,
+				Rationales:   whyRationales,
+			}, docholiday.Options{
+				ProjectDir: projectDir,
+				Workers:    workers,
+				NoCache:    noCache,
+			})
+			if err != nil {
+				return fmt.Errorf("generate doc-holiday prompts: %w", err)
+			}
+			if err := reporter.WritePrompts(projectDir, prompts); err != nil {
+				return fmt.Errorf("write prompts.md: %w", err)
 			}
 
 			var screenshotResult analyzer.ScreenshotResult
@@ -856,14 +882,18 @@ func newAnalyzeCmd() *cobra.Command {
 			if noPDF {
 				pdfLine += " (skipped)"
 			}
+			promptsLine := "  " + projectDir + "/prompts.md"
+			if c := promptsCounts(prompts); c != "" {
+				promptsLine += " (" + c + ")"
+			}
 			extraLine := ""
 			if keepSiteSource && !noSite {
 				extraLine = "\n  " + projectDir + "/site-src/"
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s\n%s\n%s%s\n",
+				"scanned %d files, fetched %d pages, %d features mapped\nreports:\n  %s/mapping.md\n%s\n%s\n%s\n%s\n%s\n%s%s\n",
 				len(scan.Files), len(pages), len(featureMap),
-				projectDir, gapsLine, screenshotsLine, linksLine, siteLine, pdfLine, extraLine)
+				projectDir, gapsLine, screenshotsLine, linksLine, siteLine, pdfLine, promptsLine, extraLine)
 
 			decision := decideAutoServe(noSite, noServe, humanPresent(), os.Getenv)
 			if decision.Serve {
