@@ -19,9 +19,9 @@ type llmSetupHintError struct{}
 func (*llmSetupHintError) Error() string { return llmKeySetupHint }
 
 // llmKeySetupHint is the user-facing setup message for the missing-default-key
-// case. It names both supported default providers so a first-run user with
-// neither key configured can pick whichever they have access to without
-// hunting through docs.
+// case. It names every default-eligible provider so a first-run user with no
+// key configured can pick whichever they have access to without hunting
+// through docs.
 const llmKeySetupHint = `Find the Gaps needs an LLM API key. Set one of:
 
   • Anthropic (default): export ANTHROPIC_API_KEY="sk-ant-..."
@@ -30,9 +30,13 @@ const llmKeySetupHint = `Find the Gaps needs an LLM API key. Set one of:
   • OpenAI:              export OPENAI_API_KEY="sk-..."
     Get a key: https://platform.openai.com/api-keys
 
-If only OPENAI_API_KEY is set, the default tiers automatically switch to
-OpenAI models. To use a different provider (Groq, Ollama, LM Studio), pass
---llm-small / --llm-typical / --llm-large explicitly.`
+  • Gemini:              export GEMINI_API_KEY="..."
+    Get a key: https://aistudio.google.com/apikey
+
+The default tiers switch automatically based on which key is set
+(precedence: Anthropic, then OpenAI, then Gemini). To use a different
+provider (Groq, Ollama, LM Studio), pass --llm-small / --llm-typical /
+--llm-large explicitly.`
 
 // Compile-time assertion: *llmTiering must satisfy analyzer.LLMTiering.
 var _ analyzer.LLMTiering = (*llmTiering)(nil)
@@ -136,7 +140,8 @@ func toAnalyzerCaps(caps ModelCapabilities) analyzer.ModelCapabilities {
 func isMissingDefaultKeyErr(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "ANTHROPIC_API_KEY not set") ||
-		strings.Contains(msg, "OPENAI_API_KEY not set")
+		strings.Contains(msg, "OPENAI_API_KEY not set") ||
+		strings.Contains(msg, "GEMINI_API_KEY not set")
 }
 
 // buildTierClient constructs a single (LLMClient, TokenCounter) for one (provider, model).
@@ -184,6 +189,13 @@ func buildTierClient(provider, model string) (analyzer.LLMClient, analyzer.Token
 			baseURL = "http://localhost:1234"
 		}
 		bifrostProvider = "openai"
+		counter = analyzer.NewTiktokenCounter()
+	case "gemini":
+		apiKey = os.Getenv("GEMINI_API_KEY")
+		if apiKey == "" {
+			return nil, nil, fmt.Errorf("GEMINI_API_KEY not set")
+		}
+		bifrostProvider = "gemini"
 		counter = analyzer.NewTiktokenCounter()
 	case "groq":
 		apiKey = os.Getenv("GROQ_API_KEY")

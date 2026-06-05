@@ -153,6 +153,72 @@ func TestDoctor_PrintsResolvedCapabilitiesFromFlags(t *testing.T) {
 	}
 }
 
+// TestDoctor_PrintsGeminiResolvedCapabilities pins that `ftg doctor` reports
+// the resolved capabilities of an explicit Gemini tier so a Gemini user can
+// confirm vision + tool use before running analyze.
+func TestDoctor_PrintsGeminiResolvedCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
+	t.Setenv("PATH", dir)
+	t.Setenv("FIND_THE_GAPS_LLM_SMALL", "")
+	t.Setenv("FIND_THE_GAPS_LLM_TYPICAL", "")
+	t.Setenv("FIND_THE_GAPS_LLM_LARGE", "")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{
+		"doctor",
+		"--llm-small", defaultSmallTierGemini,
+		"--llm-typical", defaultTypicalTierGemini,
+		"--llm-large", defaultLargeTierGemini,
+	})
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"small: " + defaultSmallTierGemini + " (tool_use=true vision=true)",
+		"typical: " + defaultTypicalTierGemini + " (tool_use=true vision=true)",
+		"large: " + defaultLargeTierGemini + " (tool_use=true vision=true)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stdout missing Gemini tier line %q; got %q", want, got)
+		}
+	}
+}
+
+// TestDoctor_PrintsGeminiDefaultsWhenOnlyGeminiKeySet pins that doctor, with no
+// --llm-* flags and only GEMINI_API_KEY set, reports the same Gemini defaults
+// the next analyze run would resolve to.
+func TestDoctor_PrintsGeminiDefaultsWhenOnlyGeminiKeySet(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "mdfetch", "mdfetch 1.2.3")
+	writeFakeBin(t, dir, "hugo", "hugo v0.154.5+extended darwin/arm64")
+	t.Setenv("PATH", dir)
+	t.Setenv("FIND_THE_GAPS_LLM_SMALL", "")
+	t.Setenv("FIND_THE_GAPS_LLM_TYPICAL", "")
+	t.Setenv("FIND_THE_GAPS_LLM_LARGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "fake")
+
+	var stdout, stderr bytes.Buffer
+	code := run(&stdout, &stderr, []string{"doctor"})
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"small: " + defaultSmallTierGemini,
+		"typical: " + defaultTypicalTierGemini,
+		"large: " + defaultLargeTierGemini,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stdout missing Gemini default %q; got %q", want, got)
+		}
+	}
+}
+
 func TestPrintTierCapabilities_InvalidTierString(t *testing.T) {
 	// Pin tierFallbacks() to the Anthropic path so the defaulted tiers
 	// render predictably.

@@ -1760,4 +1760,23 @@ A new `--forge` flag covers self-hosted forges on custom domains
   - Two embedded agent-skill files (`internal/docholiday/skills/*/SKILL.md`) are the single source of truth for the meta-prompts; a `skillVersion` hash of both bodies is folded into every cache key, so editing a skill invalidates cached prompts.
   - Cold-vs-warm determinism: the missing-feature rationale is restored from `why-document.json` on the warm (drift-cached) path so missing-feature cache keys stay stable — a reviewer-flagged drift risk now locked in by the `prompts.txtar` idempotent-render byte-compare.
   - Task 12: e2e testscript `cmd/ftg/testdata/script/prompts.txtar` drives `prompts.md` through the offline `ftg render` path against a seeded project cache (spider index, featuremap, docsfeaturemap, prompts-cache.json) — the analyze LLM pipeline can't run in the testscript harness without real keys. Renders twice and `cmp`s the two `prompts.md` for idempotency.
-  - Task 13: added Scenario 20 to `.plans/VERIFICATION_PLAN.md`; documented `prompts.md` in README (outputs list + detailed section) and CHANGELOG (Unreleased → Added).
+  - Task 13: added Scenario 21 to `.plans/VERIFICATION_PLAN.md`; documented `prompts.md` in README (outputs list + detailed section) and CHANGELOG (Unreleased → Added).
+
+## Gemini Provider Support - COMPLETE
+- Started: 2026-06-05
+- Design: `.plans/2026-06-04-gemini-provider-design.md`
+- Tests: full suite passing (17 packages, `go test ./...` exit 0, count=1)
+- Build: Successful (`go build ./...`)
+- Linting: Clean on touched files (3 pre-existing errcheck/QF1008 hints on untouched lines unchanged); `gofmt` clean
+- Completed: 2026-06-05
+- Notes:
+  - Added Google Gemini as a third **default-eligible** provider (Anthropic → OpenAI → Gemini precedence).
+  - Default ladder: small `gemini-3.1-flash-lite`, typical `gemini-3.5-flash`, large `gemini-3.1-pro-preview`.
+  - Resolved the one open design question: there is no stable `gemini-3.1-pro`; the flagship Pro tier is preview-only, so large defaults to `gemini-3.1-pro-preview` (user-approved option 2). Model IDs reconfirmed against ai.google.dev (June 2026).
+  - capabilities.go: three Gemini rows (ToolUse+Vision, MaxInputTokens 900000, no output-cap override — Gemini's 65,536 clears the 32k send).
+  - tier_validate.go: `defaultSmall/Typical/LargeTierGemini` consts + `tierFallbacks` rewritten as a first-key-present cascade (prior Anthropic/OpenAI behavior byte-identical).
+  - llm_client.go: `buildTierClient` gemini case (GEMINI_API_KEY, tiktoken counter); `isMissingDefaultKeyErr` + `llmKeySetupHint` name Gemini.
+  - bifrost_client.go: `NewBifrostClientWithProvider` maps "gemini" → `schemas.Gemini`; `completeJSONMessages` routes Gemini through the OpenAI `json_schema` path (Bifrost converts it to Gemini's `responseJsonSchema`). Tool use is already provider-agnostic.
+  - Auth needs no new code: Bifrost's Gemini provider reads the key as the `x-goog-api-key` header; the existing account key path is unchanged. No Vertex, no GOOGLE_API_KEY fallback, no base-URL override, no dedicated token counter (all YAGNI/out of scope).
+  - Integration test gated on GEMINI_API_KEY added (skips when unset; not run live this session — no key available).
+  - Docs: README LLM-provider section (precedence, env var, vision-model table) + design doc + VERIFICATION_PLAN Scenario 20.

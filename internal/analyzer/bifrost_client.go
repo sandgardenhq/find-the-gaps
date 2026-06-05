@@ -121,11 +121,12 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 }
 
 // NewBifrostClientWithProvider creates a BifrostClient for the named provider.
-// providerName must be "anthropic", "openai", "ollama", or "groq". baseURL
-// overrides the provider's default endpoint — required for "ollama" and
+// providerName must be "anthropic", "openai", "gemini", "ollama", or "groq".
+// baseURL overrides the provider's default endpoint — required for "ollama" and
 // "groq", optional for the others (empty string means use the provider's
 // default hosted endpoint). "groq" is an OpenAI-compatible alias that routes
-// through schemas.OpenAI with a custom BaseURL.
+// through schemas.OpenAI with a custom BaseURL; "gemini" maps to schemas.Gemini
+// and needs no baseURL.
 //
 // caps records the resolved model capability flags so analyzer code can branch
 // on Capabilities() without re-importing cli (which would create a cycle).
@@ -136,6 +137,12 @@ func NewBifrostClientWithProvider(providerName, apiKey, model, baseURL string, c
 		provider = schemas.Anthropic
 	case "openai":
 		provider = schemas.OpenAI
+	case "gemini":
+		// Hosted Gemini: no baseURL required. Bifrost's Gemini provider reads
+		// the key as the x-goog-api-key header, so the default account key
+		// path works unchanged. Vertex AI (service-account auth) is a separate
+		// provider and out of scope.
+		provider = schemas.Gemini
 	case "ollama":
 		provider = schemas.Ollama
 		if baseURL == "" {
@@ -394,14 +401,16 @@ func (c *BifrostClient) CompleteJSONMultimodal(ctx context.Context, messages []C
 // both CompleteJSON (flat prompt) and CompleteJSONMultimodal (pre-built
 // messages). Provider dispatch:
 //   - Anthropic: forced "respond" tool whose Parameters equals schema.Doc.
-//   - OpenAI / Ollama: response_format=json_schema with strict=true. Bifrost's
-//     Ollama provider delegates chat completions to the OpenAI handler so the
-//     same code path serves both.
+//   - OpenAI / Ollama / Gemini: response_format=json_schema with strict=true.
+//     Bifrost's Ollama provider delegates chat completions to the OpenAI
+//     handler, and its Gemini provider reads the same json_schema response_format
+//     map and converts it to Gemini's responseJsonSchema, so one code path
+//     serves all three.
 func (c *BifrostClient) completeJSONMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
 	switch c.provider {
 	case schemas.Anthropic:
 		return c.completeJSONAnthropicMessages(ctx, messages, schema)
-	case schemas.OpenAI, schemas.Ollama:
+	case schemas.OpenAI, schemas.Ollama, schemas.Gemini:
 		return c.completeJSONOpenAIMessages(ctx, messages, schema)
 	default:
 		return nil, fmt.Errorf("BifrostClient.CompleteJSON: not implemented for provider %q", c.provider)

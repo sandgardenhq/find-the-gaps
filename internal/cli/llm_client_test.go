@@ -32,6 +32,51 @@ func TestToAnalyzerCaps_PropagatesMaxInputTokens(t *testing.T) {
 	assert.Equal(t, 260000, out.MaxInputTokens)
 }
 
+// TestBuildTierClient_Gemini_MissingKeyErrors pins that the Gemini tier fails
+// cleanly with a named env-var error when GEMINI_API_KEY is unset, before any
+// network attempt.
+func TestBuildTierClient_Gemini_MissingKeyErrors(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	_, _, err := buildTierClient("gemini", "gemini-3.5-flash")
+	if err == nil {
+		t.Fatal("expected error when GEMINI_API_KEY is unset")
+	}
+	if !strings.Contains(err.Error(), "GEMINI_API_KEY not set") {
+		t.Fatalf("error should name GEMINI_API_KEY, got %v", err)
+	}
+}
+
+// TestBuildTierClient_Gemini_BuildsWithKey pins that a Gemini tier constructs a
+// budget-gated client carrying the registry's MaxInputTokens (900k) when the
+// key is present.
+func TestBuildTierClient_Gemini_BuildsWithKey(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-key-not-actually-used-for-build")
+	client, counter, err := buildTierClient("gemini", "gemini-3.5-flash")
+	if err != nil {
+		t.Fatalf("buildTierClient: %v", err)
+	}
+	if counter == nil {
+		t.Fatal("expected non-nil token counter")
+	}
+	if got := client.Capabilities().MaxInputTokens; got != 900000 {
+		t.Fatalf("MaxInputTokens not propagated to client: %d", got)
+	}
+}
+
+// TestIsMissingDefaultKeyErr_RecognizesGemini pins that the Gemini missing-key
+// error routes to the friendly first-run setup hint instead of a raw error,
+// matching the Anthropic/OpenAI behavior.
+func TestIsMissingDefaultKeyErr_RecognizesGemini(t *testing.T) {
+	assert.True(t, isMissingDefaultKeyErr(errors.New("GEMINI_API_KEY not set")))
+}
+
+// TestLLMKeySetupHint_NamesGemini pins that the setup hint lists Gemini as a
+// default-eligible provider so a first-run user with only a Gemini key knows it
+// works with no flags.
+func TestLLMKeySetupHint_NamesGemini(t *testing.T) {
+	assert.Contains(t, llmKeySetupHint, "GEMINI_API_KEY")
+}
+
 // TestBuildTierClient_WrapsWithBudget pins that buildTierClient returns a
 // budget-gated wrapper. Without the wrap, a huge prompt would proceed to
 // the network (a real Anthropic call); with the wrap in place, the gate

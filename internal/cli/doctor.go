@@ -53,8 +53,8 @@ func newDoctorCmd() *cobra.Command {
 // (provider, model) pair and the boolean capability flags from the per-model
 // registry. Empty inputs fall back through tierFallbacks() — the same helper
 // validateTierConfigs uses — so doctor reports the exact tier strings the
-// next analyze run would actually use, including the OpenAI flip when only
-// OPENAI_API_KEY is set.
+// next analyze run would actually use, including the provider flip
+// (Anthropic → OpenAI → Gemini) when ANTHROPIC_API_KEY is unset.
 func printTierCapabilities(w io.Writer, small, typical, large string) {
 	smallFB, typicalFB, largeFB := tierFallbacks()
 	for _, tc := range []struct {

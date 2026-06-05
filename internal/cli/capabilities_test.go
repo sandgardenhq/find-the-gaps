@@ -80,6 +80,40 @@ func TestOpenAIDefaults_AreVisionAndToolCapable(t *testing.T) {
 	}
 }
 
+// TestResolveCapabilities_Gemini2026Lineup pins the Gemini default ladder
+// (small gemini-3.1-flash-lite · typical gemini-3.5-flash · large
+// gemini-3.1-pro-preview). All three support tool use AND vision — the typical
+// tier runs the drift investigator's tool-use loop and the screenshot pass
+// needs vision.
+func TestResolveCapabilities_Gemini2026Lineup(t *testing.T) {
+	for _, model := range []string{
+		"gemini-3.1-flash-lite",
+		"gemini-3.5-flash",
+		"gemini-3.1-pro-preview",
+	} {
+		caps, ok := ResolveCapabilities("gemini", model)
+		assert.True(t, ok, "gemini/%s must resolve", model)
+		assert.True(t, caps.ToolUse, "gemini/%s must support tool use", model)
+		assert.True(t, caps.Vision, "gemini/%s must support vision", model)
+	}
+}
+
+// TestResolveCapabilities_GeminiUnknownModelGetsConservativeDefault pins that a
+// future Gemini model ID (gemini is a known provider) falls through to the
+// 100k floor rather than failing the run — so new Gemini releases work before
+// the table catches up.
+func TestResolveCapabilities_GeminiUnknownModelGetsConservativeDefault(t *testing.T) {
+	caps, ok := ResolveCapabilities("gemini", "gemini-99-ultra")
+	assert.True(t, ok)
+	assert.Equal(t, 100000, caps.MaxInputTokens)
+}
+
+// TestKnownProviders_IncludesGemini pins that gemini appears in the
+// deduplicated provider list that drives the "valid: ..." error message.
+func TestKnownProviders_IncludesGemini(t *testing.T) {
+	assert.Contains(t, knownProviders(), "gemini")
+}
+
 // TestResolveCapabilities_KnownModelsCarryMaxInputTokens pins the per-model
 // input budget for every hosted model in knownModels. Values are ~10% under
 // the provider's published context window so output tokens and per-provider
@@ -101,6 +135,9 @@ func TestResolveCapabilities_KnownModelsCarryMaxInputTokens(t *testing.T) {
 		{"openai", "gpt-4o", 115000},
 		{"openai", "gpt-4o-mini", 115000},
 		{"groq", "meta-llama/llama-4-scout-17b-16e-instruct", 120000},
+		{"gemini", "gemini-3.1-flash-lite", 900000},
+		{"gemini", "gemini-3.5-flash", 900000},
+		{"gemini", "gemini-3.1-pro-preview", 900000},
 	}
 	for _, tc := range cases {
 		t.Run(tc.provider+"/"+tc.model, func(t *testing.T) {

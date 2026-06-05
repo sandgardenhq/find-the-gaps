@@ -135,8 +135,81 @@ func TestTierFallbacks_AnthropicWhenOnlyAnthropicKeySet(t *testing.T) {
 func TestTierFallbacks_AnthropicWhenNeitherKeySet(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
 	small, _, _ := tierFallbacks()
 	if small != "anthropic/claude-haiku-4-5" {
-		t.Errorf("small: want anthropic default when neither key set, got %q", small)
+		t.Errorf("small: want anthropic default when no key set, got %q", small)
+	}
+}
+
+func TestTierFallbacks_GeminiWhenOnlyGeminiKeySet(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "test-gemini")
+	small, typical, large := tierFallbacks()
+	if small != defaultSmallTierGemini {
+		t.Errorf("small fallback: want %q, got %q", defaultSmallTierGemini, small)
+	}
+	if typical != defaultTypicalTierGemini {
+		t.Errorf("typical fallback: want %q, got %q", defaultTypicalTierGemini, typical)
+	}
+	if large != defaultLargeTierGemini {
+		t.Errorf("large fallback: want %q, got %q", defaultLargeTierGemini, large)
+	}
+}
+
+// TestTierFallbacks_OpenAIWinsOverGemini pins the precedence
+// Anthropic → OpenAI → Gemini: when both OPENAI_API_KEY and GEMINI_API_KEY are
+// set (and Anthropic is not), OpenAI defaults stand — Gemini engages only when
+// it is the sole key.
+func TestTierFallbacks_OpenAIWinsOverGemini(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "test-openai")
+	t.Setenv("GEMINI_API_KEY", "test-gemini")
+	small, _, _ := tierFallbacks()
+	if small != defaultSmallTierOpenAI {
+		t.Errorf("small: want OpenAI default (OpenAI outranks Gemini), got %q", small)
+	}
+}
+
+// TestTierFallbacks_AnthropicWinsOverGemini pins that Anthropic still wins when
+// its key is present alongside Gemini's.
+func TestTierFallbacks_AnthropicWinsOverGemini(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "test-gemini")
+	small, _, _ := tierFallbacks()
+	if small != defaultSmallTier {
+		t.Errorf("small: want Anthropic default (Anthropic outranks Gemini), got %q", small)
+	}
+}
+
+// TestValidateTierConfigs_GeminiTypicalPassesToolGate pins that the Gemini
+// typical default (gemini-3.5-flash) clears the tool-use gate — the drift
+// investigator requires it.
+func TestValidateTierConfigs_GeminiTypicalPassesToolGate(t *testing.T) {
+	err := validateTierConfigs("", defaultTypicalTierGemini, "")
+	assert.NoError(t, err)
+}
+
+// TestGeminiDefaults_AreVisionAndToolCapable mirrors the OpenAI-defaults
+// contract: every Gemini tier default resolves to a model with both ToolUse
+// and Vision, so a Gemini-only user's analyze run passes tier validation and
+// runs the vision-aware screenshot pass.
+func TestGeminiDefaults_AreVisionAndToolCapable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tier string
+	}{
+		{"small", defaultSmallTierGemini},
+		{"typical", defaultTypicalTierGemini},
+		{"large", defaultLargeTierGemini},
+	} {
+		provider, model, err := parseTierString(tc.tier)
+		assert.NoError(t, err, "%s default %q must parse", tc.name, tc.tier)
+		caps, ok := ResolveCapabilities(provider, model)
+		assert.True(t, ok, "%s default %q must resolve", tc.name, tc.tier)
+		assert.True(t, caps.ToolUse, "%s default %q must support tool use", tc.name, tc.tier)
+		assert.True(t, caps.Vision, "%s default %q must support vision", tc.name, tc.tier)
 	}
 }
