@@ -92,3 +92,27 @@ func chunkStaleItems(items []staleItem, cap int) [][]staleItem {
 	}
 	return chunks
 }
+
+// missingDocPriority assigns a priority to an undocumented-feature prompt.
+// Undocumented features carry no priority signal in the data model, so we use
+// a single deterministic default. This is the one place to enrich later (e.g.
+// derive from layer or usage) — keep it a function so callers never inline a
+// constant.
+func missingDocPriority(_ analyzer.FeatureEntry) analyzer.Priority {
+	return analyzer.PriorityLarge
+}
+
+// missingUnits builds one unit per undocumented feature, in the input order
+// (UndocumentedFeatures already returns a stable insertion order).
+func missingUnits(feats []analyzer.FeatureEntry, rationales map[string]string) []unit {
+	out := make([]unit, 0, len(feats))
+	for _, f := range feats {
+		out = append(out, unit{
+			category:  CategoryMissing,
+			priority:  missingDocPriority(f),
+			feature:   f,
+			rationale: rationales[f.Feature.Name],
+		})
+	}
+	return out
+}

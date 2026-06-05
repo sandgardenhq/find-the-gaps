@@ -79,3 +79,32 @@ func TestStaleUnitsAreDeterministic(t *testing.T) {
 		t.Fatalf("units should sort by page; first should be docs/a.md, got %q", first[0].page)
 	}
 }
+
+func TestMissingUnitsOnePerFeature(t *testing.T) {
+	feats := []analyzer.FeatureEntry{
+		{Feature: analyzer.CodeFeature{Name: "Frobnicate", UserFacing: true}, Files: []string{"a.go"}},
+		{Feature: analyzer.CodeFeature{Name: "Sync"}, Files: []string{"b.go"}},
+	}
+	rats := map[string]string{"Frobnicate": "users hit this daily"}
+	units := missingUnits(feats, rats)
+	if len(units) != 2 {
+		t.Fatalf("want one unit per feature, got %d", len(units))
+	}
+	if units[0].feature.Feature.Name != "Frobnicate" || units[0].category != CategoryMissing {
+		t.Fatalf("unexpected first unit: %+v", units[0])
+	}
+	if units[0].rationale != "users hit this daily" {
+		t.Fatalf("rationale not threaded: %q", units[0].rationale)
+	}
+	if units[1].rationale != "" {
+		t.Fatalf("missing rationale should be empty, got %q", units[1].rationale)
+	}
+}
+
+func TestMissingUnitsGetDefaultPriority(t *testing.T) {
+	feats := []analyzer.FeatureEntry{{Feature: analyzer.CodeFeature{Name: "X"}}}
+	units := missingUnits(feats, nil)
+	if units[0].priority != missingDocPriority(feats[0]) {
+		t.Fatalf("missing unit priority should come from missingDocPriority")
+	}
+}
