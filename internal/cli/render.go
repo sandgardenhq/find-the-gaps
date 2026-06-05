@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
+	"github.com/sandgardenhq/find-the-gaps/internal/docholiday"
 	"github.com/sandgardenhq/find-the-gaps/internal/doctor"
 	"github.com/sandgardenhq/find-the-gaps/internal/pdf"
 	"github.com/sandgardenhq/find-the-gaps/internal/reporter"
@@ -140,6 +141,14 @@ func newRenderCmd() *cobra.Command {
 				}
 				if err := reporter.WriteScreenshotsJSON(projectDir, screenshotResult); err != nil {
 					return fmt.Errorf("write screenshots.json: %w", err)
+				}
+			}
+			// Doc Holiday prompts are re-emitted from the per-unit cache; no
+			// LLM calls. A project that never ran the analyze prompt phase has
+			// no prompts-cache.json and is skipped cleanly.
+			if prompts, ok := docholiday.LoadCachedPrompts(projectDir); ok {
+				if err := reporter.WritePrompts(projectDir, prompts); err != nil {
+					return fmt.Errorf("write prompts: %w", err)
 				}
 			}
 
