@@ -2,14 +2,21 @@
 # LLM calls and no network. The full analyze LLM pipeline can't run in this
 # harness (no real keys), so we drive the prompts artifact through the render
 # path against a pre-seeded project cache — the same path `ftg render` uses to
-# rebuild reports from artifacts already on disk. hugo is reachable via
-# testscript's registered-command PATH, so render's hugo precheck passes.
+# rebuild reports from artifacts already on disk.
+#
+# render shells out to hugo (precheck + site build), which isn't installed in
+# CI. We shadow it with a no-op fake on $PATH so the precheck passes and the
+# site build is a no-op; this test only asserts on prompts.md, not the site.
+# $WORK/bin is prepended to PATH (testscript's registered-command dir stays on
+# PATH so `exec ftg` still resolves).
 #
 # This also locks in cold-vs-warm determinism: rendering twice against the same
 # cache must produce a byte-identical prompts.md (idempotent re-emit). A
 # reviewer flagged cold/warm drift as a risk; the second render guards it.
 
 mkdir repo
+chmod 755 bin/hugo
+env PATH=$WORK/bin:$PATH
 
 # Seed the minimum render.go needs: spider index (ProductInfo), featuremap,
 # docsfeaturemap, and the prompts cache the prompts phase would have written.
@@ -40,6 +47,11 @@ exec ftg render --project repo --cache-dir $WORK/cache
 stdout 'rendered'
 cmp $WORK/cache/repo/prompts.md $WORK/first-prompts.md
 
+-- bin/hugo --
+#!/bin/sh
+# No-op hugo stub: render's precheck only LookPath's it, and site.Build runs
+# it for its exit code. This test asserts on prompts.md, not the built site.
+exit 0
 -- cache/repo/docs/index.json --
 {
   "pages": {},
