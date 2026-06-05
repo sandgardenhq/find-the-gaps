@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/charmbracelet/log"
 	"github.com/sandgardenhq/find-the-gaps/internal/analyzer"
 )
 
@@ -120,6 +121,10 @@ func loadCache(dir string) (*cache, bool) {
 	}
 	var doc cacheDoc
 	if err := json.Unmarshal(data, &doc); err != nil {
+		// The file exists but is corrupt. Warn so the user isn't silently left
+		// without prompts.md on render; a missing file (handled above) is the
+		// normal cold path and stays quiet.
+		log.Warnf("ignoring corrupt %s: %v", cacheFileName, err)
 		return nil, false
 	}
 	m := make(map[string]Prompt, len(doc.Entries))

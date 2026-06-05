@@ -23,7 +23,7 @@ func (f *fakeCompleter) Complete(_ context.Context, prompt string) (string, erro
 func TestGenerateOneStaleUsesStaleSkillAndFindings(t *testing.T) {
 	fc := &fakeCompleter{reply: "Update docs/api.md to ..."}
 	u := unit{category: CategoryStale, priority: analyzer.PriorityLarge, page: "docs/api.md",
-		staleItems: []staleItem{{"Auth", "Connect() needs ctx"}}, part: 1, parts: 1}
+		staleItems: []staleItem{{feature: "Auth", issue: "Connect() needs ctx"}}, part: 1, parts: 1}
 	p, err := generateOne(context.Background(), fc, u)
 	if err != nil {
 		t.Fatal(err)

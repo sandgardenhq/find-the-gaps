@@ -1,9 +1,28 @@
 package docholiday
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
+
+// TestSkillsSourceCarriesPromptMarker guards the project's `// PROMPT:`
+// convention: every prompt string must be marked so prompts stay easy to find
+// and review. There are two embedded skill bodies, so we require at least two
+// markers — one per embedded var.
+func TestSkillsSourceCarriesPromptMarker(t *testing.T) {
+	src, err := os.ReadFile("skills.go")
+	if err != nil {
+		t.Fatalf("reading skills.go: %v", err)
+	}
+	const marker = "// PROMPT:"
+	if !strings.Contains(string(src), marker) {
+		t.Fatalf("skills.go is missing the %q convention marker", marker)
+	}
+	if got := strings.Count(string(src), marker); got < 2 {
+		t.Fatalf("skills.go should carry at least 2 %q markers (one per embedded var), got %d", marker, got)
+	}
+}
 
 func TestEmbeddedSkillsArePresent(t *testing.T) {
 	if strings.TrimSpace(staleDocsSkillRaw) == "" {

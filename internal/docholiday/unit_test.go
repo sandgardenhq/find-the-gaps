@@ -92,6 +92,42 @@ func TestStaleUnitsAreDeterministic(t *testing.T) {
 	}
 }
 
+// TestStaleUnitsKeyInvariantUnderInputOrder proves that two drift slices that
+// place the SAME two issues from two DIFFERENT features on the SAME page, but in
+// OPPOSITE arrival order, collapse to a single unit whose cache key and rendered
+// findings block are byte-identical. Before the in-page sort, the staleItems
+// slice preserved arrival order, so the two permutations produced different
+// unitKeys (cache thrash) and a different rendered findings block (so the
+// LLM-authored Body and prompts.md differed) — violating the determinism
+// guarantee across --workers and cold-vs-warm runs.
+func TestStaleUnitsKeyInvariantUnderInputOrder(t *testing.T) {
+	orderA := []analyzer.DriftFinding{
+		{Feature: "FeatureX", Issues: []analyzer.DriftIssue{driftIssue("docs/p.md", "issue1", analyzer.PrioritySmall)}},
+		{Feature: "FeatureY", Issues: []analyzer.DriftIssue{driftIssue("docs/p.md", "issue2", analyzer.PriorityLarge)}},
+	}
+	orderB := []analyzer.DriftFinding{
+		{Feature: "FeatureY", Issues: []analyzer.DriftIssue{driftIssue("docs/p.md", "issue2", analyzer.PriorityLarge)}},
+		{Feature: "FeatureX", Issues: []analyzer.DriftIssue{driftIssue("docs/p.md", "issue1", analyzer.PrioritySmall)}},
+	}
+
+	unitsA := staleUnits(orderA, 5)
+	unitsB := staleUnits(orderB, 5)
+	if len(unitsA) != 1 || len(unitsB) != 1 {
+		t.Fatalf("expected exactly one unit per ordering, got %d and %d", len(unitsA), len(unitsB))
+	}
+	a, b := unitsA[0], unitsB[0]
+
+	if unitKey(a) != unitKey(b) {
+		t.Fatalf("unitKey must be invariant to drift-finding arrival order:\nA=%s\nB=%s", unitKey(a), unitKey(b))
+	}
+	if renderUnitFindings(a) != renderUnitFindings(b) {
+		t.Fatalf("rendered findings must be invariant to arrival order:\nA:\n%s\nB:\n%s", renderUnitFindings(a), renderUnitFindings(b))
+	}
+	if a.priority != analyzer.PriorityLarge {
+		t.Fatalf("chunk priority should roll up to large, got %q", a.priority)
+	}
+}
+
 func TestMissingUnitsOnePerFeature(t *testing.T) {
 	feats := []analyzer.FeatureEntry{
 		{Feature: analyzer.CodeFeature{Name: "Frobnicate", UserFacing: true}, Files: []string{"a.go"}},

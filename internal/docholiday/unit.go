@@ -14,10 +14,13 @@ const maxIssuesPerPrompt = 5
 // crossPageKey is the synthetic page key for drift issues with no page anchor.
 const crossPageKey = ""
 
-// staleItem is one (feature, inaccuracy) pair within a stale-docs unit.
+// staleItem is one (feature, inaccuracy) pair within a stale-docs unit. The
+// priority travels with the item so a chunk's rolled-up priority is computed
+// over the chunk's own items after sorting, independent of input order.
 type staleItem struct {
-	feature string
-	issue   string
+	feature  string
+	issue    string
+	priority analyzer.Priority
 }
 
 // unit is one work-item that becomes exactly one Doc Holiday prompt.
@@ -44,15 +47,13 @@ func staleUnits(drift []analyzer.DriftFinding, limit int) []unit {
 		limit = maxIssuesPerPrompt
 	}
 	byPage := map[string][]staleItem{}
-	prioByPage := map[string][]analyzer.Priority{}
 	var pageOrder []string
 	for _, f := range drift {
 		for _, iss := range f.Issues {
 			if _, seen := byPage[iss.Page]; !seen {
 				pageOrder = append(pageOrder, iss.Page)
 			}
-			byPage[iss.Page] = append(byPage[iss.Page], staleItem{feature: f.Feature, issue: iss.Issue})
-			prioByPage[iss.Page] = append(prioByPage[iss.Page], iss.Priority)
+			byPage[iss.Page] = append(byPage[iss.Page], staleItem{feature: f.Feature, issue: iss.Issue, priority: iss.Priority})
 		}
 	}
 	sort.Strings(pageOrder)
@@ -60,13 +61,22 @@ func staleUnits(drift []analyzer.DriftFinding, limit int) []unit {
 	var out []unit
 	for _, page := range pageOrder {
 		items := byPage[page]
+		// Sort each page's items into a stable total order before chunking so the
+		// resulting chunks (and thus unitKey + rendered findings) are invariant to
+		// the arrival order of the incoming drift findings (worker-completion order
+		// on the live path vs feature-sorted on the warm-cache path).
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].feature != items[j].feature {
+				return items[i].feature < items[j].feature
+			}
+			return items[i].issue < items[j].issue
+		})
 		chunks := chunkStaleItems(items, limit)
 		for i, chunk := range chunks {
-			// priority of the chunk = max over the chunk's own issues
-			var ps []analyzer.Priority
-			for j := range chunk {
-				// map chunk item back to its priority via position in items
-				ps = append(ps, prioByPage[page][i*limit+j])
+			// priority of the chunk = max over the chunk's own items
+			ps := make([]analyzer.Priority, 0, len(chunk))
+			for _, it := range chunk {
+				ps = append(ps, it.priority)
 			}
 			out = append(out, unit{
 				category:   CategoryStale,

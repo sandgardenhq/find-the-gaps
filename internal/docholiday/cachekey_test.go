@@ -7,22 +7,22 @@ import (
 )
 
 func TestUnitKeyStableForSameContent(t *testing.T) {
-	u := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{"F", "i"}}, part: 1, parts: 1}
+	u := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{feature: "F", issue: "i"}}, part: 1, parts: 1}
 	if unitKey(u) != unitKey(u) {
 		t.Fatal("unitKey must be stable for identical units")
 	}
 }
 
 func TestUnitKeyChangesWhenIssueChanges(t *testing.T) {
-	a := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{"F", "i1"}}, part: 1, parts: 1}
-	b := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{"F", "i2"}}, part: 1, parts: 1}
+	a := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{feature: "F", issue: "i1"}}, part: 1, parts: 1}
+	b := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{feature: "F", issue: "i2"}}, part: 1, parts: 1}
 	if unitKey(a) == unitKey(b) {
 		t.Fatal("changing an issue must change the key")
 	}
 }
 
 func TestUnitKeyChangesWithSkillVersion(t *testing.T) {
-	u := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{"F", "i"}}, part: 1, parts: 1}
+	u := unit{category: CategoryStale, page: "p", staleItems: []staleItem{{feature: "F", issue: "i"}}, part: 1, parts: 1}
 	k1 := unitKeyWithSkill(u, "skill-v1")
 	k2 := unitKeyWithSkill(u, "skill-v2")
 	if k1 == k2 {
