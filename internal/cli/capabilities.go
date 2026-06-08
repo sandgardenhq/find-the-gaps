@@ -28,36 +28,56 @@ type ModelCapabilities struct {
 // capabilities" for unknown (provider, model) pairs on a known provider, so
 // new models can be used immediately even before this table catches up.
 var knownModels = []ModelCapabilities{
-	// Anthropic windows differ across the 4.x family: Haiku 4.5 still
-	// publishes 200k, but Sonnet 4.6 and Opus 4.7 went to a 1M context window
-	// at standard pricing (no long-context premium). Each value sits ~10%
-	// under the published cap so output tokens, tool defs, and per-provider
-	// serialization overhead don't push the wire-level total past the limit.
-	{Provider: "anthropic", Model: "claude-haiku-4-5", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	// Anthropic Claude 4.x family. Every Claude model supports text + image
+	// input and tool use. Context windows split by tier: Opus 4.6/4.7/4.8 and
+	// Sonnet 4.6 publish a 1M window at standard pricing (no long-context
+	// premium), while Haiku 4.5 and the 200k-window legacy/deprecated rows sit
+	// at 200k. Each MaxInputTokens value sits ~10% under the published cap so
+	// output tokens, tool defs, and per-provider serialization overhead don't
+	// push the wire-level total past the limit (900k under 1M; 180k under
+	// 200k). Verified against platform.claude.com model overview, June 2026.
+	//
+	// Current flagships:
+	{Provider: "anthropic", Model: "claude-opus-4-8", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 	{Provider: "anthropic", Model: "claude-sonnet-4-6", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "anthropic", Model: "claude-haiku-4-5", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	// Legacy but still callable (migrate when convenient):
 	{Provider: "anthropic", Model: "claude-opus-4-7", ToolUse: true, Vision: true, MaxInputTokens: 900000},
-	// OpenAI's 2026 lineup. GPT-5.4 (March 2026) and GPT-5.5 (April 2026)
-	// all support tool use and vision; the nano/mini/standard split is the
-	// usual cheap-fast / mid / flagship ladder. Older entries (gpt-5,
-	// gpt-4o family) stay so existing configs keep working.
+	{Provider: "anthropic", Model: "claude-opus-4-6", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "anthropic", Model: "claude-sonnet-4-5", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	{Provider: "anthropic", Model: "claude-opus-4-5", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	// Deprecated (still resolvable until their retirement dates): Opus 4.1
+	// retires 2026-08-05; Sonnet 4 and Opus 4 retire 2026-06-15.
+	{Provider: "anthropic", Model: "claude-opus-4-1", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	{Provider: "anthropic", Model: "claude-sonnet-4", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	{Provider: "anthropic", Model: "claude-opus-4", ToolUse: true, Vision: true, MaxInputTokens: 180000},
+	// OpenAI's 2026 lineup. Every GPT-5 / GPT-4o model supports tool use
+	// (function calling) and image input. Older entries (gpt-5, gpt-4o family)
+	// stay so existing configs keep working. Verified against
+	// developers.openai.com model pages, June 2026.
 	//
 	// Per-model windows differ enough to matter:
-	//   - gpt-5.5: 922k input / 128k output. OpenAI charges 2x input + 1.5x
-	//     output on prompts above 272k input tokens, so picking 900k means
-	//     long drift runs CAN tip into the premium tier; that's an explicit
-	//     trade for the larger window.
-	//   - gpt-5.4: standard window is 272k; 1M is opt-in via params we do
-	//     not pass, so we cap at the standard tier.
-	//   - gpt-5.4-mini / gpt-5.4-nano: 400k context, no long-context premium.
-	//   - gpt-5 / gpt-5-mini: 400k total but the API enforces a 272k input
-	//     cap (rest is reserved for the 128k output ceiling).
-	//   - gpt-4o family: 128k shared in/out.
+	//   - gpt-5.5 / gpt-5.4: 1.05M context / 128k output. (gpt-5.4 grew from
+	//     the old 272k standard tier to the full 1M-class window.) OpenAI
+	//     charges premium rates on prompts above 272k input tokens, so 900k
+	//     means long drift runs CAN tip into the premium tier; that's an
+	//     explicit trade for the larger window. The -pro reasoning variants
+	//     share their base model's window.
+	//   - gpt-5.4-mini / gpt-5.4-nano / gpt-5.2: 400k context / 128k output,
+	//     no long-context premium → 360k input budget.
+	//   - gpt-5 / gpt-5-mini / gpt-5-nano: 400k total but the API enforces a
+	//     272k input cap (rest is reserved for the 128k output ceiling) → 260k.
+	//   - gpt-4o family: 128k shared in/out → 115k.
 	{Provider: "openai", Model: "gpt-5.5", ToolUse: true, Vision: true, MaxInputTokens: 900000},
-	{Provider: "openai", Model: "gpt-5.4", ToolUse: true, Vision: true, MaxInputTokens: 260000},
+	{Provider: "openai", Model: "gpt-5.5-pro", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "openai", Model: "gpt-5.4", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "openai", Model: "gpt-5.4-pro", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 	{Provider: "openai", Model: "gpt-5.4-mini", ToolUse: true, Vision: true, MaxInputTokens: 360000},
 	{Provider: "openai", Model: "gpt-5.4-nano", ToolUse: true, Vision: true, MaxInputTokens: 360000},
+	{Provider: "openai", Model: "gpt-5.2", ToolUse: true, Vision: true, MaxInputTokens: 360000},
 	{Provider: "openai", Model: "gpt-5", ToolUse: true, Vision: true, MaxInputTokens: 260000},
 	{Provider: "openai", Model: "gpt-5-mini", ToolUse: true, Vision: true, MaxInputTokens: 260000},
+	{Provider: "openai", Model: "gpt-5-nano", ToolUse: true, Vision: true, MaxInputTokens: 260000},
 	{Provider: "openai", Model: "gpt-4o", ToolUse: true, Vision: true, MaxInputTokens: 115000},
 	{Provider: "openai", Model: "gpt-4o-mini", ToolUse: true, Vision: true, MaxInputTokens: 115000},
 	// Groq's llama-4-scout rejects max_completion_tokens > 8192 (their API
@@ -68,15 +88,21 @@ var knownModels = []ModelCapabilities{
 	// Google Gemini's 2026 lineup. The flash-lite / 3.5-flash / pro-preview
 	// ladder mirrors the haiku/sonnet/opus split: cheap-fast small, tool-use
 	// typical (the typical tier runs the drift investigator), flagship large.
-	// All current Gemini models carry a 1M+ input window, so MaxInputTokens
-	// sits at 900000 (~10% under the published cap, matching Sonnet/GPT-5.5).
-	// No MaxCompletionTokens override: Gemini's 65,536 output max clears our
-	// 32k default send (unlike Groq's 8,192 cap). gemini-3.1-pro-preview is
-	// the current flagship Pro ID (gemini-3-pro-preview now aliases to it);
-	// the stable Pro tier is still preview-only as of June 2026.
-	{Provider: "gemini", Model: "gemini-3.1-flash-lite", ToolUse: true, Vision: true, MaxInputTokens: 900000},
-	{Provider: "gemini", Model: "gemini-3.5-flash", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	// Every 2.5/3.x Gemini model publishes a 1,048,576-token input window and
+	// 65,536-token output, so MaxInputTokens sits at 900000 (~14% under the
+	// published cap, matching Sonnet/GPT-5.5) and no MaxCompletionTokens
+	// override is needed (the 65,536 output max clears our 32k default send,
+	// unlike Groq's 8,192 cap). All accept image input and support function
+	// calling. Verified against ai.google.dev / Firebase AI Logic model
+	// tables, June 2026.
 	{Provider: "gemini", Model: "gemini-3.1-pro-preview", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-3-pro-preview", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-3.5-flash", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-3-flash-preview", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-3.1-flash-lite", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-2.5-pro", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-2.5-flash", ToolUse: true, Vision: true, MaxInputTokens: 900000},
+	{Provider: "gemini", Model: "gemini-2.5-flash-lite", ToolUse: true, Vision: true, MaxInputTokens: 900000},
 	// Self-hosted providers leave MaxInputTokens at 0 — the user picks the
 	// model and the harness has no reliable way to know its limit.
 	{Provider: "ollama", Model: "*"},
