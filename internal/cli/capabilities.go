@@ -109,6 +109,35 @@ var knownModels = []ModelCapabilities{
 	{Provider: "lmstudio", Model: "*"},
 }
 
+// isKnownModel reports whether (provider, model) matches an explicit row in
+// knownModels — an exact model match or a self-hosted "*" wildcard. It
+// distinguishes a recognized capability row from the conservative fallback
+// ResolveCapabilities returns for an unrecognized model on a known provider,
+// so callers can tell "we know this model can't do X" from "we've never heard
+// of this model".
+func isKnownModel(provider, model string) bool {
+	for _, m := range knownModels {
+		if m.Provider == provider && (m.Model == model || m.Model == "*") {
+			return true
+		}
+	}
+	return false
+}
+
+// knownModelsForProvider returns the concrete model IDs registered for a
+// provider, in registry order. Wildcard "*" rows (self-hosted providers) are
+// omitted because they name no specific model. Used to build the
+// "valid models: ..." hint in tier-validation errors.
+func knownModelsForProvider(provider string) []string {
+	var out []string
+	for _, m := range knownModels {
+		if m.Provider == provider && m.Model != "*" {
+			out = append(out, provider+"/"+m.Model)
+		}
+	}
+	return out
+}
+
 // ResolveCapabilities returns the capability flags for (provider, model).
 // The bool is true when the provider is recognized; for known providers with
 // an unknown model, it returns a zero-value ModelCapabilities and true so

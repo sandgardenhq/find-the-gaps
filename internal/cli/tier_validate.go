@@ -95,6 +95,14 @@ func validateTierConfigs(small, typical, large string) error {
 			return fmt.Errorf("tier %q: unknown provider %q (valid: %s)", tc.name, provider, strings.Join(knownProviders(), ", "))
 		}
 		if tc.needsTool && !caps.ToolUse {
+			// ResolveCapabilities returns ToolUse:false both for genuinely
+			// known non-tool-use models (self-hosted ollama/lmstudio "*" rows)
+			// and for the fallback it synthesizes for an unrecognized model. An
+			// unrecognized model isn't "does not support tool use" — it's an
+			// unknown model, so say that instead and point at the real ones.
+			if !isKnownModel(provider, model) {
+				return fmt.Errorf("tier %q: unknown model %q for provider %q (valid models: %s)", tc.name, model, provider, strings.Join(knownModelsForProvider(provider), ", "))
+			}
 			return fmt.Errorf("tier %q: model %q on provider %q does not support tool use; the drift investigator requires a tool-use-capable model", tc.name, model, provider)
 		}
 	}
