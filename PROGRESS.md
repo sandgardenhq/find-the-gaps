@@ -1780,3 +1780,16 @@ A new `--forge` flag covers self-hosted forges on custom domains
   - Auth needs no new code: Bifrost's Gemini provider reads the key as the `x-goog-api-key` header; the existing account key path is unchanged. No Vertex, no GOOGLE_API_KEY fallback, no base-URL override, no dedicated token counter (all YAGNI/out of scope).
   - Integration test gated on GEMINI_API_KEY added (skips when unset; not run live this session — no key available).
   - Docs: README LLM-provider section (precedence, env var, vision-model table) + design doc + VERIFICATION_PLAN Scenario 20.
+
+## LLM Rate-Limit Resilience (Gemini "high demand" aborts) - COMPLETE
+- Started: 2026-06-08
+- Tests: full suite passing (`go test ./...` exit 0, count=1); analyzer 92.4% coverage; new funcs `isRateLimitBifrostError`, `bifrostErrMessage`, `wrapBifrostError`, `isResumableLLMError`, `printRestartHint` all 100%
+- Build: Successful (`go build ./...`)
+- Linting: Clean (`golangci-lint run` exit 0; 3 pre-existing hints on untouched lines unchanged); `gofmt` clean
+- Completed: 2026-06-08
+- Notes:
+  - ROOT CAUSE: app copied `schemas.DefaultNetworkConfig` (where `DefaultMaxRetries = 0`) and only overrode the timeout, so Bifrost's built-in retry-with-exponential-backoff layer never engaged. A single transient provider rate-limit/overload (Gemini's "experiencing high demand" 503, or any 429) propagated on the first try and aborted the whole drift pass — even at `--workers=1`, because the sequential LLM call stream still trips a provider's per-minute quota. This also explained "intermediate results not being saved": with nothing completing, the per-feature `onFeatureDone` → `saveDriftCache` incremental persister had nothing to write.
+  - FIX 1 (retries): `GetConfigForProvider` now sets `MaxRetries=6`, `RetryBackoffInitial=1s`, `RetryBackoffMax=30s`. Bifrost already retries 429/503 + rate-limit message patterns and respects context cancellation; this just enables it. Benefits every call site (investigator, judge, classifier, mapper, screenshots) uniformly. Worker defaults left untouched (per user: failure was not concurrency-driven).
+  - FIX 2 (clear error): `wrapBifrostError` classifies rate-limit/overload (429/503, Bifrost's `IsRateLimitErrorMessage`, or overload phrases Bifrost misses like "high demand") and wraps with sentinel `ErrRateLimited` + an actionable message naming the provider, model, and resume path. Non-rate-limit errors keep the prior `"<stage>: <message>"` shape.
+  - FIX 3 (restart hint): extracted `isResumableLLMError` (errors.Is `ErrLLMRetriesExhausted` OR `ErrRateLimited`, through %w wrapping) and wired it into the analyze drift-error branch so rate-limit aborts also print the "wait a minute, re-run to resume — completed features are cached" hint. Hint wording refreshed to name rate limiting/overload.
+  - Honest scope note: when a run DOES finally abort after exhausting retries (sustained limit), in-flight not-yet-completed features are still discarded; only fully-completed features persist. Inherent to the parallel-abort design and acceptable — the drift cache resumes completed features on re-run. Not expanded here.

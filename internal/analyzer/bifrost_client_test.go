@@ -3,8 +3,10 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +41,27 @@ func TestBifrostAccount_GetConfigForProvider_TimeoutIs5Minutes(t *testing.T) {
 	const want = 300 // 5 minutes
 	if cfg.NetworkConfig.DefaultRequestTimeoutInSeconds != want {
 		t.Errorf("timeout = %d seconds, want %d", cfg.NetworkConfig.DefaultRequestTimeoutInSeconds, want)
+	}
+}
+
+func TestBifrostAccount_GetConfigForProvider_EnablesRetries(t *testing.T) {
+	// Bifrost ships a retry-with-exponential-backoff layer that already handles
+	// 429/503 and rate-limit messages, but DefaultMaxRetries is 0 so it never
+	// engages. We must enable it so transient provider rate limits ("high
+	// demand" 503s, 429s) are ridden out instead of aborting the analyze run.
+	acc := &bifrostAccount{provider: schemas.Anthropic, apiKey: "test-key"}
+	cfg, err := acc.GetConfigForProvider(schemas.Anthropic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NetworkConfig.MaxRetries < 1 {
+		t.Errorf("MaxRetries = %d, want >= 1 (retries must be enabled)", cfg.NetworkConfig.MaxRetries)
+	}
+	if cfg.NetworkConfig.RetryBackoffMax < 20*time.Second {
+		t.Errorf("RetryBackoffMax = %s, want >= 20s so a per-minute provider quota can reset across retries", cfg.NetworkConfig.RetryBackoffMax)
+	}
+	if cfg.NetworkConfig.RetryBackoffInitial <= 0 {
+		t.Errorf("RetryBackoffInitial = %s, want > 0", cfg.NetworkConfig.RetryBackoffInitial)
 	}
 }
 
@@ -304,6 +327,61 @@ func TestBifrostClient_Complete_BifrostError_WithMessage(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+}
+
+func TestIsRateLimitBifrostError(t *testing.T) {
+	code := func(n int) *int { return &n }
+	cases := []struct {
+		name string
+		err  *schemas.BifrostError
+		want bool
+	}{
+		{"nil", nil, false},
+		{"429 status", &schemas.BifrostError{StatusCode: code(429)}, true},
+		{"503 status", &schemas.BifrostError{StatusCode: code(503)}, true},
+		{"400 status not rate limit", &schemas.BifrostError{StatusCode: code(400), Error: &schemas.ErrorField{Message: "bad request"}}, false},
+		{"rate limit message", &schemas.BifrostError{Error: &schemas.ErrorField{Message: "rate limited"}}, true},
+		{"gemini high demand message", &schemas.BifrostError{Error: &schemas.ErrorField{Message: "This model is currently experiencing high demand. Please try again later."}}, true},
+		{"overloaded message", &schemas.BifrostError{Error: &schemas.ErrorField{Message: "The model is overloaded."}}, true},
+		{"unrelated message", &schemas.BifrostError{Error: &schemas.ErrorField{Message: "unexpected end of JSON input"}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isRateLimitBifrostError(tc.err))
+		})
+	}
+}
+
+func TestBifrostClient_Complete_RateLimit_WrapsErrRateLimited(t *testing.T) {
+	overloaded := 503
+	fake := &fakeBifrostRequester{
+		bifroErr: &schemas.BifrostError{
+			StatusCode: &overloaded,
+			Error:      &schemas.ErrorField{Message: "This model is currently experiencing high demand. Please try again later."},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Gemini, "gemini-3.5-flash")
+	_, err := client.Complete(context.Background(), "ping")
+	require.Error(t, err)
+
+	// Sentinel must survive a downstream %w wrap (DetectDrift wraps with
+	// fmt.Errorf("DetectDrift %q: %w", ...)), so analyze's errors.Is check fires.
+	wrapped := fmt.Errorf("DetectDrift %q: %w", "Some Feature", err)
+	assert.ErrorIs(t, wrapped, ErrRateLimited, "rate-limit errors must carry ErrRateLimited through wrapping")
+
+	msg := err.Error()
+	assert.Contains(t, strings.ToLower(msg), "rate limit", "message must name the rate-limit condition clearly")
+	assert.Contains(t, msg, "gemini", "message must name the provider so the user knows who throttled them")
+}
+
+func TestBifrostClient_Complete_NonRateLimitError_NotErrRateLimited(t *testing.T) {
+	fake := &fakeBifrostRequester{
+		bifroErr: &schemas.BifrostError{Error: &schemas.ErrorField{Message: "unexpected end of JSON input"}},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Anthropic, "claude-haiku-4-5")
+	_, err := client.Complete(context.Background(), "ping")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrRateLimited, "ordinary provider errors must not be misclassified as rate limits")
 }
 
 func TestBifrostClient_Complete_BifrostError_NoErrorField(t *testing.T) {

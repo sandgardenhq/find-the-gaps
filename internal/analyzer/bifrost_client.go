@@ -3,7 +3,10 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/log"
 	bifrost "github.com/maximhq/bifrost/core"
@@ -26,6 +29,77 @@ func formatUsage(u *schemas.BifrostLLMUsage) string {
 	}
 	return fmt.Sprintf("usage: prompt=%d completion=%d cache_write=%d cache_read=%d",
 		u.PromptTokens, u.CompletionTokens, cw, cr)
+}
+
+// ErrRateLimited marks an error caused by provider rate limiting or overload
+// (HTTP 429/503, or a throttling/overload message) that survived Bifrost's
+// built-in retry-with-backoff layer. The CLI checks for it via errors.Is to
+// print a wait-and-resume hint — completed features are cached, so a re-run
+// resumes from where the run stopped.
+var ErrRateLimited = errors.New("llm provider rate limited")
+
+// overloadPhrases catch provider overload responses that Bifrost's own
+// rate-limit message list does not — notably Gemini's "experiencing high
+// demand" 503, which carries no "rate limit"/"quota" wording. These are
+// transient and resume-friendly, so we classify them alongside true rate
+// limits for the purpose of the user-facing message and the restart hint.
+var overloadPhrases = []string{
+	"high demand",
+	"overloaded",
+	"try again later",
+	"temporarily unavailable",
+	"currently unavailable",
+}
+
+// isRateLimitBifrostError reports whether e represents provider rate limiting
+// or overload: HTTP 429 or 503, a message Bifrost recognizes as throttling, or
+// an overload phrase Bifrost's list misses. Used to wrap the error with
+// ErrRateLimited and a clear, actionable message.
+func isRateLimitBifrostError(e *schemas.BifrostError) bool {
+	if e == nil {
+		return false
+	}
+	if e.StatusCode != nil && (*e.StatusCode == 429 || *e.StatusCode == 503) {
+		return true
+	}
+	if e.Error == nil {
+		return false
+	}
+	if bifrost.IsRateLimitErrorMessage(e.Error.Message) ||
+		(e.Error.Type != nil && bifrost.IsRateLimitErrorMessage(*e.Error.Type)) ||
+		(e.Error.Code != nil && bifrost.IsRateLimitErrorMessage(*e.Error.Code)) {
+		return true
+	}
+	lower := strings.ToLower(e.Error.Message)
+	for _, p := range overloadPhrases {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// bifrostErrMessage extracts the human-readable message from a BifrostError,
+// falling back to a fixed string when no message is present.
+func bifrostErrMessage(e *schemas.BifrostError) string {
+	if e != nil && e.Error != nil && e.Error.Message != "" {
+		return e.Error.Message
+	}
+	return "unknown error"
+}
+
+// wrapBifrostError converts a BifrostError into a Go error. Rate-limit and
+// overload conditions — which Bifrost has already retried up to MaxRetries
+// times before surfacing — are wrapped with ErrRateLimited and a clear message
+// naming the provider, the model, and the resume path. Everything else keeps
+// the existing "<stage>: <message>" shape so unrelated failures read as before.
+func (c *BifrostClient) wrapBifrostError(stage string, e *schemas.BifrostError) error {
+	msg := bifrostErrMessage(e)
+	if isRateLimitBifrostError(e) {
+		return fmt.Errorf("%s: %s rate limited or overloaded (model %s) and did not recover after automatic retries: %s — wait a minute and re-run `ftg analyze` to resume (completed work is cached): %w",
+			stage, c.provider, c.model, msg, ErrRateLimited)
+	}
+	return fmt.Errorf("%s: %s", stage, msg)
 }
 
 // bifrostRequester is the subset of the Bifrost SDK used by BifrostClient.
@@ -107,6 +181,18 @@ func (a *bifrostAccount) GetConfigForProvider(provider schemas.ModelProvider) (*
 	if provider == a.provider {
 		nc := schemas.DefaultNetworkConfig
 		nc.DefaultRequestTimeoutInSeconds = 300 // 5 minutes — feature mapping batches can be large
+		// Enable Bifrost's built-in retry-with-exponential-backoff layer. It
+		// already retries 429/503 status codes and rate-limit message patterns
+		// and respects context cancellation, but DefaultMaxRetries is 0 so it
+		// never engages. Without this, a single transient provider rate limit
+		// or overload ("This model is currently experiencing high demand")
+		// aborts the whole analyze run — even at --workers=1, where the
+		// sequential LLM call stream still trips a provider's per-minute quota.
+		// The 30s max backoff (vs Bifrost's 5s default) lets a per-minute quota
+		// reset across retries; 6 attempts spans roughly a minute of throttling.
+		nc.MaxRetries = 6
+		nc.RetryBackoffInitial = 1 * time.Second
+		nc.RetryBackoffMax = 30 * time.Second
 		if a.baseURL != "" && a.provider != schemas.Ollama {
 			// OpenAI / Anthropic honor NetworkConfig.BaseURL for custom endpoints
 			// (lmstudio). Ollama routes via OllamaKeyConfig instead.
@@ -325,10 +411,7 @@ func (c *BifrostClient) completeOneTurn(ctx context.Context, messages []ChatMess
 		},
 	})
 	if bifrostErr != nil {
-		if bifrostErr.Error != nil {
-			return ChatMessage{}, fmt.Errorf("bifrost tool completion: %s", bifrostErr.Error.Message)
-		}
-		return ChatMessage{}, fmt.Errorf("bifrost tool completion: unknown error")
+		return ChatMessage{}, c.wrapBifrostError("bifrost tool completion", bifrostErr)
 	}
 	if len(resp.Choices) == 0 {
 		return ChatMessage{}, fmt.Errorf("bifrost tool completion: no choices returned")
@@ -455,10 +538,7 @@ func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages
 		},
 	})
 	if bifrostErr != nil {
-		if bifrostErr.Error != nil {
-			return nil, fmt.Errorf("bifrost CompleteJSON: %s", bifrostErr.Error.Message)
-		}
-		return nil, fmt.Errorf("bifrost CompleteJSON: unknown error")
+		return nil, c.wrapBifrostError("bifrost CompleteJSON", bifrostErr)
 	}
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
@@ -517,10 +597,7 @@ func (c *BifrostClient) completeJSONAnthropicMessages(ctx context.Context, messa
 		},
 	})
 	if bifrostErr != nil {
-		if bifrostErr.Error != nil {
-			return nil, fmt.Errorf("bifrost CompleteJSON: %s", bifrostErr.Error.Message)
-		}
-		return nil, fmt.Errorf("bifrost CompleteJSON: unknown error")
+		return nil, c.wrapBifrostError("bifrost CompleteJSON", bifrostErr)
 	}
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("bifrost CompleteJSON: no choices returned")
@@ -576,10 +653,7 @@ func (c *BifrostClient) Complete(ctx context.Context, prompt string) (string, er
 		},
 	})
 	if bifrostErr != nil {
-		if bifrostErr.Error != nil {
-			return "", fmt.Errorf("bifrost completion: %s", bifrostErr.Error.Message)
-		}
-		return "", fmt.Errorf("bifrost completion: unknown error")
+		return "", c.wrapBifrostError("bifrost completion", bifrostErr)
 	}
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("bifrost completion: no choices returned")

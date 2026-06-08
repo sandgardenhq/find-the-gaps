@@ -590,7 +590,7 @@ func newAnalyzeCmd() *cobra.Command {
 					return fmt.Errorf("close gaps writer: %w", closeErr)
 				}
 				if err != nil {
-					if errors.Is(err, analyzer.ErrLLMRetriesExhausted) {
+					if isResumableLLMError(err) {
 						printRestartHint(cmd.ErrOrStderr())
 					}
 					return fmt.Errorf("detect drift: %w", err)
@@ -1075,15 +1075,25 @@ func stringSliceEqual(a, b []string) bool {
 	return true
 }
 
+// isResumableLLMError reports whether err is an LLM-provider failure that a
+// re-run can recover from: an exhausted retry budget, or a rate-limit/overload
+// that outlived Bifrost's automatic retries. Both leave the per-feature drift
+// cache intact, so printRestartHint tells the user to re-run. The check sees
+// through fmt.Errorf %w wrapping (e.g. DetectDrift's per-feature wrap).
+func isResumableLLMError(err error) bool {
+	return errors.Is(err, analyzer.ErrLLMRetriesExhausted) ||
+		errors.Is(err, analyzer.ErrRateLimited)
+}
+
 // printRestartHint writes a one-shot warning explaining that the run was
-// stopped by a retried-and-exhausted LLM call (provider hiccup, malformed
-// response, network blip) and that re-running analyze resumes from cached
-// per-feature drift results.
+// stopped by a retried-and-exhausted LLM call (provider rate limit/overload,
+// malformed response, network blip) and that re-running analyze resumes from
+// cached per-feature drift results.
 func printRestartHint(w io.Writer) {
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "WARNING: analyze stopped because an LLM call failed after several retries.")
-	_, _ = fmt.Fprintln(w, "         This usually means the LLM provider is temporarily unavailable.")
-	_, _ = fmt.Fprintln(w, "         Re-run `ftg analyze` to resume — completed features are cached")
-	_, _ = fmt.Fprintln(w, "         and will be skipped.")
+	_, _ = fmt.Fprintln(w, "WARNING: analyze stopped because an LLM call failed after several automatic retries.")
+	_, _ = fmt.Fprintln(w, "         This usually means the provider is rate limiting you or is temporarily")
+	_, _ = fmt.Fprintln(w, "         overloaded. Wait a minute, then re-run `ftg analyze` to resume —")
+	_, _ = fmt.Fprintln(w, "         completed features are cached and will be skipped.")
 	_, _ = fmt.Fprintln(w)
 }
