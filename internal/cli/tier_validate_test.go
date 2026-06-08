@@ -83,6 +83,25 @@ func TestValidateTierConfigs_AllowsGroqOnTypical(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestValidateTierConfigs_TypicalUnknownModelSaysUnknown pins that an
+// unrecognized model on a KNOWN provider in the typical tier reports the model
+// as unknown — not as "does not support tool use". ResolveCapabilities falls
+// back to ToolUse:false for unrecognized models, which previously produced a
+// misleading tool-use error when the real problem is the model name isn't in
+// the registry. Contrast with the ollama/* wildcard case below, which is a
+// genuinely-known capability row and keeps the tool-use message.
+func TestValidateTierConfigs_TypicalUnknownModelSaysUnknown(t *testing.T) {
+	err := validateTierConfigs("", "gemini/gemini-3.1-flash", "")
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "typical")
+	assert.Contains(t, msg, "unknown model")
+	assert.Contains(t, msg, "gemini-3.1-flash")
+	assert.NotContains(t, msg, "does not support tool use")
+	// The message should help the user toward a real model.
+	assert.Contains(t, msg, defaultTypicalTierGemini)
+}
+
 func TestValidateTierConfigs_AllowsUnknownModelOnKnownProvider(t *testing.T) {
 	err := validateTierConfigs("anthropic/claude-future-9-9", "", "")
 	assert.NoError(t, err)
