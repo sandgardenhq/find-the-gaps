@@ -422,12 +422,24 @@ func (c *BifrostClient) completeJSONMessages(ctx context.Context, messages []Cha
 // "schema": schema.Doc}}. The assistant message content is a JSON string
 // conforming to the schema.
 func (c *BifrostClient) completeJSONOpenAIMessages(ctx context.Context, messages []ChatMessage, schema JSONSchema) (json.RawMessage, error) {
+	// The schema value MUST be a decoded map[string]any, not the raw json.RawMessage.
+	// Bifrost's Gemini provider converts response_format=json_schema into Gemini's
+	// native responseJsonSchema via a runtime type assertion (providers/gemini/
+	// utils.go: extractSchemaMapFromResponseFormat does `schemaObj.(map[string]interface{})`).
+	// A json.RawMessage ([]byte) fails that assertion, so the converter silently
+	// drops the schema and Gemini free-generates fenced ```json — which then fails
+	// to parse. OpenAI/Ollama are unaffected either way (both marshal identically),
+	// so decoding here serves all three providers in this branch.
+	var schemaMap map[string]any
+	if err := json.Unmarshal(schema.Doc, &schemaMap); err != nil {
+		return nil, fmt.Errorf("bifrost CompleteJSON: schema %q: invalid JSON Schema doc: %w", schema.Name, err)
+	}
 	rf := map[string]any{
 		"type": "json_schema",
 		"json_schema": map[string]any{
 			"name":   schema.Name,
 			"strict": true,
-			"schema": schema.Doc,
+			"schema": schemaMap,
 		},
 	}
 	var rfIface any = rf

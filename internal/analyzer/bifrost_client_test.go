@@ -916,6 +916,42 @@ func TestBifrostClient_CompleteJSON_Gemini_UsesOpenAIJSONSchemaPath(t *testing.T
 	require.NotNil(t, req.Params.ResponseFormat, "expected response_format to be set for gemini (OpenAI-compat structured-output path)")
 }
 
+func TestBifrostClient_CompleteJSON_Gemini_SchemaIsDecodedMap(t *testing.T) {
+	// Bifrost's Gemini provider converts response_format=json_schema into
+	// Gemini's native responseJsonSchema by doing a RUNTIME Go type assertion on
+	// the schema value: extractSchemaMapFromResponseFormat (providers/gemini/
+	// utils.go:2356-2364) does `schemaObj.(map[string]interface{})`. If we hand
+	// it a json.RawMessage ([]byte) the assertion fails, the converter returns
+	// nil, and Gemini's request carries NO responseJsonSchema — so Gemini
+	// free-generates and wraps its JSON in a ```json fence, which then fails to
+	// parse ("invalid character '`'"). Marshaling to JSON and back would hide
+	// this because []byte and map marshal identically; we must inspect the live
+	// Go value. The schema therefore MUST be a map[string]any, not raw bytes.
+	content := `{"summary":"ok","features":["a"]}`
+	fake := &fakeBifrostRequester{
+		resp: &schemas.BifrostChatResponse{
+			Choices: []schemas.BifrostResponseChoice{
+				makeChoice(&schemas.ChatMessageContent{ContentStr: &content}),
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Gemini, "gemini-3.5-flash")
+	_, err := client.CompleteJSON(context.Background(), "summarize this", testAnalyzeSchema())
+	require.NoError(t, err)
+
+	req := fake.lastRequest
+	require.NotNil(t, req)
+	require.NotNil(t, req.Params)
+	require.NotNil(t, req.Params.ResponseFormat)
+
+	rf, ok := (*req.Params.ResponseFormat).(map[string]any)
+	require.True(t, ok, "response_format must be a map[string]any")
+	js, ok := rf["json_schema"].(map[string]any)
+	require.True(t, ok, "json_schema must be a map[string]any")
+	_, ok = js["schema"].(map[string]any)
+	assert.True(t, ok, "schema must be a decoded map[string]any (not json.RawMessage) so Bifrost's Gemini converter can type-assert it")
+}
+
 func TestBifrostClient_CompleteJSON_OpenAI_BifrostError(t *testing.T) {
 	fake := &fakeBifrostRequester{
 		bifroErr: &schemas.BifrostError{Error: &schemas.ErrorField{Message: "bad model"}},
