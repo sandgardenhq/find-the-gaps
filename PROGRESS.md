@@ -1,5 +1,18 @@
 # Progress
 
+## Drift Investigator Token-Overflow — Fix #3 (provider-overflow recognition) — COMPLETE
+- Started: 2026-06-09
+- Plan: `.plans/DRIFT_TOKEN_OVERFLOW_FIX.md`
+- Tests: `go test ./internal/analyzer/` passing (exit 0). New: `TestIsContextOverflowBifrostError`, `TestParseProviderTokenCounts`, `TestBifrostClient_CompleteOneTurn_ContextOverflow_WrapsErrTokenBudgetExceeded`, `TestBifrostClient_CompleteWithTools_ContextOverflow_PropagatesTyped`.
+- Build: ✅ `go build ./...`
+- Linting: ✅ no new issues (2 pre-existing QF1008 hints on untouched test lines 804–805, unchanged by this work)
+- Completed: 2026-06-09
+- Notes:
+  - INCIDENT: `DetectDrift "Predictor primitives": bifrost tool completion: Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 317507 tokens.` The drift investigator's tool-use agent loop accumulated a message history past the provider's enforced input ceiling. The rejection came back as a RAW provider error (not our typed `ErrTokenBudgetExceeded`), so the investigator's existing recovery path (hand partial observations to judge / skip-and-cache) never matched it and the whole feature aborted.
+  - Verified: `gemini-3.5-flash` has a real 1,048,576-token window; 272000 is a Google-side *configured* (account/tier) limit passed through verbatim by Bifrost (Bifrost's native gemini provider contains no such string). Per developer decision, the capabilities-table value (Fix #1) was NOT changed — correctness rests on this fix instead.
+  - FIX: `isContextOverflowBifrostError` (message-phrase classifier covering Gemini/Google-native/OpenAI phrasings) + `parseProviderTokenCounts` (best-effort extract of the provider's own counted/budget figures) + a new branch in `wrapBifrostError` mapping overflow rejections to `ErrTokenBudgetExceeded{Provider,Model,Counted,Budget,Where}` while preserving the provider's message. Ordered after the rate-limit branch (a 400 is never a 429/503).
+  - The investigator's recovery itself was already implemented and tested (`budgetErrToolStub` tests); this fix only makes the real Bifrost path emit the typed error. Proven end-to-end through the real `CompleteWithTools → runAgentLoop → completeOneTurn` chain.
+
 ## Feature: PDF Visual Alignment with Site — COMPLETE
 - Started: 2026-05-13
 - Plan: `.plans/PDF_VISUAL_ALIGNMENT.md`
