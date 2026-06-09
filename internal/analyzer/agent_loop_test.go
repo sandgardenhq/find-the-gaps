@@ -303,6 +303,36 @@ func TestRunAgentLoop_PreTurnHookErrorTerminates(t *testing.T) {
 	}
 }
 
+// TestRunAgentLoop_CompactorRunsBeforeEachTurn pins that a registered
+// compactor is applied to the message history before every LLM turn, and that
+// the turn sees the compacted slice. budgetedClient uses this to elide stale
+// tool-result bodies so a long investigation stays under the input budget
+// instead of stopping at the gate. The compactor here rewrites the seeded
+// message's content; the turn must observe the rewrite.
+func TestRunAgentLoop_CompactorRunsBeforeEachTurn(t *testing.T) {
+	var compactorCalls int
+	compactor := func(msgs []ChatMessage, _ []Tool) []ChatMessage {
+		compactorCalls++
+		out := append([]ChatMessage(nil), msgs...)
+		out[0].Content = "COMPACTED"
+		return out
+	}
+	var observed [][]ChatMessage
+	scripted := []ChatMessage{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "echo", Arguments: "{}"}}},
+		{Role: "assistant", Content: "ok"},
+	}
+	tools := []Tool{{Name: "echo", Execute: func(_ context.Context, _ string) (string, error) { return "r", nil }}}
+
+	_, err := runAgentLoop(context.Background(), scriptedTurns(scripted, &observed),
+		[]ChatMessage{{Role: "user", Content: "go"}}, tools, WithCompactor(compactor))
+	require.NoError(t, err)
+	assert.Equal(t, 2, compactorCalls, "compactor must run once before each of the two turns")
+	require.Len(t, observed, 2)
+	assert.Equal(t, "COMPACTED", observed[0][0].Content, "turn 1 must see the compacted slice")
+	assert.Equal(t, "COMPACTED", observed[1][0].Content, "turn 2 must see the compacted slice")
+}
+
 // TestRunAgentLoop_ClipsLargeToolResults pins the per-tool-result hard
 // cap. A single tool result that would alone burn most of the budget is
 // truncated with a "[truncated:" marker before being appended to the

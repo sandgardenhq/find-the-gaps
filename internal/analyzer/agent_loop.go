@@ -35,6 +35,12 @@ type agentConfig struct {
 	// over the cap are truncated with a "[truncated: ~N tokens omitted]"
 	// marker. Zero (the default) disables clipping.
 	maxToolResultTokens int
+	// compactor, when set, is applied to the running message history
+	// immediately before each turn's pre-turn hook. It returns a (possibly
+	// shrunk) history. budgetedClient uses it to elide stale tool-result
+	// bodies so a long investigation stays under the input budget instead of
+	// stopping at the gate. nil (the default) disables compaction.
+	compactor func(messages []ChatMessage, tools []Tool) []ChatMessage
 }
 
 // WithMaxRounds sets the maximum number of LLM round-trips the agent loop will
@@ -72,6 +78,17 @@ func WithPreTurnHook(fn func(messages []ChatMessage, tools []Tool) error) AgentO
 // non-zero MaxInputTokens.
 func WithMaxToolResultTokens(n int) AgentOption {
 	return func(cfg *agentConfig) { cfg.maxToolResultTokens = n }
+}
+
+// WithCompactor registers fn to be applied to the running message history
+// immediately before each turn (ahead of any pre-turn hook). fn returns the
+// history to send — typically the same slice with stale tool-result bodies
+// elided. It must preserve message structure (every assistant tool-call keeps a
+// matching tool result; no message is dropped) so the provider still accepts
+// the request. budgetedClient supplies the production compactor; pass nil to
+// opt out (the default).
+func WithCompactor(fn func(messages []ChatMessage, tools []Tool) []ChatMessage) AgentOption {
+	return func(cfg *agentConfig) { cfg.compactor = fn }
 }
 
 // OnTurnFromOptionsForTesting applies opts to a fresh agentConfig and returns
@@ -123,6 +140,14 @@ func runAgentLoop(ctx context.Context, next turnFunc, messages []ChatMessage, to
 
 	var lastAssistant ChatMessage
 	for round := 1; round <= cfg.maxRounds; round++ {
+		// Compaction runs first, as a strictly-additional layer ahead of the
+		// gate: it elides stale tool-result bodies so the history shrinks back
+		// under budget. If it cannot shrink enough (nothing left to elide), the
+		// pre-turn hook below still fires as the backstop, preserving the
+		// existing graceful-stop semantics.
+		if cfg.compactor != nil {
+			messages = cfg.compactor(messages, tools)
+		}
 		// Pre-turn hook: budgetedClient uses this to translate "next turn
 		// would exceed input budget" into ErrTokenBudgetExceeded. Returning
 		// here preserves any partial state captured by tool handlers in

@@ -2,7 +2,10 @@
 
 ## Status
 
-Planning. Not started. Author: investigation on 2026-06-09.
+Fix #3 and Fix #2 IMPLEMENTED (2026-06-09). Fix #1 descoped by developer.
+Commits on branch `dakar-v4`. Fix #3 = `233357e`. See PROGRESS.md for the
+per-fix record. Remaining: real-API verification (Scenarios 9, 20) — not run
+here (no live key in this session).
 
 ## The incident
 

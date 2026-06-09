@@ -177,8 +177,64 @@ func (b *budgetedClient) CompleteWithTools(ctx context.Context, msgs []ChatMessa
 		return nil
 	}
 
-	opts = append(opts, WithPreTurnHook(hook), WithMaxToolResultTokens(clipMax))
+	opts = append(opts, WithCompactor(b.compactHistory), WithPreTurnHook(hook), WithMaxToolResultTokens(clipMax))
 	return b.tool.CompleteWithTools(ctx, msgs, tools, opts...)
+}
+
+// compactionPlaceholder replaces an elided tool-result body. It is non-empty
+// (providers require a result for every tool call) and tells the model the
+// content is recoverable, so it can re-issue the read if it still needs it.
+const compactionPlaceholder = "[earlier read elided to fit context — call the tool again if you need this content]"
+
+// compactionKeepRecentToolResults is the number of most-recent tool results
+// compactHistory never elides. The investigator's active line of reasoning
+// almost always concerns the files/pages it just read, and the newest result
+// carries the rotating cache breakpoint — so the recent window is protected
+// while older reads (whose findings were already captured via note_observation)
+// are the ones elided.
+const compactionKeepRecentToolResults = 3
+
+// compactHistory elides the oldest tool-result bodies, oldest-first, until the
+// estimated payload fits the gated budget (0.9 × MaxInputTokens) — preserving
+// every assistant tool-call turn, the system prompt, and the most recent
+// compactionKeepRecentToolResults tool results. It mutates message bodies in
+// place so elisions persist across rounds (an old read elided once stays
+// elided, freeing budget cumulatively). A model with no budget
+// (MaxInputTokens <= 0) or a history already under budget is returned
+// unchanged. When even eliding every eligible result is not enough, the
+// per-turn gate in CompleteWithTools backstops with ErrTokenBudgetExceeded.
+func (b *budgetedClient) compactHistory(messages []ChatMessage, tools []Tool) []ChatMessage {
+	caps := b.inner.Capabilities()
+	if caps.MaxInputTokens <= 0 {
+		return messages
+	}
+	gated := int(0.9 * float64(caps.MaxInputTokens))
+	if countPayloadTokens("", messages, tools, JSONSchema{}) <= gated {
+		return messages
+	}
+
+	// Indices of tool-result messages still carrying a real body, oldest
+	// first. Already-elided results are skipped (idempotent across rounds).
+	var eligible []int
+	for i, m := range messages {
+		if m.Role == "tool" && m.Content != compactionPlaceholder {
+			eligible = append(eligible, i)
+		}
+	}
+	// Protect the most recent results from elision.
+	if len(eligible) > compactionKeepRecentToolResults {
+		eligible = eligible[:len(eligible)-compactionKeepRecentToolResults]
+	} else {
+		eligible = nil
+	}
+
+	for _, i := range eligible {
+		messages[i].Content = compactionPlaceholder
+		if countPayloadTokens("", messages, tools, JSONSchema{}) <= gated {
+			break
+		}
+	}
+	return messages
 }
 
 // ErrTokenBudgetExceeded is returned by budgetedClient when a request's

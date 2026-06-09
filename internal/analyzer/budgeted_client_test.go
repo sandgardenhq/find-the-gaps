@@ -6,6 +6,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeInnerLLM is a minimal in-package LLMClient used by budgetedClient
@@ -193,13 +196,21 @@ func (f *fakeInnerToolLLM) CompleteWithTools(ctx context.Context, msgs []ChatMes
 	return runAgentLoop(ctx, f.turn, msgs, tools, opts...)
 }
 
-// TestBudgetedClient_CompleteWithToolsGatesEachTurn pins the multi-turn
-// fix for the original 294k-token incident. After two successful tool
-// roundtrips the accumulated history would push past the budget; the
-// pre-turn hook detects this on round 3 and the loop terminates cleanly
-// with ErrTokenBudgetExceeded — partial state captured by tool handlers
-// is preserved (the existing ErrMaxRounds shape).
-func TestBudgetedClient_CompleteWithToolsGatesEachTurn(t *testing.T) {
+// TestBudgetedClient_CompleteWithToolsGatesStillBackstops pins that the
+// per-turn gate remains a working backstop even with compaction wired in
+// (Fix #2). Compaction elides OLD tool results but never the most recent
+// compactionKeepRecentToolResults; with each result clipped to gated/2, that
+// protected window alone can reach 1.5 × gated. So when even the recent reads
+// exceed budget — the case compaction cannot rescue — the loop still
+// terminates cleanly with ErrTokenBudgetExceeded rather than sending an
+// over-budget request. Partial state captured by tool handlers is preserved
+// (the existing ErrMaxRounds shape).
+//
+// (Before compaction this test fired the gate on a steadily-growing small
+// history; that scenario is now bounded by compaction and is covered by
+// TestBudgetedClient_CompactionAllowsLoopToContinue. This test deliberately
+// uses oversized reads so the protected window itself busts the budget.)
+func TestBudgetedClient_CompleteWithToolsGatesStillBackstops(t *testing.T) {
 	round := 0
 	turn := func(_ context.Context, _ []ChatMessage, _ []Tool) (ChatMessage, error) {
 		round++
@@ -212,10 +223,10 @@ func TestBudgetedClient_CompleteWithToolsGatesEachTurn(t *testing.T) {
 	noop := Tool{
 		Name: "noop",
 		Execute: func(_ context.Context, _ string) (string, error) {
-			// Return a chunk of "filler" text that will balloon the
-			// accumulated history past a tiny budget after a couple
-			// rounds.
-			return strings.Repeat("filler text ", 500), nil
+			// Oversized read: clips to clipMax (gated/2). Three such results —
+			// the protected recent window — sum to 1.5 × gated, which
+			// compaction cannot elide, so the gate must fire.
+			return strings.Repeat("filler text ", 4000), nil
 		},
 	}
 	inner := &fakeInnerToolLLM{
@@ -229,7 +240,7 @@ func TestBudgetedClient_CompleteWithToolsGatesEachTurn(t *testing.T) {
 		[]Tool{noop}, WithMaxRounds(20))
 
 	if !errors.Is(err, ErrTokenBudgetExceeded{}) {
-		t.Fatalf("expected ErrTokenBudgetExceeded after history grows, got %v", err)
+		t.Fatalf("expected ErrTokenBudgetExceeded when the protected window exceeds budget, got %v", err)
 	}
 	if res.Rounds < 1 {
 		t.Fatalf("expected at least one successful turn before the gate fired; got Rounds=%d", res.Rounds)
@@ -258,6 +269,111 @@ func TestBudgetedClient_NoBudgetMeansNoToolGate(t *testing.T) {
 	if res.Rounds != 1 {
 		t.Fatalf("expected one turn, got %d", res.Rounds)
 	}
+}
+
+// --- compaction tests (Fix #2: long-investigation history compaction) ---
+
+// asstCall and toolResult build the two repeating message shapes a drift
+// investigation accumulates: an assistant tool-call turn followed by its
+// tool-role result.
+func asstCall(id string) ChatMessage {
+	return ChatMessage{Role: "assistant", ToolCalls: []ToolCall{{ID: id, Name: "read_file", Arguments: "{}"}}}
+}
+func toolResult(id, content string) ChatMessage {
+	return ChatMessage{Role: "tool", ToolCallID: id, Content: content}
+}
+
+// TestCompactHistory_NoBudget_NoOp pins that a model with no declared input
+// budget (self-hosted ollama/lmstudio, MaxInputTokens=0) is never compacted —
+// we have nothing to size against, so the history passes through untouched.
+func TestCompactHistory_NoBudget_NoOp(t *testing.T) {
+	inner := &fakeInnerLLM{caps: ModelCapabilities{MaxInputTokens: 0}}
+	bc := newBudgetedClient(inner, "t")
+	big := strings.Repeat("filler text ", 2000)
+	msgs := []ChatMessage{{Role: "user", Content: "sys"}, asstCall("1"), toolResult("1", big), asstCall("2"), toolResult("2", big)}
+	out := bc.compactHistory(msgs, nil)
+	if out[2].Content != big || out[4].Content != big {
+		t.Fatalf("history must be untouched when MaxInputTokens=0")
+	}
+}
+
+// TestCompactHistory_UnderBudget_NoOp pins that a history already within the
+// gated budget is returned unchanged — compaction only acts when needed.
+func TestCompactHistory_UnderBudget_NoOp(t *testing.T) {
+	inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 100000}}
+	bc := newBudgetedClient(inner, "t")
+	small := "a short tool result"
+	msgs := []ChatMessage{{Role: "user", Content: "sys"}, asstCall("1"), toolResult("1", small)}
+	out := bc.compactHistory(msgs, nil)
+	if out[2].Content != small {
+		t.Fatalf("under-budget history must be untouched, got %q", out[2].Content)
+	}
+}
+
+// TestCompactHistory_ElidesOldestKeepsRecent pins the core contract: when the
+// history exceeds the gated budget, the OLDEST tool-result bodies are elided
+// (replaced with the placeholder) oldest-first; the most recent
+// compactionKeepRecentToolResults results stay intact; non-tool messages
+// (system prompt, assistant tool-call turns) are never touched; and the
+// result fits under the gated budget.
+func TestCompactHistory_ElidesOldestKeepsRecent(t *testing.T) {
+	inner := &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 10000}}
+	bc := newBudgetedClient(inner, "t")
+	gated := int(0.9 * 10000)
+	big := strings.Repeat("filler text ", 1000) // ~1500 tokens each
+
+	// 6 results → ~9000+ tokens, over the 9000 gate.
+	msgs := []ChatMessage{{Role: "user", Content: "sys"}}
+	for i := 1; i <= 6; i++ {
+		id := string(rune('0' + i))
+		msgs = append(msgs, asstCall(id), toolResult(id, big))
+	}
+	// Tool-result indices: 2,4,6,8,10,12. Recent 3 = 8,10,12. Oldest = 2.
+	require.Greater(t, countPayloadTokens("", msgs, nil, JSONSchema{}), gated, "setup must be over budget")
+
+	out := bc.compactHistory(msgs, nil)
+
+	assert.Equal(t, compactionPlaceholder, out[2].Content, "oldest tool result must be elided")
+	for _, i := range []int{8, 10, 12} {
+		assert.Equal(t, big, out[i].Content, "most recent %d results must stay intact (index %d)", compactionKeepRecentToolResults, i)
+	}
+	assert.Equal(t, "sys", out[0].Content, "system prompt must never be elided")
+	require.Len(t, out[1].ToolCalls, 1, "assistant tool-call turns must be preserved")
+	assert.LessOrEqual(t, countPayloadTokens("", out, nil, JSONSchema{}), gated, "compacted history must fit the gated budget")
+}
+
+// TestBudgetedClient_CompactionAllowsLoopToContinue is the Fix #2 regression
+// test. A budget that the raw history would blow past mid-run (the production
+// shape: the drift investigator reading file after file) must now be survivable
+// — compaction elides stale reads so the loop runs to its natural text-message
+// completion instead of aborting at the gate. Without the compactor wired into
+// CompleteWithTools, the gate fires around round 5 and the loop never reaches
+// the terminating turn.
+func TestBudgetedClient_CompactionAllowsLoopToContinue(t *testing.T) {
+	const stopRound = 8
+	round := 0
+	turn := func(_ context.Context, _ []ChatMessage, _ []Tool) (ChatMessage, error) {
+		round++
+		if round >= stopRound {
+			return ChatMessage{Role: "assistant", Content: "done"}, nil
+		}
+		return ChatMessage{Role: "assistant", ToolCalls: []ToolCall{{ID: "x", Name: "read", Arguments: "{}"}}}, nil
+	}
+	read := Tool{Name: "read", Execute: func(_ context.Context, _ string) (string, error) {
+		return strings.Repeat("filler text ", 1000), nil // ~1500 tokens per read
+	}}
+	inner := &fakeInnerToolLLM{
+		fakeInnerLLM: &fakeInnerLLM{caps: ModelCapabilities{Provider: "p", Model: "m", MaxInputTokens: 8000}},
+		turn:         turn,
+	}
+	bc := newBudgetedClient(inner, "drift-investigator")
+
+	res, err := bc.CompleteWithTools(context.Background(),
+		[]ChatMessage{{Role: "user", Content: "go"}}, []Tool{read}, WithMaxRounds(20))
+
+	require.NoError(t, err, "compaction must keep the loop under budget through to completion")
+	assert.Equal(t, "done", res.FinalMessage.Content)
+	assert.Equal(t, stopRound, res.Rounds, "loop should reach its natural completion, not stop at the gate")
 }
 
 // TestBudgetedClient_GatesAllSingleShotMethods pins that Complete,
