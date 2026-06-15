@@ -352,6 +352,108 @@ func TestIsRateLimitBifrostError(t *testing.T) {
 	}
 }
 
+func TestIsContextOverflowBifrostError(t *testing.T) {
+	code := func(n int) *int { return &n }
+	cases := []struct {
+		name string
+		err  *schemas.BifrostError
+		want bool
+	}{
+		{"nil", nil, false},
+		{"nil error field", &schemas.BifrostError{StatusCode: code(400)}, false},
+		// The exact message from the production incident (Gemini via Bifrost).
+		{"gemini configured limit", &schemas.BifrostError{StatusCode: code(400), Error: &schemas.ErrorField{Message: "Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 317507 tokens. Please reduce the length of the messages."}}, true},
+		// Google native generateContent phrasing.
+		{"google native max tokens", &schemas.BifrostError{StatusCode: code(400), Error: &schemas.ErrorField{Message: "The input token count (2551556) exceeds the maximum number of tokens allowed (1048576)."}}, true},
+		// OpenAI phrasing.
+		{"openai max context length", &schemas.BifrostError{StatusCode: code(400), Error: &schemas.ErrorField{Message: "This model's maximum context length is 128000 tokens. However, your messages resulted in 200000 tokens. Please reduce the length of the messages."}}, true},
+		// Must NOT classify rate limits or unrelated 400s as overflow.
+		{"rate limit not overflow", &schemas.BifrostError{StatusCode: code(429), Error: &schemas.ErrorField{Message: "rate limited"}}, false},
+		{"unrelated 400", &schemas.BifrostError{StatusCode: code(400), Error: &schemas.ErrorField{Message: "invalid argument: bad request"}}, false},
+		{"unrelated json error", &schemas.BifrostError{Error: &schemas.ErrorField{Message: "unexpected end of JSON input"}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isContextOverflowBifrostError(tc.err))
+		})
+	}
+}
+
+func TestParseProviderTokenCounts(t *testing.T) {
+	cases := []struct {
+		name        string
+		msg         string
+		wantCounted int
+		wantBudget  int
+	}{
+		{
+			"gemini configured limit",
+			"Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 317507 tokens. Please reduce the length of the messages.",
+			317507, 272000,
+		},
+		{
+			"google native",
+			"The input token count (2551556) exceeds the maximum number of tokens allowed (1048576).",
+			2551556, 1048576,
+		},
+		{
+			"openai max context",
+			"This model's maximum context length is 128000 tokens. However, your messages resulted in 200000 tokens.",
+			200000, 128000,
+		},
+		{"no numbers", "input too large", 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			counted, budget := parseProviderTokenCounts(tc.msg)
+			assert.Equal(t, tc.wantCounted, counted, "counted")
+			assert.Equal(t, tc.wantBudget, budget, "budget")
+		})
+	}
+}
+
+// TestBifrostClient_CompleteOneTurn_ContextOverflow_WrapsErrTokenBudgetExceeded
+// is the regression test for the production incident: the drift investigator's
+// agent loop sent a history past the provider's enforced input ceiling and got a
+// raw provider rejection ("Input tokens exceed the configured limit of 272000
+// tokens..."). That raw error was neither ErrMaxRounds nor ErrTokenBudgetExceeded,
+// so the investigator's recovery path missed it and the whole feature aborted.
+// completeOneTurn must now map a provider overflow rejection to the typed
+// ErrTokenBudgetExceeded so the existing recovery (hand partial observations to
+// the judge / skip-and-cache) engages.
+func TestBifrostClient_CompleteOneTurn_ContextOverflow_WrapsErrTokenBudgetExceeded(t *testing.T) {
+	status := 400
+	fake := &fakeBifrostRequester{
+		bifroErr: &schemas.BifrostError{
+			StatusCode: &status,
+			Error: &schemas.ErrorField{
+				Message: "Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 317507 tokens. Please reduce the length of the messages.",
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Gemini, "gemini-3.5-flash")
+	_, err := client.completeOneTurn(context.Background(),
+		[]ChatMessage{{Role: "user", Content: "huge history"}}, nil)
+	require.Error(t, err)
+
+	// Must carry ErrTokenBudgetExceeded through a downstream %w wrap so the
+	// investigator's errors.Is check fires.
+	wrapped := fmt.Errorf("DetectDrift %q: %w", "Predictor primitives", err)
+	assert.ErrorIs(t, wrapped, ErrTokenBudgetExceeded{},
+		"provider overflow must be mapped to the typed budget error so the investigator recovers")
+
+	// Must NOT be misclassified as a rate limit.
+	assert.NotErrorIs(t, err, ErrRateLimited)
+
+	// The carried counts should reflect the provider's own numbers, not zeros.
+	var budgetErr ErrTokenBudgetExceeded
+	require.ErrorAs(t, err, &budgetErr)
+	assert.Equal(t, 317507, budgetErr.Counted)
+	assert.Equal(t, 272000, budgetErr.Budget)
+	assert.Equal(t, "gemini", budgetErr.Provider)
+	assert.Equal(t, "gemini-3.5-flash", budgetErr.Model)
+}
+
 func TestBifrostClient_Complete_RateLimit_WrapsErrRateLimited(t *testing.T) {
 	overloaded := 503
 	fake := &fakeBifrostRequester{
@@ -723,6 +825,30 @@ func TestBifrostClient_CompleteWithTools_AdaptsRunAgentLoop(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Rounds)
 	assert.Equal(t, "all done", got.FinalMessage.Content)
+}
+
+// TestBifrostClient_CompleteWithTools_ContextOverflow_PropagatesTyped proves the
+// typed budget error survives the full real path — CompleteWithTools →
+// runAgentLoop → completeOneTurn → wrapBifrostError — so the drift investigator
+// (which drives exactly this path) recovers rather than aborting. Complements the
+// completeOneTurn-level test by exercising the agent-loop adapter, not just the
+// single turn in isolation.
+func TestBifrostClient_CompleteWithTools_ContextOverflow_PropagatesTyped(t *testing.T) {
+	status := 400
+	fake := &fakeBifrostRequester{
+		bifroErr: &schemas.BifrostError{
+			StatusCode: &status,
+			Error: &schemas.ErrorField{
+				Message: "Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 317507 tokens. Please reduce the length of the messages.",
+			},
+		},
+	}
+	client := newBifrostClientWithFake(fake, schemas.Gemini, "gemini-3.5-flash")
+	_, err := client.CompleteWithTools(context.Background(),
+		[]ChatMessage{{Role: "user", Content: "huge history"}}, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTokenBudgetExceeded{})
+	assert.NotErrorIs(t, err, ErrRateLimited)
 }
 
 // --- CompleteJSON tests (Anthropic forced tool use) ---

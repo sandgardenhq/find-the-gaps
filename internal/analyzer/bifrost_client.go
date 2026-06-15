@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,6 +81,83 @@ func isRateLimitBifrostError(e *schemas.BifrostError) bool {
 	return false
 }
 
+// contextOverflowPhrases identify a provider rejecting a request because its
+// input exceeded the model's (or the account's) enforced token ceiling. These
+// are deterministic for a given payload — retrying is pointless — so they are
+// classified separately from rate limits and mapped to ErrTokenBudgetExceeded
+// so the drift investigator's recovery path (hand partial observations to the
+// judge, or skip-and-cache) engages instead of aborting the run.
+//
+// Phrasing varies by provider and is matched case-insensitively:
+//   - Gemini via Bifrost: "Input tokens exceed the configured limit of N tokens.
+//     Your messages resulted in M tokens. Please reduce the length of the messages."
+//   - Google native generateContent: "The input token count (M) exceeds the
+//     maximum number of tokens allowed (N)."
+//   - OpenAI: "This model's maximum context length is N tokens. However, your
+//     messages resulted in M tokens..."
+var contextOverflowPhrases = []string{
+	"exceed the configured limit",
+	"exceeds the maximum number of tokens",
+	"maximum context length",
+	"reduce the length of the messages",
+	"input token count",
+}
+
+// isContextOverflowBifrostError reports whether e represents a provider
+// rejecting the request for exceeding the model's input token ceiling. Matches
+// on the message text (the reliable cross-provider signal) rather than the
+// status code, since the phrasing — not the HTTP code — distinguishes an
+// input-too-large rejection from other 400s.
+func isContextOverflowBifrostError(e *schemas.BifrostError) bool {
+	if e == nil || e.Error == nil {
+		return false
+	}
+	lower := strings.ToLower(e.Error.Message)
+	for _, p := range contextOverflowPhrases {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// overflowCountedPatterns and overflowBudgetPatterns extract, respectively, the
+// actual input size and the enforced ceiling from a provider overflow message.
+// Each is tried in order; the first match wins. Best-effort: a message that
+// matches no pattern yields 0, which the typed error renders without claiming a
+// false count.
+var (
+	overflowCountedPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`resulted in (\d+)`),
+		regexp.MustCompile(`input token count \((\d+)\)`),
+	}
+	overflowBudgetPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`configured limit of (\d+)`),
+		regexp.MustCompile(`maximum context length is (\d+)`),
+		regexp.MustCompile(`allowed \((\d+)\)`),
+	}
+)
+
+// parseProviderTokenCounts pulls the (counted, budget) token figures out of a
+// provider overflow message so the typed ErrTokenBudgetExceeded carries the
+// provider's own numbers — more accurate than our local estimator. Returns
+// (0, 0) when the message exposes no figures.
+func parseProviderTokenCounts(msg string) (counted, budget int) {
+	lower := strings.ToLower(msg)
+	firstInt := func(pats []*regexp.Regexp) int {
+		for _, re := range pats {
+			if m := re.FindStringSubmatch(lower); m != nil {
+				n, err := strconv.Atoi(m[1])
+				if err == nil {
+					return n
+				}
+			}
+		}
+		return 0
+	}
+	return firstInt(overflowCountedPatterns), firstInt(overflowBudgetPatterns)
+}
+
 // bifrostErrMessage extracts the human-readable message from a BifrostError,
 // falling back to a fixed string when no message is present.
 func bifrostErrMessage(e *schemas.BifrostError) string {
@@ -98,6 +177,21 @@ func (c *BifrostClient) wrapBifrostError(stage string, e *schemas.BifrostError) 
 	if isRateLimitBifrostError(e) {
 		return fmt.Errorf("%s: %s rate limited or overloaded (model %s) and did not recover after automatic retries: %s — wait a minute and re-run `ftg analyze` to resume (completed work is cached): %w",
 			stage, c.provider, c.model, msg, ErrRateLimited)
+	}
+	// An input-too-large rejection is deterministic for the payload, so it is
+	// mapped to the typed budget error rather than the rate-limit/retry path.
+	// Callers that already recover from ErrTokenBudgetExceeded (notably the
+	// drift investigator) then degrade gracefully instead of aborting. The
+	// provider's own message is preserved so the failure stays legible in logs.
+	if isContextOverflowBifrostError(e) {
+		counted, budget := parseProviderTokenCounts(msg)
+		return fmt.Errorf("%s: %s: %w", stage, msg, ErrTokenBudgetExceeded{
+			Provider: string(c.provider),
+			Model:    c.model,
+			Counted:  counted,
+			Budget:   budget,
+			Where:    stage,
+		})
 	}
 	return fmt.Errorf("%s: %s", stage, msg)
 }

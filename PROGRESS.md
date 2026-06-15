@@ -1,5 +1,31 @@
 # Progress
 
+## Drift Investigator Token-Overflow — Fix #3 (provider-overflow recognition) — COMPLETE
+- Started: 2026-06-09
+- Plan: `.plans/DRIFT_TOKEN_OVERFLOW_FIX.md`
+- Tests: `go test ./internal/analyzer/` passing (exit 0). New: `TestIsContextOverflowBifrostError`, `TestParseProviderTokenCounts`, `TestBifrostClient_CompleteOneTurn_ContextOverflow_WrapsErrTokenBudgetExceeded`, `TestBifrostClient_CompleteWithTools_ContextOverflow_PropagatesTyped`.
+- Build: ✅ `go build ./...`
+- Linting: ✅ no new issues (2 pre-existing QF1008 hints on untouched test lines 804–805, unchanged by this work)
+- Completed: 2026-06-09
+- Notes:
+  - INCIDENT: `DetectDrift "Predictor primitives": bifrost tool completion: Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 317507 tokens.` The drift investigator's tool-use agent loop accumulated a message history past the provider's enforced input ceiling. The rejection came back as a RAW provider error (not our typed `ErrTokenBudgetExceeded`), so the investigator's existing recovery path (hand partial observations to judge / skip-and-cache) never matched it and the whole feature aborted.
+  - Verified: `gemini-3.5-flash` has a real 1,048,576-token window; 272000 is a Google-side *configured* (account/tier) limit passed through verbatim by Bifrost (Bifrost's native gemini provider contains no such string). Per developer decision, the capabilities-table value (Fix #1) was NOT changed — correctness rests on this fix instead.
+  - FIX: `isContextOverflowBifrostError` (message-phrase classifier covering Gemini/Google-native/OpenAI phrasings) + `parseProviderTokenCounts` (best-effort extract of the provider's own counted/budget figures) + a new branch in `wrapBifrostError` mapping overflow rejections to `ErrTokenBudgetExceeded{Provider,Model,Counted,Budget,Where}` while preserving the provider's message. Ordered after the rate-limit branch (a 400 is never a 429/503).
+  - The investigator's recovery itself was already implemented and tested (`budgetErrToolStub` tests); this fix only makes the real Bifrost path emit the typed error. Proven end-to-end through the real `CompleteWithTools → runAgentLoop → completeOneTurn` chain.
+
+## Drift Investigator Token-Overflow — Fix #2 (investigator history compaction) — COMPLETE
+- Started: 2026-06-09
+- Plan: `.plans/DRIFT_TOKEN_OVERFLOW_FIX.md`
+- Tests: `go test ./...` exit 0; `-race` clean on analyzer (112s). New: `TestRunAgentLoop_CompactorRunsBeforeEachTurn`, `TestCompactHistory_NoBudget_NoOp`, `TestCompactHistory_UnderBudget_NoOp`, `TestCompactHistory_ElidesOldestKeepsRecent`, `TestBudgetedClient_CompactionAllowsLoopToContinue`. Updated `TestBudgetedClient_CompleteWithToolsGatesEachTurn` → `...GatesStillBackstops` (contract evolved).
+- Coverage: analyzer 92.6%; new funcs `WithCompactor`, `compactHistory` 100%.
+- Build: ✅ Linting: ✅ no new issues (same 2 pre-existing QF1008 hints).
+- Completed: 2026-06-09
+- Notes:
+  - PROBLEM: the drift investigator's tool-use agent loop has no compaction — it appends every read_file/read_page result to the history. Its only defense was the per-turn budget gate, which merely STOPS the loop and hands partial observations to the judge, costing coverage on large features.
+  - FIX: `WithCompactor` AgentOption applied in `runAgentLoop` before each turn (strictly-additional layer ahead of the gate). `budgetedClient.compactHistory` elides the OLDEST tool-result bodies (→ `compactionPlaceholder`), oldest-first, until the payload fits 0.9×MaxInputTokens, while preserving: the system prompt, every assistant tool-call turn (provider tool_call/tool pairing intact), and the most recent `compactionKeepRecentToolResults` (=3) reads. Mutates bodies in place so elisions persist cumulatively across rounds. The newest result (which carries the rotating cache breakpoint) is always in the protected window, so caching stays valid.
+  - INVARIANT: compaction can never starve the gate. With keep-recent=3 and the existing per-result clip at gated/2, the protected window can reach 1.5×gated, so when even the recent reads exceed budget the gate still backstops with ErrTokenBudgetExceeded. The old gate test was rewritten to pin exactly this (oversized reads → protected window busts budget → gate fires); the steadily-growing-small-history scenario it used to cover is now bounded by compaction and covered by the continuation test.
+  - Self-hosted (MaxInputTokens=0) path unchanged: no compactor wired, no gate.
+
 ## Feature: PDF Visual Alignment with Site — COMPLETE
 - Started: 2026-05-13
 - Plan: `.plans/PDF_VISUAL_ALIGNMENT.md`
