@@ -84,6 +84,51 @@ func TestRenderHugoConfigExpandedMenuOrder(t *testing.T) {
 	}
 }
 
+// TestRenderHugoConfigIncludesDeadLinksMenu pins that, when the link check
+// ran, the top navbar carries a "Dead Links" entry pointing at /links/. Its
+// weight (40) places it after Mapping/Features so it is the last top-nav item.
+func TestRenderHugoConfigIncludesDeadLinksMenu(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title:          "x",
+		Mode:           ModeMirror,
+		ScreenshotsRan: true,
+		LinksRan:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, `name = "Dead Links"`) {
+		t.Errorf("expected Dead Links menu entry; got:\n%s", got)
+	}
+	if !strings.Contains(got, `url = "/links/"`) {
+		t.Errorf("expected Dead Links menu to point at /links/; got:\n%s", got)
+	}
+	mapping := strings.Index(got, `name = "Mapping"`)
+	links := strings.Index(got, `name = "Dead Links"`)
+	if mapping < 0 || links < 0 {
+		t.Fatalf("expected Mapping and Dead Links entries; got:\n%s", got)
+	}
+	if mapping >= links {
+		t.Errorf("Dead Links must come after Mapping; positions mapping=%d links=%d in:\n%s", mapping, links, got)
+	}
+}
+
+// TestRenderHugoConfigOmitsDeadLinksMenuWhenNotRan pins that the navbar entry
+// is gated on LinksRan, mirroring the Screenshots gate.
+func TestRenderHugoConfigOmitsDeadLinksMenuWhenNotRan(t *testing.T) {
+	got, err := renderHugoConfig(hugoConfigData{
+		Title:    "x",
+		Mode:     ModeMirror,
+		LinksRan: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, `name = "Dead Links"`) {
+		t.Errorf("Dead Links menu should be omitted when LinksRan=false; got:\n%s", got)
+	}
+}
+
 // TestRenderHugoConfigDisablesPoweredByHextra pins that the rendered hugo
 // config disables Hextra's "Powered by Hextra" footer credit. The default
 // is true, so the param has to be explicitly set to false in our config.
@@ -399,10 +444,14 @@ func TestRenderHomeIncludesDeadLinks(t *testing.T) {
 	}
 	for _, want := range []string{
 		"### Dead links",
-		`ftg-stat-card--large" href="/links/"`,
+		// The cards deep-link into the corresponding section of the Dead
+		// Links page rather than its top, so a reader who clicks "Broken"
+		// lands on the Broken section. The anchors are pinned in
+		// links_writer.go ({#broken} / {#auth-required}).
+		`ftg-stat-card--large" href="/links/#broken"`,
 		`<span class="ftg-stat-num">2</span>`,
 		`<span class="ftg-stat-label">Broken</span>`,
-		`ftg-stat-card--medium" href="/links/"`,
+		`ftg-stat-card--medium" href="/links/#auth-required"`,
 		`<span class="ftg-stat-num">1</span>`,
 		`<span class="ftg-stat-label">Auth Required</span>`,
 	} {
@@ -438,8 +487,8 @@ func TestRenderHomeDeadLinksZeroCountsAreGood(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{
-		`ftg-stat-card--large" href="/links/"`,
-		`ftg-stat-card--medium" href="/links/"`,
+		`ftg-stat-card--large" href="/links/#broken"`,
+		`ftg-stat-card--medium" href="/links/#auth-required"`,
 	} {
 		if strings.Contains(got, bad) {
 			t.Errorf("zero counts must not render %q; got:\n%s", bad, got)

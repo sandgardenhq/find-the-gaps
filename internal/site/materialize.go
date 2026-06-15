@@ -26,6 +26,7 @@ func materialize(srcDir string, in Inputs, opts BuildOptions) error {
 		Description:    "Find the Gaps documentation audit report for " + opts.ProjectName + ".",
 		Mode:           opts.Mode,
 		ScreenshotsRan: in.ScreenshotsRan,
+		LinksRan:       in.LinksRan,
 	})
 	if err != nil {
 		return err

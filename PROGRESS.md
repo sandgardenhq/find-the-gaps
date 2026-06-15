@@ -1,5 +1,18 @@
 # Progress
 
+## Dead Links page navigation — COMPLETE
+- Started: 2026-06-15
+- Tests: `go test ./...` exit 0. New: `TestRenderHugoConfigIncludesDeadLinksMenu`, `TestRenderHugoConfigOmitsDeadLinksMenuWhenNotRan` (site); `TestWriteLinksMD_SectionHeadingsCarryStableAnchors`, `TestWriteLinksMD_FindingHeadingsCarryAnchors`, `TestWriteLinksMD_FindingAnchorsAreUnique` (reporter). Updated `TestRenderHomeIncludesDeadLinks` / `TestRenderHomeDeadLinksZeroCountsAreGood` for the deep-link hrefs.
+- Coverage: reporter 96.0%, site 86.1%.
+- Build: ✅ `go build ./...`
+- Linting: ✅ no new issues (2 pre-existing QF1001 hints on untouched test lines 57/81, present on origin/main).
+- Completed: 2026-06-15
+- Notes:
+  - Three asks: (1) add a "Dead Links" entry to the top navbar; (2) make the home page's Broken/Auth-Required cards jump to the right section of the links page; (3) make the links page's right-hand "On this page" TOC items jump to the right finding.
+  - (1) Wired `LinksRan` through `hugoConfigData`/`hugoConfigView`/`renderHugoConfig` and `materialize`; added a weight-40 `[[menu.main]]` "Dead Links" entry gated on `.LinksRan` (mirrors the Screenshots gate).
+  - (2) Changed the home `home.md.tmpl` Dead Links cards from `href="/links/"` to `/links/#broken` and `/links/#auth-required`.
+  - (3) ROOT CAUSE (verified by rendering with real Hugo + Hextra): a `### <url>` finding heading whose entire text is a bare URL yields an EMPTY Hugo heading `id`, so its TOC entry rendered `href="#"`. Fix: `links_writer.go` now emits explicit Goldmark heading anchors — `## Broken {#broken}` / `## Auth Required {#auth-required}` (stable contract the home deep-links rely on) and `### <url> {#slug}` per finding via the existing `urlAnchor` helper + `uniqueAnchor` (deterministic, collision-disambiguated, section ids pre-seeded). `links.md` is consumed only by Hugo; the PDF renders from the `linkcheck.Report` struct, so the `{#id}` suffix is render-only.
+
 ## Drift Investigator Token-Overflow — Fix #3 (provider-overflow recognition) — COMPLETE
 - Started: 2026-06-09
 - Plan: `.plans/DRIFT_TOKEN_OVERFLOW_FIX.md`

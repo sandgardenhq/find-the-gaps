@@ -23,24 +23,31 @@ func WriteLinksMD(dir string, rep linkcheck.Report) error {
 		return os.WriteFile(filepath.Join(dir, "links.md"), []byte(b.String()), 0o644)
 	}
 
+	// Pre-seed the section anchors so a finding URL that happens to slugify
+	// to "broken" / "auth-required" can never shadow a section heading.
+	used := map[string]bool{"broken": true, "auth-required": true}
+
 	if len(rep.Broken) > 0 {
-		b.WriteString("## Broken\n\n")
+		b.WriteString("## Broken {#broken}\n\n")
 		for _, f := range rep.Broken {
-			writeFinding(&b, f)
+			writeFinding(&b, f, uniqueAnchor(used, urlAnchor(f.URL)))
 		}
 	}
 	if len(rep.Auth) > 0 {
-		b.WriteString("## Auth Required\n\n")
+		b.WriteString("## Auth Required {#auth-required}\n\n")
 		for _, f := range rep.Auth {
-			writeFinding(&b, f)
+			writeFinding(&b, f, uniqueAnchor(used, urlAnchor(f.URL)))
 		}
 	}
 
 	return os.WriteFile(filepath.Join(dir, "links.md"), []byte(b.String()), 0o644)
 }
 
-func writeFinding(b *strings.Builder, f linkcheck.Finding) {
-	fmt.Fprintf(b, "### %s\n\n", f.URL)
+// writeFinding renders one finding. id is an explicit Goldmark heading anchor
+// ({#id}); a bare-URL heading otherwise yields an empty Hugo ID, which breaks
+// the page's "On this page" TOC link for that finding.
+func writeFinding(b *strings.Builder, f linkcheck.Finding, id string) {
+	fmt.Fprintf(b, "### %s {#%s}\n\n", f.URL, id)
 	if f.Detail != "" {
 		fmt.Fprintf(b, "**Reason:** %s\n\n", f.Detail)
 	}
@@ -49,4 +56,22 @@ func writeFinding(b *strings.Builder, f linkcheck.Finding) {
 		fmt.Fprintf(b, "- %s\n", p)
 	}
 	b.WriteString("\n")
+}
+
+// uniqueAnchor returns base if unused, otherwise base-2, base-3, ... so every
+// finding on the page gets a distinct anchor. An empty base (urlAnchor returns
+// "" for an all-punctuation URL) falls back to "link" so the anchor is never
+// empty. Deterministic for a given input order (the report buckets are
+// pre-sorted), so cold/warm and parallel/serial runs produce byte-identical
+// output.
+func uniqueAnchor(used map[string]bool, base string) string {
+	if base == "" {
+		base = "link"
+	}
+	cand := base
+	for i := 2; used[cand]; i++ {
+		cand = fmt.Sprintf("%s-%d", base, i)
+	}
+	used[cand] = true
+	return cand
 }
