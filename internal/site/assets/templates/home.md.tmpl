@@ -74,12 +74,12 @@ description = {{ metaDescription .Summary (printf "Find the Gaps documentation a
 ### Dead links ({{ .LinkTotalCount }})
 
 <div class="ftg-stats ftg-stats--priority">
-<a class="ftg-stat-card {{ if eq .LinkBrokenCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--large{{ end }}" href="/links/">
+<a class="ftg-stat-card {{ if eq .LinkBrokenCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--large{{ end }}" href="/links/#broken">
 <span class="ftg-stat-num">{{ .LinkBrokenCount }}</span>
 <span class="ftg-stat-label">Broken</span>
 </a>
 
-<a class="ftg-stat-card {{ if eq .LinkAuthCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--medium{{ end }}" href="/links/">
+<a class="ftg-stat-card {{ if eq .LinkAuthCount 0 }}ftg-stat-card--good{{ else }}ftg-stat-card--medium{{ end }}" href="/links/#auth-required">
 <span class="ftg-stat-num">{{ .LinkAuthCount }}</span>
 <span class="ftg-stat-label">Auth Required</span>
 </a>

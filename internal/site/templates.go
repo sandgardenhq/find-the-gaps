@@ -22,6 +22,7 @@ type hugoConfigData struct {
 	Description    string
 	Mode           Mode
 	ScreenshotsRan bool
+	LinksRan       bool
 }
 
 // hugoConfigView is the data shape templates actually see. It carries the
@@ -31,6 +32,7 @@ type hugoConfigView struct {
 	Description    string
 	Expanded       bool
 	ScreenshotsRan bool
+	LinksRan       bool
 }
 
 // tmpl is the parsed embedded template set. Parsing happens once at package
@@ -58,6 +60,7 @@ func renderHugoConfig(data hugoConfigData) (string, error) {
 		Description:    data.Description,
 		Expanded:       data.Mode == ModeExpanded,
 		ScreenshotsRan: data.ScreenshotsRan,
+		LinksRan:       data.LinksRan,
 	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "hugo.toml.tmpl", view); err != nil {
